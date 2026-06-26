@@ -1,0 +1,122 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Cadence — design tokens (CSS custom properties)
+   Source of truth: design-export/Maestro.html. Alpha-blended
+   fills/borders/glows are referenced from tailwind.config.ts via
+   var(); solid colors are mirrored directly in the Tailwind theme.
+   ============================================================ */
+:root {
+  /* ---- Base backgrounds ---- */
+  --bg-sunken: #060910;
+  --bg-base: #0a0e16;
+  --surface-1: #10151f;
+  --surface-2: #161d2a;
+  --surface-3: #1e2736;
+  --surface-inset: #0c1018;
+
+  /* ---- Glass ---- */
+  --glass-fill: rgba(20, 27, 40, 0.62);
+  --glass-tint: rgba(45, 226, 230, 0.04);
+  --glass-blur: 14px;
+
+  /* ---- Borders / hairlines ---- */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-accent: rgba(45, 226, 230, 0.45);
+
+  /* ---- Text ---- */
+  --text-primary: #e7edf6;
+  --text-secondary: #9daabc;
+  --text-tertiary: #647284;
+  --text-disabled: #3c4757;
+  --text-on-color: #06090f;
+  --text-inverse: #0a0e16;
+
+  /* ---- Route: 排产 Planning ---- */
+  --route-planning: #4c9df7;
+  --route-planning-fg: #8fc2ff;
+  --route-planning-bg: rgba(76, 157, 247, 0.13);
+  --route-planning-border: rgba(76, 157, 247, 0.4);
+  --route-planning-glow: rgba(76, 157, 247, 0.35);
+
+  /* ---- Route: 调度 Scheduling ---- */
+  --route-scheduling: #f7a53b;
+  --route-scheduling-fg: #ffc676;
+  --route-scheduling-bg: rgba(247, 165, 59, 0.13);
+  --route-scheduling-border: rgba(247, 165, 59, 0.4);
+  --route-scheduling-glow: rgba(247, 165, 59, 0.32);
+
+  /* ---- Route: 查询 Query ---- */
+  --route-query: #16c79a;
+  --route-query-fg: #5ee0be;
+  --route-query-bg: rgba(22, 199, 154, 0.13);
+  --route-query-border: rgba(22, 199, 154, 0.4);
+  --route-query-glow: rgba(22, 199, 154, 0.3);
+
+  /* ---- Route: 不确定 Uncertain ---- */
+  --route-uncertain: #8b86b8;
+  --route-uncertain-fg: #b3afd6;
+  --route-uncertain-bg: rgba(139, 134, 184, 0.14);
+  --route-uncertain-border: rgba(139, 134, 184, 0.38);
+  --route-uncertain-glow: rgba(139, 134, 184, 0.28);
+
+  /* ---- Status ---- */
+  --status-success: #34d399;
+  --status-success-bg: rgba(52, 211, 153, 0.13);
+  --status-warning: #fbbf24;
+  --status-warning-bg: rgba(251, 191, 36, 0.13);
+  --status-error: #f8736a;
+  --status-error-bg: rgba(248, 115, 106, 0.13);
+  --status-info: #5da6ff;
+  --status-info-bg: rgba(93, 166, 255, 0.13);
+
+  /* ---- Action authorization ---- */
+  --auth-auto: #2cc56f;
+  --auth-auto-bg: rgba(44, 197, 111, 0.13);
+  --auth-auto-border: rgba(44, 197, 111, 0.42);
+  --auth-confirm: #f59e0b;
+  --auth-confirm-bg: rgba(245, 158, 11, 0.14);
+  --auth-confirm-border: rgba(245, 158, 11, 0.46);
+
+  /* ---- Accent (electric cyan) ---- */
+  --accent: #2de2e6;
+  --accent-strong: #18c8d6;
+  --accent-fg: #7cf1f2;
+  --accent-bg: rgba(45, 226, 230, 0.1);
+  --accent-border: rgba(45, 226, 230, 0.45);
+  --accent-glow: rgba(45, 226, 230, 0.4);
+
+  /* ---- Data-viz sequence ---- */
+  --data-1: #4c9df7;
+  --data-2: #16c79a;
+  --data-3: #f7a53b;
+  --data-4: #8b86b8;
+  --data-5: #2de2e6;
+  --data-6: #f8736a;
+
+  /* ---- Typography ---- */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', ui-monospace, Menlo, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}

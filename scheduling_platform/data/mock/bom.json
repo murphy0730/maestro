@@ -1,0 +1,9 @@
+[
+  {"product_id": "P-INJ-01", "material_id": "M-001", "material_name": "PP塑料粒子", "qty_per_unit": 0.5},
+  {"product_id": "P-INJ-01", "material_id": "M-002", "material_name": "金属嵌件", "qty_per_unit": 2},
+  {"product_id": "P-INJ-02", "material_id": "M-001", "material_name": "PP塑料粒子", "qty_per_unit": 0.4},
+  {"product_id": "P-INJ-02", "material_id": "M-003", "material_name": "密封圈", "qty_per_unit": 1},
+  {"product_id": "P-SMT-01", "material_id": "M-004", "material_name": "PCB基板", "qty_per_unit": 1},
+  {"product_id": "P-SMT-01", "material_id": "M-005", "material_name": "主控芯片", "qty_per_unit": 4},
+  {"product_id": "P-ASM-01", "material_id": "M-006", "material_name": "标准结构件包", "qty_per_unit": 1}
+]

@@ -1,0 +1,7 @@
+[
+  {"wo_id": "WO-101", "order_id": "O001", "line_id": "L1", "planned_start": "2026-06-11", "planned_end": "2026-06-12", "status": "draft"},
+  {"wo_id": "WO-102", "order_id": "O002", "line_id": "L2", "planned_start": "2026-06-11", "planned_end": "2026-06-13", "status": "draft"},
+  {"wo_id": "WO-103", "order_id": "O004", "line_id": "L3", "planned_start": "2026-06-12", "planned_end": "2026-06-13", "status": "draft"},
+  {"wo_id": "WO-104", "order_id": "O005", "line_id": "L4", "planned_start": "2026-06-12", "planned_end": "2026-06-13", "status": "draft"},
+  {"wo_id": "WO-123", "order_id": "O003", "line_id": "L1", "planned_start": "2026-06-11", "planned_end": "2026-06-14", "status": "draft"}
+]

@@ -1,0 +1,7 @@
+[
+  {"order_id": "O001", "product_id": "P-INJ-01", "quantity": 200, "due_date": "2026-06-15", "priority": 1, "status": "open"},
+  {"order_id": "O002", "product_id": "P-INJ-02", "quantity": 160, "due_date": "2026-06-16", "priority": 3, "status": "open"},
+  {"order_id": "O003", "product_id": "P-INJ-01", "quantity": 300, "due_date": "2026-06-14", "priority": 2, "status": "open"},
+  {"order_id": "O004", "product_id": "P-SMT-01", "quantity": 400, "due_date": "2026-06-20", "priority": 4, "status": "open"},
+  {"order_id": "O005", "product_id": "P-ASM-01", "quantity": 100, "due_date": "2026-06-18", "priority": 5, "status": "open"}
+]

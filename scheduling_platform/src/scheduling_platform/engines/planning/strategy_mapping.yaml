@@ -1,0 +1,14 @@
+# 产品线/场景 → 排产策略 映射配置表 (规则优先，确定且可审计)
+# match 支持 product_line 与可选的 scenario；product_line: "*" 为兜底默认
+# (仅当已识别出产品线时生效；产品线未知则交给 LLM 辅助选择/澄清)。
+- match: { product_line: "注塑" }
+  strategy: "JobShopMakespan"            # 受模具/设备约束 → 作业车间模型，最小完工
+- match: { product_line: "SMT贴片" }
+  strategy: "SimpleDispatch"             # 规则派单即可满足 → EDD 快速出计划
+# TODO(v0.2): 换型最少/保质期等策略实现后启用:
+# - match: { product_line: "SMT贴片", scenario: "换型频繁" }
+#   strategy: "SetupMinimizeHeuristic"
+# - match: { product_line: "食品灌装", scenario: "保质期敏感" }
+#   strategy: "BatchProcessScheduling"
+- match: { product_line: "*" }
+  strategy: "FlowShopTardiness"          # 兜底默认: 最小拖期

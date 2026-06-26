@@ -1,0 +1,6 @@
+[
+  {"line_id": "L1", "name": "注塑1号线", "capacity_per_day": 100, "available": true, "supported_products": ["P-INJ-01", "P-INJ-02"], "product_line": "注塑"},
+  {"line_id": "L2", "name": "注塑2号线", "capacity_per_day": 80, "available": true, "supported_products": ["P-INJ-01", "P-INJ-02"], "product_line": "注塑"},
+  {"line_id": "L3", "name": "SMT贴片1号线", "capacity_per_day": 200, "available": true, "supported_products": ["P-SMT-01"], "product_line": "SMT贴片"},
+  {"line_id": "L4", "name": "总装1号线", "capacity_per_day": 50, "available": true, "supported_products": ["P-ASM-01"], "product_line": "总装"}
+]
