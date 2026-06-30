@@ -1,73 +1,58 @@
-"""调度引擎 — 双触发 (对话 + 事件)，两条路径复用同一套 workflow。"""
+"""调度引擎 — ReAct 智能体 (v0.2)。
+
+双触发 (对话 + 事件) 复用同一个 ReAct 循环: 事件不再硬映射到固定流程，而是被
+翻译成一段「初始任务描述」唤醒智能体，由它自主推理该查什么、催不催、要不要
+下发或通知 (写操作受前置断言 + 授权两道护栏约束)。
+
+LLM 不可用时降级: 给出确定性的齐套总览 (不臆造)，保证基本可用与可测。
+"""
 
 import logging
-import re
 
-from scheduling_platform.domain.models import (
-    KittingResult,
-    ProductionException,
-    SystemEvent,
-)
+from scheduling_platform.domain.models import KittingResult, SystemEvent
 from scheduling_platform.engines.base import Engine, EngineResponse
-from scheduling_platform.engines.scheduling.schemas import ExpeditingOutcome
-from scheduling_platform.engines.scheduling.workflows.dispatch import DispatchWorkflow
-from scheduling_platform.engines.scheduling.workflows.exception import ExceptionWorkflow
-from scheduling_platform.engines.scheduling.workflows.expediting import ExpeditingWorkflow
-from scheduling_platform.engines.scheduling.workflows.kitting import KittingWorkflow
+from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
+from scheduling_platform.engines.scheduling.schemas import AgentResult
 from scheduling_platform.foundation.audit import AuditLog
+from scheduling_platform.foundation.kitting import KittingService
+from scheduling_platform.foundation.llm import LLMError
 
 logger = logging.getLogger(__name__)
+
+SCHEDULING_SYSTEM = """你是制造企业的生产调度智能体，目标是保障订单按期、产线不停。
+你以「思考 → 调用工具 → 观察结果」的方式自主推进，直到能给出结论。
+
+工作原则:
+- 先用只读工具把事实查清 (齐套/库存/任务令/缺料归因/异常影响)，再决定是否动手。
+- 缺料: 先 check_kitting 确认，再 analyze_material_shortage 归因，必要时
+  send_expedite_message 催料 (尽量带 material_id；内部自动发，供应商需人确认)。
+- 下发: 用 dispatch_work_order (要求已齐套、产线可用，需人确认)。
+- 异常: 先 classify_exception 定级，analyze_exception_impact 评估影响，
+  再 notify_personnel 通知，关键决策留给人。
+- 不要臆造数据，一切以工具返回为准；写操作被前置断言/授权拦截时，如实说明原因。
+- 收尾时用简洁中文给出: 结论、已采取/待确认的动作、建议的后续。"""
 
 
 class SchedulingEngine(Engine):
     name = "scheduling"
 
-    def __init__(
-        self,
-        kitting: KittingWorkflow,
-        expediting: ExpeditingWorkflow,
-        dispatch: DispatchWorkflow,
-        exception: ExceptionWorkflow,
-        audit: AuditLog,
-    ):
+    def __init__(self, agent: AgentLoop, kitting: KittingService, audit: AuditLog):
+        self._agent = agent
         self._kitting = kitting
-        self._expediting = expediting
-        self._dispatch = dispatch
-        self._exception = exception
         self._audit = audit
 
     # ── 对话触发 ─────────────────────────────────────────────
 
     async def handle_chat(self, message: str, entities: dict, session_id: str) -> EngineResponse:
-        wo_ids = entities.get("wo_ids") or re.findall(r"WO-\d+", message) or None
+        if not self._agent.available:
+            return await self._degraded(entities.get("wo_ids"))
+        try:
+            result = await self._agent.run(message)
+        except LLMError:
+            return await self._degraded(entities.get("wo_ids"))
+        return self._to_response(result)
 
-        if "下发" in message:
-            return await self._do_dispatch(wo_ids)
-        if any(k in message for k in ("异常", "报警", "停机", "故障", "坏了")):
-            exc = ProductionException(
-                source="user", description=message, affected_wo_ids=wo_ids or []
-            )
-            return await self._do_exception(exc)
-        if "催" in message:
-            results = await self._kitting.check(wo_ids)
-            return await self._do_expedite(results)
-        if any(k in message for k in ("齐套", "缺料", "料齐", "齐不齐", "开不了工")):
-            results = await self._kitting.check(wo_ids)
-            return EngineResponse(
-                reply=self._kitting_summary(results),
-                data={"kitting": [r.model_dump(mode="json") for r in results]},
-            )
-        # 默认: 给齐套总览 + 能力提示
-        results = await self._kitting.check(wo_ids)
-        return EngineResponse(
-            reply=(
-                self._kitting_summary(results)
-                + "\n\n我还可以: 催料(「帮我催一下」)、下发任务令(「把xx下发了」)、处置异常(「2号线报警了」)。"
-            ),
-            data={"kitting": [r.model_dump(mode="json") for r in results]},
-        )
-
-    # ── 事件触发 (由事件层唤醒, 复用同一套 workflow) ───────────
+    # ── 事件触发 (事件→任务描述→唤醒同一个 ReAct 循环) ─────────
 
     async def handle_event(self, event: SystemEvent) -> EngineResponse:
         logger.info("[SCHED-ENGINE] 被事件唤醒: %s %s", event.type, event.payload)
@@ -76,74 +61,67 @@ class SchedulingEngine(Engine):
             action=f"engine_wakeup:{event.type}",
             params={"event_id": event.event_id, "payload": event.payload},
         )
-        if event.type == "material_shortage_warning":
-            wo_ids = event.payload.get("wo_ids") or (
-                [event.payload["wo_id"]] if event.payload.get("wo_id") else None
-            )
-            results = await self._kitting.check(wo_ids)
-            return await self._do_expedite(results)
-        if event.type in ("equipment_alarm", "quality_issue"):
-            exc = ProductionException(
-                type="equipment" if event.type == "equipment_alarm" else "quality",
-                source=f"event:{event.event_id}",
-                description=event.payload.get("description", event.type),
-                affected_wo_ids=event.payload.get("affected_wo_ids", []),
-            )
-            return await self._do_exception(exc)
-        logger.info("[SCHED-ENGINE] 未订阅的事件类型 %s，忽略", event.type)
-        return EngineResponse(reply=f"事件 {event.type} 无对应处理流程，已忽略")
+        if not self._agent.available:
+            return await self._degraded(self._event_wo_ids(event))
+        try:
+            result = await self._agent.run(self._event_task(event))
+        except LLMError:
+            return await self._degraded(self._event_wo_ids(event))
+        return self._to_response(result)
 
-    # ── 内部编排 ─────────────────────────────────────────────
+    # ── 内部 ─────────────────────────────────────────────────
 
-    async def _do_expedite(self, kitting_results: list[KittingResult]) -> EngineResponse:
-        outcome = await self._expediting.run(kitting_results)
+    @staticmethod
+    def _to_response(result: AgentResult) -> EngineResponse:
         return EngineResponse(
-            reply=self._expedite_summary(kitting_results, outcome),
+            reply=result.answer,
             data={
-                "kitting": [r.model_dump(mode="json") for r in kitting_results],
-                "expedite_records": [r.model_dump() for r in outcome.records],
+                "steps": [s.model_dump(mode="json") for s in result.steps],
+                "stop_reason": result.stop_reason,
             },
-            pending_actions=outcome.pending_actions,
+            pending_actions=result.pending_actions,
         )
 
-    async def _do_dispatch(self, wo_ids: list[str] | None) -> EngineResponse:
-        outcome = await self._dispatch.run(wo_ids)
-        lines = []
-        if outcome.pending_actions:
-            lines.append(f"可下发 {len(outcome.pending_actions)} 个任务令 (下发需人确认):")
-            lines += [f"- [{a.action_id}] {a.description}" for a in outcome.pending_actions]
-        if outcome.blocked:
-            lines.append(f"被拦截 {len(outcome.blocked)} 个:")
-            lines += [f"- {b['wo_id']}: {'; '.join(b['reasons'])}" for b in outcome.blocked]
-        if not lines:
-            lines.append("没有找到符合条件的任务令。")
-        return EngineResponse(
-            reply="\n".join(lines),
-            data={"blocked": outcome.blocked},
-            pending_actions=outcome.pending_actions,
+    @staticmethod
+    def _event_wo_ids(event: SystemEvent) -> list[str] | None:
+        payload = event.payload
+        return payload.get("wo_ids") or payload.get("affected_wo_ids") or (
+            [payload["wo_id"]] if payload.get("wo_id") else None
         )
 
-    async def _do_exception(self, exc: ProductionException) -> EngineResponse:
-        case = await self._exception.handle(exc)
-        assessment = case["assessment"]
-        lines = [
-            f"异常 {exc.exception_id} 分诊: 类型={assessment['type']}, 紧急度={assessment['severity']}",
-            f"受影响任务令: {', '.join(case['affected_work_orders']) or '无/待确认'}",
-        ]
-        if case["threatened_orders"]:
-            lines.append(
-                "受威胁交期订单: "
-                + ", ".join(f"{o['order_id']}(交期{o['due_date']})" for o in case["threatened_orders"])
+    def _event_task(self, event: SystemEvent) -> str:
+        """把系统事件翻译成唤醒智能体的初始任务描述。"""
+        payload = event.payload
+        wo_ids = self._event_wo_ids(event)
+        wo_hint = f" 相关任务令: {', '.join(wo_ids)}。" if wo_ids else ""
+        if event.type == "material_shortage_warning":
+            return (
+                f"收到缺料预警 (来源 {payload.get('source', '未知')})。{wo_hint}"
+                "请核查相关任务令的齐套情况、定位缺料卡在哪一环，并按需发起催料。"
             )
-        lines.append("候选处置方案 (请选择，关键决策需人确认):")
-        lines += [f"  {i+1}. {p}" for i, p in enumerate(case["proposals"])]
-        pending = case["pending_actions"]
-        if pending:
-            lines += [f"待确认通知: [{a.action_id}] {a.description}" for a in pending]
+        if event.type == "equipment_alarm":
+            desc = payload.get("description", "设备报警")
+            return (
+                f"收到设备报警: {desc}。{wo_hint}"
+                "请评估对生产/交期的影响，并提出处置 (必要时通知相关人员到场)。"
+            )
+        if event.type == "quality_issue":
+            desc = payload.get("description", "质量异常")
+            return (
+                f"收到质量异常: {desc}。{wo_hint}"
+                "请评估影响范围与交期威胁，并提出处置建议。"
+            )
+        return f"收到系统事件 {event.type}: {payload}。请评估是否需要处置。"
+
+    async def _degraded(self, wo_ids: list[str] | None) -> EngineResponse:
+        """LLM 不可用时的确定性降级: 只给齐套总览，不臆造后续动作。"""
+        results = await self._kitting.check(wo_ids)
         return EngineResponse(
-            reply="\n".join(lines),
-            data={k: v for k, v in case.items() if k != "pending_actions"},
-            pending_actions=pending,
+            reply=(
+                self._kitting_summary(results)
+                + "\n\n(智能体当前不可用，仅提供齐套总览；催料/下发/异常处置暂不可用。)"
+            ),
+            data={"kitting": [r.model_dump(mode="json") for r in results]},
         )
 
     @staticmethod
@@ -161,22 +139,4 @@ class SchedulingEngine(Engine):
                 )
                 eta = f" (预计 {r.estimated_ready_date} 齐套)" if r.estimated_ready_date else ""
                 lines.append(f"- {r.wo_id}: ✗ 缺料 — {missing}{eta}")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _expedite_summary(
-        kitting_results: list[KittingResult], outcome: ExpeditingOutcome
-    ) -> str:
-        not_kitted = [r for r in kitting_results if not r.is_kitted]
-        if not not_kitted:
-            return "所有任务令均已齐套，无需催料。"
-        sent = [r for r in outcome.records if r.status == "sent"]
-        pending = [r for r in outcome.records if r.status == "pending_confirmation"]
-        lines = [f"缺料任务令 {len(not_kitted)} 个，已发起催料:"]
-        if sent:
-            lines.append(f"已自动催 {len(sent)} 条 (内部):")
-            lines += [f"- → {r.recipient}: {r.material_name or r.material_id} ({r.stage})" for r in sent]
-        if pending:
-            lines.append(f"待确认 {len(pending)} 条 (供应商等外部对象，需你确认后发送):")
-            lines += [f"- [{r.action_id}] → {r.recipient}: {r.content}" for r in pending]
         return "\n".join(lines)

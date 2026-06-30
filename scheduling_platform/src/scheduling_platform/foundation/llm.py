@@ -9,6 +9,7 @@
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -18,6 +19,28 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 ToolExecutor = Callable[[str, dict], Awaitable[Any]]
+
+
+@dataclass
+class ToolCall:
+    """模型在一步里请求调用的单个工具 (已解析参数)。"""
+
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class AgentTurn:
+    """ReAct 单步结果: 模型的文本 + 本步请求的工具调用。
+
+    `assistant_message` 是 OpenAI 格式的 assistant 消息 (含 tool_calls)，
+    调用方需把它原样追加进对话，再为每个 tool_call 追加 role=tool 的结果。
+    """
+
+    text: str
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    assistant_message: dict = field(default_factory=dict)
 
 
 class LLMError(Exception):
@@ -126,6 +149,42 @@ class LLMClient:
                 continue
             return msg.content or ""
         raise LLMError(f"工具调用循环超过 {max_tool_rounds} 轮未收敛")
+
+    # ── ReAct 单步 (不在封装内执行工具，交调用方编排护栏) ─────
+
+    async def chat_turn(
+        self, system: str, messages: list[dict], tools: list[dict] | None = None
+    ) -> AgentTurn:
+        """ReAct 单步调用: 返回模型本步的文本与请求的 tool_calls，**不执行工具**。
+
+        与 `complete` 的区别: 此处把工具调用的控制权交还给调用方 (调度引擎的
+        agent_loop)，以便在 Act 与 Execute 之间插入前置断言 / 授权 / 审计两道护栏。
+        """
+        if not self.available:
+            raise LLMError("LLM 未配置 (LLM_API_KEY 为空)")
+        msgs: list[dict] = [{"role": "system", "content": system}, *messages]
+        kwargs: dict = {"model": self.model, "messages": msgs}
+        if tools:
+            kwargs["tools"] = tools
+        try:
+            resp = await self._client.chat.completions.create(**kwargs)
+        except Exception as e:  # noqa: BLE001 — 网络/服务异常统一转 LLMError
+            raise LLMError(f"LLM 调用失败: {e}") from e
+        msg = resp.choices[0].message
+        raw_calls = msg.tool_calls or []
+        calls: list[ToolCall] = []
+        for tc in raw_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
+        assistant_message: dict = {"role": "assistant", "content": msg.content or ""}
+        if raw_calls:
+            assistant_message["tool_calls"] = [tc.model_dump() for tc in raw_calls]
+        return AgentTurn(
+            text=msg.content or "", tool_calls=calls, assistant_message=assistant_message
+        )
 
     # ── 结构化分类 ───────────────────────────────────────────
 

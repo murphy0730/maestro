@@ -1,5 +1,6 @@
 """测试公共夹具。LLM 调用全部 mock 掉 (FakeLLM)，不发真实网络请求。"""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ from scheduling_platform.config import Settings
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import ActionGate, AuthZ, PendingActionStore
 from scheduling_platform.foundation.integration.mock_adapter import MockAdapter
-from scheduling_platform.foundation.llm import LLMError
+from scheduling_platform.foundation.llm import AgentTurn, LLMError, ToolCall
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "mock"
 
@@ -30,14 +31,20 @@ class FakeLLM:
         classify_map: dict | None = None,
         complete_reply: str | None = None,
         embed: bool = False,
+        chat_script: list | None = None,
     ):
         self.classify_map = classify_map or {}
         self.complete_reply = complete_reply
         self._embed = embed
+        # chat_script: ReAct 单步脚本列表。每项为:
+        #   - str        → 最终答复 (无工具调用)
+        #   - [(name, args), ...] → 本步请求的工具调用
+        self.chat_script = list(chat_script or [])
+        self._chat_idx = 0
 
     @property
     def available(self) -> bool:
-        return bool(self.classify_map or self.complete_reply)
+        return bool(self.classify_map or self.complete_reply or self.chat_script)
 
     @property
     def embed_available(self) -> bool:
@@ -53,6 +60,31 @@ class FakeLLM:
         if self.complete_reply is None:
             raise LLMError("FakeLLM: 无预置回复")
         return self.complete_reply
+
+    async def chat_turn(self, system, messages, tools=None) -> AgentTurn:
+        if self._chat_idx >= len(self.chat_script):
+            text = "已完成处理。"
+            return AgentTurn(text=text, assistant_message={"role": "assistant", "content": text})
+        item = self.chat_script[self._chat_idx]
+        self._chat_idx += 1
+        if isinstance(item, str):
+            return AgentTurn(text=item, assistant_message={"role": "assistant", "content": item})
+        calls, raw = [], []
+        for j, (name, args) in enumerate(item):
+            cid = f"call_{self._chat_idx}_{j}"
+            calls.append(ToolCall(id=cid, name=name, arguments=args))
+            raw.append(
+                {
+                    "id": cid,
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }
+            )
+        return AgentTurn(
+            text="",
+            tool_calls=calls,
+            assistant_message={"role": "assistant", "content": "", "tool_calls": raw},
+        )
 
     async def embed(self, texts):
         if not self._embed:

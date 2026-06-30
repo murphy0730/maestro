@@ -1,0 +1,27 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Virtual environments ──
+.venv/
+venv/
+env/
+
+# ── Environment / secrets ──
+# Real env files hold credentials and must never be committed.
+# Templates (.env.example) and non-secret dev defaults (frontend/.env.development) are kept.
+.env
+.env.local
+.env.*.local
+
+# ── Runtime logs / generated output ──
+*.log
+scheduling_platform/logs/
+
+# ── OS / editor ──
+.DS_Store
+.idea/

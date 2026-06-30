@@ -1,15 +1,15 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router-dom';
+import { Workspace } from '@/pages/Workspace';
 import { DesignTokens } from '@/pages/DesignTokens';
 
 /**
- * Placeholder router. Real engine routes (orchestrator / planning /
- * scheduling / query) will be wired in later — for now the shell only
- * serves the design-token preview so configuration can be verified.
+ * Routes. `/` is the main workspace (static UI, mock-driven);
+ * `/design-tokens` keeps the token preview for design verification.
  */
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <Navigate to="/design-tokens" replace />,
+    element: <Workspace />,
   },
   {
     path: '/design-tokens',

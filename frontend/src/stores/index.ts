@@ -1,4 +1,4 @@
 /**
- * Zustand stores barrel. No stores yet — add slices here as features land.
+ * Zustand stores barrel.
  */
-export {};
+export { useConversationStore } from './conversationStore';

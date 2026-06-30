@@ -1,0 +1,296 @@
+/**
+ * Backend API contract types — generated from docs/api-contract.md (v0.1).
+ *
+ * These mirror the FastAPI / Pydantic schemas EXACTLY: snake_case fields and
+ * the contract's literal enum values (e.g. `requires_confirmation`, not the
+ * UI's `confirm`). Keep them decoupled from the UI types in `./index.ts`;
+ * map between the two at the feature boundary, never edit these to fit the UI.
+ */
+
+/* ============================================================
+   1. Core enums & shared types
+   ============================================================ */
+
+/** 1.1 路由四分类 */
+export type IntentType = 'planning' | 'scheduling' | 'query' | 'uncertain';
+
+/** Engines that own a Context Panel (uncertain has none). */
+export type EngineType = 'planning' | 'scheduling' | 'query';
+
+/** 1.2 动作授权级别 */
+export type AuthorizationLevel = 'auto' | 'requires_confirmation';
+
+/** 1.3 路由由哪一层产生（四层路由） */
+export type RouteSource = 'command' | 'embedding' | 'llm' | 'clarified';
+
+/** Structured error body (the contract's `error` envelope). */
+export interface ApiErrorBody {
+  code: string;
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface ApiErrorResponse {
+  error: ApiErrorBody;
+}
+
+/** A sub-task in a composite (cross-engine) route. */
+export interface RouteStep {
+  engine: IntentType;
+  task: string;
+}
+
+/** 1.4 RouteDecision — consumed directly by the Route Badge. */
+export interface RouteDecision {
+  intent: IntentType;
+  /** 0–1 */
+  confidence: number;
+  source: RouteSource;
+  /** Extracted entities; free-form key/value. */
+  entities: Record<string, unknown>;
+  reason: string;
+  is_composite: boolean;
+  /** Sub-task sequence for composite tasks, otherwise empty. */
+  steps: RouteStep[];
+}
+
+/* ============================================================
+   2. Orchestrator — unified chat entry
+   ============================================================ */
+
+export interface ChatStreamRequest {
+  session_id: string;
+  message: string;
+  /** Session stickiness: the engine the conversation is currently in. */
+  current_engine: EngineType | null;
+}
+
+/** Clarification option offered when intent = uncertain. */
+export interface ClarifyOptionApi {
+  id: string;
+  label: string;
+  route_to: IntentType;
+}
+
+export interface ClarifyPayload {
+  question: string;
+  options: ClarifyOptionApi[];
+}
+
+/** 2.2 澄清回选 — answer routes directly, skipping classification. */
+export interface ClarifyRequest {
+  session_id: string;
+  option_id: string;
+  route_to: IntentType;
+}
+
+/** `context` SSE event: activate/update the right Context Panel.
+ *  Payload shape depends on the engine; planning carries a SolveRun. */
+export type ChatContextEvent =
+  | { engine: 'planning'; payload: SolveRun }
+  | { engine: 'scheduling'; payload: Record<string, unknown> }
+  | { engine: 'query'; payload: Record<string, unknown> };
+
+/** Discriminated union of every SSE event on `POST /chat/stream`. */
+export type ChatStreamEvent =
+  | { event: 'route'; data: RouteDecision }
+  | { event: 'token'; data: { delta: string } }
+  | { event: 'clarify'; data: ClarifyPayload }
+  | { event: 'context'; data: ChatContextEvent }
+  | { event: 'done'; data: { message_id: string } }
+  | { event: 'error'; data: ApiErrorResponse };
+
+/* ============================================================
+   3. Planning engine — SolveRun is the stateful core
+   ============================================================ */
+
+export interface PlanningObjective {
+  id: string;
+  label: string;
+  selected: boolean;
+  priority: number;
+}
+
+export interface PlanningParams {
+  order_scope: string[];
+  lines: string[];
+  due_constraints: Record<string, unknown>;
+  objectives: PlanningObjective[];
+}
+
+export interface SolveRequest {
+  session_id: string;
+  params: PlanningParams;
+}
+
+export type SolveStatus = 'feasible' | 'infeasible' | 'timeout';
+
+export interface SolveKpis {
+  due_rate: number;
+  makespan_hours: number;
+  changeover_count: number;
+}
+
+export type GanttTaskType = 'production' | 'changeover' | 'downtime' | 'shortage';
+
+export interface GanttResource {
+  id: string;
+  name: string;
+}
+
+export interface GanttTask {
+  id: string;
+  resource_id: string;
+  order_id: string;
+  /** ISO datetime */
+  start: string;
+  /** ISO datetime */
+  end: string;
+  type: GanttTaskType;
+  label: string;
+}
+
+export interface GanttData {
+  resources: GanttResource[];
+  tasks: GanttTask[];
+}
+
+export interface InfeasibleConflict {
+  constraint: string;
+  human_readable: string;
+}
+
+export interface RelaxSuggestion {
+  id: string;
+  label: string;
+  /** Payload to replay this relaxation. */
+  action: Record<string, unknown>;
+}
+
+export interface InfeasibleReport {
+  conflicts: InfeasibleConflict[];
+  relax_suggestions: RelaxSuggestion[];
+}
+
+export interface SolveRun {
+  solve_run_id: string;
+  status: SolveStatus;
+  kpis: SolveKpis;
+  gantt: GanttData;
+  /** Rule baseline gantt for comparison (optional). */
+  baseline_gantt?: GanttData | null;
+  explanation: string;
+  /** Present only when status = infeasible (IIS diagnosis). */
+  infeasible_report?: InfeasibleReport | null;
+}
+
+export type SolveRunList = SolveRun[];
+
+/* ============================================================
+   4. Scheduling engine
+   ============================================================ */
+
+export type KittingStatus = 'ready' | 'partial' | 'blocked';
+
+export interface KittingMissing {
+  material: string;
+  qty_short: number;
+}
+
+export interface KittingItem {
+  work_order: string;
+  /** 物料齐套率 */
+  material_rate: number;
+  /** 工装齐套率 */
+  tooling_rate: number;
+  status: KittingStatus;
+  missing: KittingMissing[];
+}
+
+export interface KittingResponse {
+  items: KittingItem[];
+}
+
+export interface DispatchOrder {
+  id: string;
+  line: string;
+  summary: string;
+  authorization: AuthorizationLevel;
+  /** Payload echoed back when executing this action. */
+  action: Record<string, unknown>;
+}
+
+export interface DispatchOrdersResponse {
+  orders: DispatchOrder[];
+}
+
+export interface ExecuteActionRequest {
+  session_id: string;
+  action_id: string;
+  /** requires_confirmation actions must pass true to execute. */
+  confirmed: boolean;
+}
+
+export type ExecuteStatus = 'executed' | 'rejected' | 'pending';
+
+export interface ExecuteActionResponse {
+  status: ExecuteStatus;
+  audit_id: string;
+  message: string;
+}
+
+export interface SuggestedAction {
+  label: string;
+  authorization: AuthorizationLevel;
+  action: Record<string, unknown>;
+}
+
+export interface ExceptionImpactResponse {
+  trigger: string;
+  affected_orders: string[];
+  suggested_actions: SuggestedAction[];
+}
+
+/* ============================================================
+   5. Query engine (RAG + LLM)
+   ============================================================ */
+
+export interface QueryStreamRequest {
+  session_id: string;
+  question: string;
+}
+
+export interface RagSource {
+  id: string;
+  doc_name: string;
+  section: string;
+  /** Retrieved snippet. */
+  snippet: string;
+  /** 0–1 relevance */
+  relevance: number;
+}
+
+/** SSE events on `POST /query/stream`: token text, then sources before close. */
+export type QueryStreamEvent =
+  | { event: 'token'; data: { delta: string } }
+  | { event: 'sources'; data: { sources: RagSource[] } }
+  | { event: 'done'; data: { message_id: string } }
+  | { event: 'error'; data: ApiErrorResponse };
+
+/* ============================================================
+   6. Observability — decision log
+   ============================================================ */
+
+export type AuditEventType = 'route' | 'engine_action' | 'tool_call' | 'llm_call';
+
+export interface AuditEvent {
+  /** ISO datetime */
+  ts: string;
+  type: AuditEventType;
+  summary: string;
+  detail: Record<string, unknown>;
+}
+
+export interface AuditTimelineResponse {
+  events: AuditEvent[];
+}

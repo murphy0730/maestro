@@ -1,7 +1,12 @@
 """组装根 (composition root)。
 
-唯一允许同时 import 两个引擎与具体策略类的地方；引擎本体不感知具体策略，
-业务代码不感知具体适配器。FastAPI 与 CLI 共用此处的 build_platform()。
+唯一允许同时 import 三个引擎与具体策略/工具/护栏的地方；引擎本体不感知具体
+策略，业务代码不感知具体适配器。FastAPI 与 CLI 共用此处的 build_platform()。
+
+v0.2: 三引擎三范式 —
+- 排产引擎 PlanningEngine: 固定工作流 (策略插件框架)。
+- 调度引擎 SchedulingEngine: ReAct 智能体 (AgentLoop + 工具 + 两道写护栏)。
+- 查询引擎 QueryEngine: RAG + LLM (向量库 + 只读工具)。
 """
 
 import logging
@@ -16,25 +21,36 @@ from scheduling_platform.engines.planning.strategies.flowshop_tardiness import F
 from scheduling_platform.engines.planning.strategies.jobshop_makespan import JobShopMakespan
 from scheduling_platform.engines.planning.strategies.simple_dispatch import SimpleDispatch
 from scheduling_platform.engines.planning.validator import PlanValidator
-from scheduling_platform.engines.scheduling.engine import SchedulingEngine
-from scheduling_platform.engines.scheduling.workflows.dispatch import DispatchWorkflow
-from scheduling_platform.engines.scheduling.workflows.exception import ExceptionWorkflow
-from scheduling_platform.engines.scheduling.workflows.expediting import ExpeditingWorkflow
-from scheduling_platform.engines.scheduling.workflows.kitting import KittingWorkflow
+from scheduling_platform.engines.query.query_engine import QueryEngine
+from scheduling_platform.engines.query.retriever import KnowledgeRetriever
+from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
+from scheduling_platform.engines.scheduling.engine import SCHEDULING_SYSTEM, SchedulingEngine
+from scheduling_platform.engines.scheduling.preconditions import (
+    make_dispatch_precondition,
+    make_expedite_precondition,
+)
 from scheduling_platform.events.event_bus import EventBus
 from scheduling_platform.events.handlers import register_event_handlers
 from scheduling_platform.events.scheduler import PatrolScheduler
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import ActionGate, AuthZ, PendingActionStore
+from scheduling_platform.foundation.embedding import EmbeddingClient
 from scheduling_platform.foundation.integration.base import IntegrationAdapter
 from scheduling_platform.foundation.integration.mock_adapter import MockAdapter
+from scheduling_platform.foundation.kitting import KittingService
 from scheduling_platform.foundation.llm import LLMClient
 from scheduling_platform.foundation.master_data import MasterDataService
 from scheduling_platform.foundation.memory import ConversationMemory
-from scheduling_platform.foundation.tools.builtin import register_builtin_tools
+from scheduling_platform.foundation.tools.builtin import (
+    QUERY_READONLY_TOOLS,
+    SCHEDULING_TOOLS,
+    FollowupStore,
+    register_builtin_tools,
+)
 from scheduling_platform.foundation.tools.registry import ToolRegistry
+from scheduling_platform.foundation.vectorstore import VectorStore
 from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter, load_examples
-from scheduling_platform.orchestrator.orchestrator import Orchestrator, QueryHandler
+from scheduling_platform.orchestrator.orchestrator import Orchestrator
 from scheduling_platform.orchestrator.router import IntentRouter
 
 
@@ -52,6 +68,7 @@ class Platform:
     strategy_registry: StrategyRegistry
     planning_engine: PlanningEngine
     scheduling_engine: SchedulingEngine
+    query_engine: QueryEngine
     orchestrator: Orchestrator
     bus: EventBus
     patrol: PatrolScheduler
@@ -84,13 +101,20 @@ def build_platform(
     )
     memory = ConversationMemory()
     master = MasterDataService(adapter)
+    kitting = KittingService(adapter, audit)
+    followups = FollowupStore()
 
-    # 调度引擎 (四个 workflow)
-    kitting = KittingWorkflow(adapter, audit)
-    expediting = ExpeditingWorkflow(adapter, gate, audit, llm)
-    dispatch = DispatchWorkflow(adapter, gate, audit, kitting)
-    exception = ExceptionWorkflow(adapter, gate, audit, llm)
-    scheduling_engine = SchedulingEngine(kitting, expediting, dispatch, exception, audit)
+    # 工具库 (三引擎共享): 注册内置工具 + 为高危写操作挂前置断言 (两道写护栏之一)
+    tools = ToolRegistry()
+    register_builtin_tools(tools, adapter, gate, kitting, llm, followups)
+    tools.attach_precondition("dispatch_work_order", make_dispatch_precondition(kitting, adapter))
+    tools.attach_precondition("send_expedite_message", make_expedite_precondition(kitting, followups))
+
+    # 调度引擎 (ReAct 智能体)
+    agent = AgentLoop(
+        llm, tools, pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS, settings.react_max_steps
+    )
+    scheduling_engine = SchedulingEngine(agent, kitting, audit)
 
     # 排产引擎 (策略插件框架)
     strategy_registry = StrategyRegistry()
@@ -105,17 +129,22 @@ def build_platform(
         extractor, selector, strategy_registry, master, PlanValidator(), llm, audit, memory
     )
 
-    # 工具库 + 统一入口
-    tools = ToolRegistry()
-    register_builtin_tools(tools, adapter, gate, kitting)
-    query_handler = QueryHandler(llm, tools, adapter)
+    # 查询引擎 (RAG + LLM): 向量库 + 知识检索器 + 只读工具
+    embedder = EmbeddingClient(llm)
+    vectorstore = VectorStore(embedder)
+    retriever = KnowledgeRetriever(vectorstore, settings.knowledge_dir, settings.rag_top_k)
+    query_engine = QueryEngine(
+        llm, tools, retriever, adapter, QUERY_READONLY_TOOLS, settings.rag_top_k
+    )
+
+    # 统一入口
     embed_router = EmbeddingRouter(llm, load_examples())
     router = IntentRouter(llm, settings, embed_router)
     orchestrator = Orchestrator(
-        router, planning_engine, scheduling_engine, query_handler, memory, audit, gate, settings
+        router, planning_engine, scheduling_engine, query_engine, memory, audit, gate, settings
     )
 
-    # 事件层
+    # 事件层 (事件唤醒调度引擎的 ReAct 智能体)
     bus = EventBus()
     register_event_handlers(bus, scheduling_engine)
     patrol = PatrolScheduler(adapter, bus, kitting, settings)
@@ -133,6 +162,7 @@ def build_platform(
         strategy_registry=strategy_registry,
         planning_engine=planning_engine,
         scheduling_engine=scheduling_engine,
+        query_engine=query_engine,
         orchestrator=orchestrator,
         bus=bus,
         patrol=patrol,

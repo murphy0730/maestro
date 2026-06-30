@@ -1,7 +1,9 @@
-"""齐套检查 workflow。
+"""齐套检查服务 (共享底座)。
 
 对每个任务令: 订单 → BOM → 比对库存/在途 → 算缺口 → KittingResult。
-纯查询+计算，无写操作。
+纯查询+计算，无写操作。v0.1 由调度引擎的 workflow 持有；v0.2 中调度引擎改为
+ReAct 智能体，齐套成为被多方 (check_kitting 工具 / 巡检 / 下发前置断言) 复用的
+底座能力，故上移到 foundation。
 
 TODO(v0.2): 多任务令共用物料时做库存分配 (当前各自独立比对在库量)。
 """
@@ -16,7 +18,7 @@ from scheduling_platform.foundation.integration.base import IntegrationAdapter
 logger = logging.getLogger(__name__)
 
 
-class KittingWorkflow:
+class KittingService:
     def __init__(self, adapter: IntegrationAdapter, audit: AuditLog):
         self._adapter = adapter
         self._audit = audit
@@ -56,7 +58,6 @@ class KittingWorkflow:
                         unit=mat.unit if mat else "pcs",
                     )
                 )
-                # 在途可覆盖缺口时，用归因里的 ETA 估算齐套时间
                 in_transit = mat.in_transit_qty if mat else 0.0
                 status = await self._adapter.get_material_status(item.material_id)
                 eta_str = status.get("eta")
@@ -70,7 +71,9 @@ class KittingWorkflow:
                     wo_id=wo.wo_id,
                     is_kitted=not shortages,
                     shortages=shortages,
-                    estimated_ready_date=max(etas) if shortages and etas and all_covered_by_transit else None,
+                    estimated_ready_date=(
+                        max(etas) if shortages and etas and all_covered_by_transit else None
+                    ),
                 )
             )
 

@@ -11,8 +11,8 @@ from datetime import date, timedelta
 
 from scheduling_platform.config import Settings
 from scheduling_platform.domain.models import SystemEvent
-from scheduling_platform.engines.scheduling.workflows.kitting import KittingWorkflow
 from scheduling_platform.events.event_bus import EventBus
+from scheduling_platform.foundation.kitting import KittingService
 from scheduling_platform.foundation.integration.base import IntegrationAdapter
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class PatrolScheduler:
         self,
         adapter: IntegrationAdapter,
         bus: EventBus,
-        kitting: KittingWorkflow,
+        kitting: KittingService,
         settings: Settings,
     ):
         self._adapter = adapter

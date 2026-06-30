@@ -8,12 +8,10 @@ import logging
 
 from scheduling_platform.config import Settings
 from scheduling_platform.engines.base import Engine, EngineResponse
+from scheduling_platform.engines.query.query_engine import QueryEngine
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import ActionGate
-from scheduling_platform.foundation.integration.base import IntegrationAdapter
-from scheduling_platform.foundation.llm import LLMClient, LLMError
 from scheduling_platform.foundation.memory import ConversationMemory
-from scheduling_platform.foundation.tools.registry import ToolRegistry
 from scheduling_platform.orchestrator.router import IntentRouter, extract_entities
 from scheduling_platform.orchestrator.schemas import ChatResponse, RouteDecision
 
@@ -43,48 +41,13 @@ def resolve_clarification(reply: str) -> str | None:
             return intent
     return None
 
-QUERY_SYSTEM = (
-    "你是生产计划/调度平台的查询助手。用提供的工具查询订单、库存、任务令、齐套等数据，"
-    "然后用简洁的中文回答用户问题。不要编造数据，一切以工具返回为准。"
-)
-
-
-class QueryHandler:
-    """轻量查询处理: LLM + 工具库回答；LLM 不可用时返回基础数据摘要。"""
-
-    def __init__(self, llm: LLMClient, tools: ToolRegistry, adapter: IntegrationAdapter):
-        self._llm = llm
-        self._tools = tools
-        self._adapter = adapter
-
-    async def handle(self, message: str, history: list[dict]) -> EngineResponse:
-        try:
-            reply = await self._llm.complete(
-                QUERY_SYSTEM,
-                [*history, {"role": "user", "content": message}],
-                tools=self._tools.to_openai_tools(),
-                tool_executor=self._tools.execute,
-            )
-            return EngineResponse(reply=reply)
-        except LLMError:
-            orders = await self._adapter.get_orders({})
-            wos = await self._adapter.get_work_orders({})
-            draft = [w.wo_id for w in wos if w.status == "draft"]
-            reply = (
-                "LLM 查询助手当前不可用，以下是基础数据摘要:\n"
-                f"- 订单 {len(orders)} 个: {', '.join(o.order_id for o in orders)}\n"
-                f"- 任务令 {len(wos)} 个，其中待下发(draft): {', '.join(draft) or '无'}"
-            )
-            return EngineResponse(reply=reply)
-
-
 class Orchestrator:
     def __init__(
         self,
         router: IntentRouter,
         planning_engine: Engine,
         scheduling_engine: Engine,
-        query_handler: QueryHandler,
+        query_engine: QueryEngine,
         memory: ConversationMemory,
         audit: AuditLog,
         gate: ActionGate,
@@ -93,7 +56,7 @@ class Orchestrator:
         self._router = router
         self._planning = planning_engine
         self._scheduling = scheduling_engine
-        self._query = query_handler
+        self._query = query_engine
         self._memory = memory
         self._audit = audit
         self._gate = gate

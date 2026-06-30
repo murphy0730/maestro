@@ -1,15 +1,21 @@
-# 生产调度与排产 Agent 平台 (v0.1)
+# 生产调度与排产 Agent 平台 (v0.2)
 
-「一个平台 / 两个引擎 / 一个入口」: 用户通过统一对话入口提出请求，平台自动判断
-属于**排产**还是**调度**意图，路由到对应引擎执行；调度引擎还能被系统事件
-(缺料预警/设备报警) **自动唤醒**。
+「一个平台 / 三个引擎 / 一个入口」: 用户通过统一对话入口提出请求，平台自动判断
+属于**排产**、**调度**还是**查询**意图，路由到对应引擎执行；调度引擎还能被系统事件
+(缺料预警/设备报警) **自动唤醒**。三个引擎对应三种范式:
+
+- **排产 PlanningEngine —— 固定工作流**: 抽参 → 选策略(插件化) → 求解 → 校验 → 解释。
+- **调度 SchedulingEngine —— ReAct 智能体**: 思考→行动→观察循环，自主编排工具；
+  钉死循环护栏 (最大步数 / 工具白名单 / 绕圈检测) 与写护栏 (前置断言 + 授权)。
+- **查询 QueryEngine —— RAG + LLM**: 检索知识库 → 增强提示 → 生成 (只读工具，答案附来源)。
 
 ```
 用户 (CLI / HTTP) → Orchestrator (嵌入语义路由 → LLM 分类 → 低置信澄清/澄清后直接路由)
-                      ├─ PlanningEngine  排产: 抽参 → 选策略(插件化) → 求解 → 校验 → 解释
-                      └─ SchedulingEngine 调度: 齐套 / 催料 / 下发 / 异常 (对话+事件双触发)
-                                  ↑ EventLayer: 定时巡检 + 内存事件总线
-SharedFoundation: 集成层(MockAdapter) / 工具库 / LLM封装 / 记忆 / AuthZ / 审计
+                      ├─ PlanningEngine   排产: 固定工作流 (策略插件化)
+                      ├─ SchedulingEngine 调度: ReAct 智能体, 齐套/催料/下发/异常 (对话+事件双触发)
+                      └─ QueryEngine      查询: RAG + 只读工具 (答案附来源)
+                                  ↑ EventLayer: 定时巡检 + 内存事件总线 (事件→任务描述唤醒智能体)
+SharedFoundation: 集成层(MockAdapter) / 齐套底座 / 工具库 / LLM封装 / 向量库+嵌入 / 记忆 / AuthZ / 审计
 ```
 
 > **与设计文档的偏离**: 文档中包名为 `src/platform/`，因 `platform` 是 Python
@@ -101,9 +107,9 @@ pytest          # LLM 全部 mock，不发网络请求
 - **动作分级授权**: 写操作统一走 `ActionGate` (auto / requires_confirmation)，
   全部进审计；供应商催料、任务令下发、异常通知均需人确认。
 - **集成层抽象**: 业务只依赖 `IntegrationAdapter` 接口；接真实 MES/ERP/WMS 时
-  实现该接口并在 `bootstrap.py` 替换 `MockAdapter` 即可，引擎/workflow 零改动。
+  实现该接口并在 `bootstrap.py` 替换 `MockAdapter` 即可，引擎/工具零改动。
 - **事件驱动**: 巡检 (拉外部事件 + 预测性齐套扫描) → 事件总线 → 调度引擎，
-  与对话路径复用同一套 workflow。
+  事件被翻译成任务描述唤醒同一个 ReAct 智能体 (与对话路径复用同一套工具与护栏)。
 
 ## v0.2 预留 (代码中以 TODO(v0.2) 标注)
 
