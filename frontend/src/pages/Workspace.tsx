@@ -68,7 +68,7 @@ export function Workspace() {
             onClarifySelect={selectClarification}
           />
           <Composer
-            onSend={(text) => send(text, activeEngine)}
+            onSend={(text) => send(text, route === 'auto' ? null : route)}
             route={route}
             mode={mode}
             onRouteChange={setRoute}

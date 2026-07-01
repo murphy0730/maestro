@@ -5,6 +5,7 @@ import { ROUTE_META } from '@/lib/routes';
 import { ChatMessage } from './ChatMessage';
 import { RouteBadge } from './RouteBadge';
 import { ClarificationCard } from './ClarificationCard';
+import { Markdown } from '@/components/ui/Markdown';
 
 /**
  * Thread — renders a conversation. Clarification selection is lifted to the
@@ -76,10 +77,10 @@ export function Thread({ messages, author = '李工', onClarifySelect }: ThreadP
                 </div>
               )}
               {m.text && (
-                <p className="m-0 leading-relaxed">
-                  {m.text}
+                <div className="text-body leading-relaxed">
+                  <Markdown>{m.text}</Markdown>
                   {m.streaming && <span className="ml-[2px] animate-pulse text-accent-fg">▍</span>}
-                </p>
+                </div>
               )}
               {m.streaming && !m.route && !m.text && (
                 <p className="m-0 flex items-center gap-2 leading-relaxed text-text-tertiary">
@@ -88,7 +89,9 @@ export function Thread({ messages, author = '李工', onClarifySelect }: ThreadP
                 </p>
               )}
               {m.handoff && m.route && (
-                <div className={`mt-[11px] flex items-center gap-2 text-caption ${ROUTE_META[m.route].fg}`}>
+                <div
+                  className={`mt-[11px] flex items-center gap-2 text-caption ${ROUTE_META[m.route].fg}`}
+                >
                   <ArrowRight size={14} strokeWidth={2} />
                   方案已生成 · 详见右侧上下文面板
                 </div>

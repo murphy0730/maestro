@@ -59,7 +59,10 @@ class PlanningEngine(Engine):
         self._audit = audit
         self._memory = memory
 
-    async def handle_chat(self, message: str, entities: dict, session_id: str) -> EngineResponse:
+    async def handle_chat(
+        self, message: str, entities: dict, session_id: str, history: list[dict] | None = None
+    ) -> EngineResponse:
+        # 固定工作流，不使用多轮 history
         # 1) 抽参
         request = await self._extractor.extract(message, entities)
 

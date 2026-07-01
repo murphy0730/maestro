@@ -43,11 +43,13 @@ class SchedulingEngine(Engine):
 
     # ── 对话触发 ─────────────────────────────────────────────
 
-    async def handle_chat(self, message: str, entities: dict, session_id: str) -> EngineResponse:
+    async def handle_chat(
+        self, message: str, entities: dict, session_id: str, history: list[dict] | None = None
+    ) -> EngineResponse:
         if not self._agent.available:
             return await self._degraded(entities.get("wo_ids"))
         try:
-            result = await self._agent.run(message)
+            result = await self._agent.run(message, history=history)
         except LLMError:
             return await self._degraded(entities.get("wo_ids"))
         return self._to_response(result)

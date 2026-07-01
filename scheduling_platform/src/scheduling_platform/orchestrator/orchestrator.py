@@ -62,8 +62,24 @@ class Orchestrator:
         self._gate = gate
         self._settings = settings
 
-    async def handle(self, session_id: str, message: str) -> ChatResponse:
+    async def handle(
+        self, session_id: str, message: str, route: str = "auto"
+    ) -> ChatResponse:
         state = self._memory.get(session_id)
+
+        # ── 前端指定引擎 (route≠auto)：跳过路由，直接派发 (支持"选定调度引擎"多轮对话) ──
+        if route in ("planning", "scheduling", "query"):
+            decision = RouteDecision(
+                intent=route,  # type: ignore[arg-type]
+                confidence=1.0,
+                entities=extract_entities(message),
+                reason="前端指定引擎，直接路由",
+                route_method="forced",
+            )
+            self._memory.append(session_id, "user", message)
+            self._record_route(session_id, message, decision)
+            resp = await self._dispatch(decision, message, session_id, state)
+            return self._finish(session_id, decision, resp)
 
         # ── 澄清后处理 (设计文档 5.2 第 3 层)：选项式不重跑、开放式回 LLM ──
         skip_embedding = False
@@ -125,7 +141,10 @@ class Orchestrator:
             return await self._planning.handle_chat(message, decision.entities, session_id)
         if decision.intent == "scheduling":
             self._memory.set_engine(session_id, "scheduling")
-            return await self._scheduling.handle_chat(message, decision.entities, session_id)
+            # 历史已含本轮用户消息，去掉末条作为多轮上下文注入 ReAct
+            return await self._scheduling.handle_chat(
+                message, decision.entities, session_id, history=state.history[:-1]
+            )
         # query: 历史已含本轮用户消息，去掉末条作为上下文
         return await self._query.handle(message, state.history[:-1])
 
@@ -157,6 +176,14 @@ class Orchestrator:
             needs_clarification=resp.needs_clarification,
             options=resp.clarification_options,
         )
+
+    async def resume_clarification(self, session_id: str, route_to: str) -> ChatResponse:
+        """澄清回选 (前端 /chat/clarify)：按所选引擎直接路由暂存的原请求。"""
+        state = self._memory.get(session_id)
+        pending = state.context.get("pending_clarification")
+        original = pending["message"] if pending else ""
+        self._memory.set_context(session_id, "pending_clarification", None)
+        return await self._route_clarified(session_id, original, route_to, state)
 
     async def confirm(self, session_id: str, action_id: str, approved: bool) -> ChatResponse:
         """确认/拒绝一个待执行动作。"""

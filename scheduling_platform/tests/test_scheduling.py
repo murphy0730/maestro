@@ -147,6 +147,33 @@ async def test_agent_tool_whitelist(adapter, audit, gate, settings):
     assert "白名单" in resp.data["steps"][0]["observation"]["blocked"]
 
 
+# ── 多轮记忆 ────────────────────────────────────────────────
+
+
+async def test_agent_receives_multi_turn_history(adapter, audit, gate, settings):
+    """多轮: handle_chat 传入的 history 被注入 ReAct 初始 messages (历史在前、本轮在末)。"""
+    llm = FakeLLM(chat_script=["结论"])
+    captured: dict = {}
+    orig = llm.chat_turn
+
+    async def spy(system, messages, tools=None):
+        captured.setdefault("messages", list(messages))
+        return await orig(system, messages, tools=tools)
+
+    llm.chat_turn = spy  # type: ignore[method-assign]
+    _, _, _, _, engine = _assemble(adapter, audit, gate, llm, settings)
+
+    history = [
+        {"role": "user", "content": "WO-101 缺什么料"},
+        {"role": "assistant", "content": "缺 M-002"},
+    ]
+    await engine.handle_chat("帮我催一下这个料", {}, "s1", history=history)
+
+    msgs = captured["messages"]
+    assert [m["content"] for m in msgs[:2]] == ["WO-101 缺什么料", "缺 M-002"]  # 历史在前
+    assert msgs[-1] == {"role": "user", "content": "帮我催一下这个料"}  # 本轮在末
+
+
 # ── 降级 ────────────────────────────────────────────────────
 
 

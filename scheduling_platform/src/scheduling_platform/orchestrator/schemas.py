@@ -19,7 +19,7 @@ class RouteDecision(BaseModel):
     confidence: float  # 0~1
     entities: dict = Field(default_factory=dict)  # 产线/订单/任务令等关键实体
     reason: str = ""  # 判定理由 (用于日志和解释)
-    route_method: Literal["embedding", "llm", "clarified", "fallback"] = "llm"
+    route_method: Literal["embedding", "llm", "clarified", "fallback", "forced"] = "llm"
     steps: list[RouteStep] | None = None  # TODO(v0.2): 复合任务
 
 

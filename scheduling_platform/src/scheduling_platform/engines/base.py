@@ -26,5 +26,11 @@ class Engine(ABC):
     name: str = ""
 
     @abstractmethod
-    async def handle_chat(self, message: str, entities: dict, session_id: str) -> EngineResponse:
-        """处理一条经 Orchestrator 路由进来的用户消息。"""
+    async def handle_chat(
+        self, message: str, entities: dict, session_id: str, history: list[dict] | None = None
+    ) -> EngineResponse:
+        """处理一条经 Orchestrator 路由进来的用户消息。
+
+        `history` 为该会话此前的 user/assistant 文本轮次 (不含本条)，供需要多轮
+        上下文的引擎 (如调度 ReAct) 使用；固定工作流引擎可忽略。
+        """
