@@ -21,6 +21,11 @@ env/
 # ── Runtime logs / generated output ──
 *.log
 scheduling_platform/logs/
+logs/
+
+# ── Local runtime data (user conversations / uploaded knowledge, never commit) ──
+scheduling_platform/data/sessions/
+scheduling_platform/data/knowledge_uploads/
 
 # ── OS / editor ──
 .DS_Store

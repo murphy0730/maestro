@@ -19,17 +19,17 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    # LLM (OpenAI 兼容接口)
+    # LLM (OpenAI 兼容接口)。api_key 只从环境变量 / .env 读取，绝不写在代码里。
     llm_base_url: str = "https://api.deepseek.com"
-    llm_api_key: str = "sk-94d59c4101b14b7fad6c4ffce5ba9f76"
-    llm_model: str = "deepseek-v4-pro"
+    llm_api_key: str = ""
+    llm_model: str = "deepseek-chat"
 
     # Embedding (OpenAI 兼容 /embeddings；用于意图路由第 1 层语义路由)
     # embed_model 留空 → 嵌入路由禁用，路由直接走 LLM 分类层。
     # embed_base_url / embed_api_key 留空时回退复用上面的 LLM 配置。
-    embed_model: str = "BAAI/bge-m3"
-    embed_base_url: str = "https://api.siliconflow.cn/v1/embeddings"
-    embed_api_key: str = "sk-pmwnayqycewmwxnksnzhjhshonpxigdxoxrcwmowxqcuiadl"
+    embed_model: str = ""
+    embed_base_url: str = ""
+    embed_api_key: str = ""
 
     # 路由 / 策略选择 置信度门控
     route_confidence_threshold: float = 0.8
@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     mock_data_dir: Path = Field(default_factory=lambda: project_root() / "data" / "mock")
     knowledge_dir: Path = Field(
         default_factory=lambda: project_root() / "data" / "mock" / "knowledge"
+    )
+    # 用户上传的知识文档落盘目录 (运行时数据，与种子知识库分开，不入 git)
+    knowledge_upload_dir: Path = Field(
+        default_factory=lambda: project_root() / "data" / "knowledge_uploads"
     )
     audit_log_file: Path | None = Field(
         default_factory=lambda: project_root() / "logs" / "audit.jsonl"
