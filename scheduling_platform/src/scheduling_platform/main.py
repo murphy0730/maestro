@@ -254,6 +254,93 @@ async def audit(action: str | None = None, limit: int = 100):
     return [e.model_dump(mode="json") for e in entries]
 
 
+# ── 调度执行 + 决策时间线 (契约 §4.3 / §6，前端面板消费) ─────────
+
+
+class ExecuteRequest(BaseModel):
+    session_id: str = "default"
+    action_id: str
+    confirmed: bool = False
+
+
+@app.post("/scheduling/execute")
+async def scheduling_execute(req: ExecuteRequest):
+    """执行一个待确认动作。走 ActionGate 统一闸口，两道写护栏不绕过。
+
+    confirmed=false 不消费动作 (返回 pending 提示确认)；显式拒绝走 /chat/confirm。
+    """
+    platform = app.state.platform
+    if platform.pending.get(req.action_id) is None:
+        raise HTTPException(status_code=404, detail=f"动作不存在: {req.action_id}")
+    if not req.confirmed:
+        return {
+            "status": "pending",
+            "audit_id": req.action_id,
+            "message": "该动作需二次确认，请以 confirmed=true 重试；拒绝请走 /chat/confirm",
+        }
+    try:
+        action, result = await platform.gate.confirm(req.action_id, True, actor=req.session_id)
+    except ValueError as e:  # 已执行/已拒绝，不可重复处理
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    ok = result is not None and result.success
+    return {
+        "status": "executed" if ok else "failed",
+        "audit_id": action.action_id,
+        "message": (result.detail if result else "") or action.description,
+    }
+
+
+# 审计 action → 契约时间线四分类；llm_call 当前不落审计，预留
+_SYSTEM_ACTORS = {"system", "scheduling_agent", "event_layer"}
+_TOOL_ACTION_PREFIXES = (
+    "dispatch_work_order",
+    "send_expedite_message",
+    "update_work_order_status",
+    "send_notification",
+    "precondition_blocked",
+)
+
+
+def _timeline_type(action: str) -> str:
+    if action == "route":
+        return "route"
+    if action.startswith(_TOOL_ACTION_PREFIXES):
+        return "tool_call"
+    return "engine_action"
+
+
+def _timeline_summary(e) -> str:
+    if e.action == "route" and e.result:
+        return f"路由 → {e.result.get('intent')} ({e.result.get('method')}, 置信 {e.result.get('confidence')})"
+    if e.authz_decision:
+        return f"{e.action} [{e.authz_decision}]"
+    return e.action
+
+
+@app.get("/audit/timeline")
+async def audit_timeline(session_id: str | None = None, limit: int = 100):
+    """决策时间线 (契约 §6)。单用户版: 会话条目与全局系统条目 (巡检/事件) 合并返回。"""
+    entries = app.state.platform.audit.query(limit=limit)
+    if session_id:
+        entries = [e for e in entries if e.actor == session_id or e.actor in _SYSTEM_ACTORS]
+    return {
+        "events": [
+            {
+                "ts": e.timestamp.isoformat(),
+                "type": _timeline_type(e.action),
+                "summary": _timeline_summary(e),
+                "detail": {
+                    "actor": e.actor,
+                    "params": e.params,
+                    "authz": e.authz_decision,
+                    "result": e.result,
+                },
+            }
+            for e in entries
+        ]
+    }
+
+
 @app.get("/pending")
 async def pending():
     """查询全部待确认动作。"""
