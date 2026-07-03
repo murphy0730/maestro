@@ -12,6 +12,7 @@ from typing import AsyncIterator, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -37,6 +38,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="生产调度与排产 Agent 平台", version="0.1.0", lifespan=lifespan)
+
+# 允许 Web 前端与打包后的 Electron 应用 (file:// → Origin 为 null) 跨域访问。
+# 本地部署场景放开全部来源；如需收紧，改为显式白名单。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ChatRequest(BaseModel):
@@ -142,18 +152,58 @@ async def _sse_from_response(resp: ChatResponse) -> AsyncIterator[str]:
     yield _sse("done", {"message_id": f"msg-{uuid4().hex[:12]}"})
 
 
+_TITLE_SYSTEM = (
+    "你是会话标题生成助手。根据用户的第一句话，生成一个简短、有意义的中文标题，"
+    "用于会话列表展示。要求：概括核心意图；不超过 12 个汉字；"
+    "只输出标题本身，不要标点、引号、书名号或任何多余文字。"
+)
+
+
+async def _summarize_title(platform, first_message: str) -> str | None:
+    """用 LLM 把首条消息浓缩成有意义的短标题；不可用或失败时返回 None（保留截断标题）。"""
+    if not platform.llm.available:
+        return None
+    try:
+        raw = await platform.llm.complete(
+            _TITLE_SYSTEM, [{"role": "user", "content": first_message}]
+        )
+    except Exception:  # noqa: BLE001 — 标题生成失败不影响主流程
+        logger.warning("[TITLE] LLM 标题生成失败，保留截断标题", exc_info=True)
+        return None
+    title = raw.strip().strip("《》「」\"'“”").splitlines()[0].strip() if raw else ""
+    if not title:
+        return None
+    return title[:16]
+
+
 @app.post("/chat/stream")
 async def chat_stream(req: ChatStreamRequest):
     """流式统一对话入口。current_engine 指定引擎时跳过意图路由，直达该引擎。"""
 
     async def gen() -> AsyncIterator[str]:
+        platform = app.state.platform
+        store = platform.session_store
+        meta = store.get(req.session_id)
+        is_first_turn = meta is not None and meta.message_count == 0
+        # 首轮：与编排并发生成标题，在流出任何帧之前落库，避免前端刷新竞态
+        title_task = (
+            asyncio.create_task(_summarize_title(platform, req.message))
+            if is_first_turn
+            else None
+        )
         try:
-            resp = await app.state.platform.orchestrator.handle(
+            resp = await platform.orchestrator.handle(
                 req.session_id, req.message, route=req.current_engine or "auto"
             )
+            if title_task is not None:
+                title = await title_task
+                if title:
+                    store.update_title(req.session_id, title)
             async for frame in _sse_from_response(resp):
                 yield frame
         except Exception as e:  # noqa: BLE001 — 编排失败也要以 error 帧收口，不断流
+            if title_task is not None and not title_task.done():
+                title_task.cancel()
             logger.exception("[CHAT-STREAM] 处理失败")
             yield _sse("error", {"error": {"code": "ORCHESTRATOR_ERROR", "message": str(e)}})
 
@@ -206,6 +256,52 @@ async def audit(action: str | None = None, limit: int = 100):
 async def pending():
     """查询全部待确认动作。"""
     return [a.model_dump(mode="json") for a in app.state.platform.pending.list_pending()]
+
+
+class CreateSessionRequest(BaseModel):
+    title: str = "新对话"
+
+
+@app.get("/sessions")
+async def list_sessions():
+    """列出所有历史会话（按最近更新倒序）。"""
+    return [s.model_dump() for s in app.state.platform.session_store.list_all()]
+
+
+@app.post("/sessions")
+async def create_session(req: CreateSessionRequest):
+    """新建会话，返回会话元数据（含新生成的 session_id）。"""
+    meta = app.state.platform.session_store.create(req.title)
+    return meta.model_dump()
+
+
+class UpdateSessionRequest(BaseModel):
+    title: str
+
+
+@app.patch("/sessions/{session_id}")
+async def rename_session(session_id: str, req: UpdateSessionRequest):
+    """重命名会话。"""
+    store = app.state.platform.session_store
+    if store.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    store.update_title(session_id, req.title.strip() or "新对话")
+    return store.get(session_id).model_dump()
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """删除会话及其消息历史。"""
+    ok = app.state.platform.session_store.delete(session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"deleted": True, "session_id": session_id}
+
+
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """获取指定会话的完整消息历史。"""
+    return app.state.platform.session_store.get_messages(session_id)
 
 
 @app.get("/health")

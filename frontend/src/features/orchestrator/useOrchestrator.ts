@@ -14,11 +14,21 @@ const nowHM = () => new Date().toLocaleTimeString('en-GB').slice(0, 5);
  * to the store (agent reply, clarification card, or error) and activates the
  * engine carried by a `context` event. Clarification answers resume the stream.
  */
-export function useOrchestrator() {
-  const sessionIdRef = useRef<string>(crypto.randomUUID());
-  const chat = useStreamingChat(sessionIdRef.current);
+export function useOrchestrator(sessionId: string) {
+  const chat = useStreamingChat(sessionId);
   const chatRef = useRef(chat);
   chatRef.current = chat;
+
+  // Abort and reset streaming state when the active session changes
+  const prevSessionRef = useRef(sessionId);
+  useEffect(() => {
+    if (prevSessionRef.current !== sessionId) {
+      prevSessionRef.current = sessionId;
+      chatRef.current.abort();
+      chatRef.current.reset();
+      pendingRef.current = false;
+    }
+  }, [sessionId]);
 
   const addMessage = useConversationStore((s) => s.addMessage);
   const updateMessage = useConversationStore((s) => s.updateMessage);

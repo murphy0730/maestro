@@ -65,6 +65,29 @@ export async function apiPost<T>(path: string, body: unknown, opts: RequestOptio
   return res.json() as Promise<T>;
 }
 
+/** JSON PATCH. Throws {@link ApiError} on non-2xx. */
+export async function apiPatch<T>(path: string, body: unknown, opts: RequestOptions = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+  if (!res.ok) throw await toApiError(res);
+  return res.json() as Promise<T>;
+}
+
+/** JSON DELETE. Throws {@link ApiError} on non-2xx. */
+export async function apiDelete<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+    signal: opts.signal,
+  });
+  if (!res.ok) throw await toApiError(res);
+  return res.json() as Promise<T>;
+}
+
 /** Build a full URL with query params, dropping null/undefined values. */
 export function withQuery(path: string, params: Record<string, string | number | null | undefined>): string {
   const qs = new URLSearchParams();

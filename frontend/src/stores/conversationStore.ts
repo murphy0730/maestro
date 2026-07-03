@@ -20,7 +20,7 @@ interface ConversationState {
   activateEngine: (engine: ActiveEngine) => void;
   setContextPanelOpen: (open: boolean) => void;
   closeContextPanel: () => void;
-  resetThread: () => void;
+  resetThread: (initialMessages?: ChatMessageData[]) => void;
 }
 
 const INITIAL_MESSAGES: ChatMessageData[] = [
@@ -45,5 +45,5 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   closeContextPanel: () => set({ contextPanelOpen: false }),
 
-  resetThread: () => set({ messages: INITIAL_MESSAGES, activeEngine: null, contextPanelOpen: false }),
+  resetThread: (initialMessages) => set({ messages: initialMessages ?? INITIAL_MESSAGES, activeEngine: null, contextPanelOpen: false }),
 }));

@@ -105,6 +105,48 @@
   --font-mono: 'IBM Plex Mono', 'SFMono-Regular', ui-monospace, Menlo, monospace;
 }
 
+/* ============================================================
+   Light theme — overrides on <html data-theme="light">.
+   Only tokens whose contrast flips between themes are redefined;
+   brand hues (route/status/accent DEFAULT) stay, but their light
+   *-fg text variants are darkened so they stay legible on light
+   tinted backgrounds. This is the default theme.
+   ============================================================ */
+:root[data-theme='light'] {
+  /* ---- Base backgrounds (depth: sunken recessed < base < raised surfaces) ---- */
+  --bg-sunken: #e9ebf0;
+  --bg-base: #f4f5f8;
+  --surface-1: #ffffff;
+  --surface-2: #f7f8fb;
+  --surface-3: #eef0f4;
+  --surface-inset: #e7e9ee;
+
+  /* ---- Glass ---- */
+  --glass-fill: rgba(255, 255, 255, 0.72);
+  --glass-tint: rgba(45, 226, 230, 0.05);
+
+  /* ---- Borders / hairlines (black alpha on light) ---- */
+  --border-subtle: rgba(15, 23, 42, 0.07);
+  --border-default: rgba(15, 23, 42, 0.12);
+  --border-strong: rgba(15, 23, 42, 0.18);
+
+  /* ---- Text (dark on light) ---- */
+  --text-primary: #1a2230;
+  --text-secondary: #48566b;
+  --text-tertiary: #6b7789;
+  --text-disabled: #a6afbe;
+  --text-inverse: #f4f5f8;
+
+  /* ---- Route *-fg: darkened for legibility on light tints ---- */
+  --route-planning-fg: #2469b8;
+  --route-scheduling-fg: #a96a10;
+  --route-query-fg: #0e8a6a;
+  --route-uncertain-fg: #5a548f;
+
+  /* ---- Accent-fg: darkened cyan (brand mark / focus text) ---- */
+  --accent-fg: #0b8a8f;
+}
+
 @layer base {
   html,
   body,

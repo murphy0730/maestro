@@ -26,3 +26,5 @@ export {
 // Streaming hooks
 export { useStreamingChat, type StreamingChatState, type StreamPhase } from './useStreamingChat';
 export { useStreamingQuery, type StreamingQueryState } from './useStreamingQuery';
+export { listSessions, createSession, getSessionMessages } from './sessions';
+export type { StoredMessage } from './sessions';

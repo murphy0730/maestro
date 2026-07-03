@@ -1,29 +1,50 @@
-import { Clock, Bell, Sun } from 'lucide-react';
+import { Clock, Bell, PanelLeftOpen } from 'lucide-react';
 import type { ActiveEngine } from '@/types';
 import { ROUTE_META } from '@/lib/routes';
 import { Badge } from '@/components/ui/Badge';
 
 /**
  * TopBar — session title + an engine indicator that follows the active route.
- * Pure presentational; clock is passed in so the bar stays stateless.
+ * Pure presentational; clock is passed in so the bar stays stateless. When the
+ * sidebar is collapsed, shows a leading button to expand it again.
  */
 interface TopBarProps {
   session: string;
   engine: ActiveEngine;
   clock: string;
   mesConnected?: boolean;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
-export function TopBar({ session, engine, clock, mesConnected = true }: TopBarProps) {
+export function TopBar({
+  session,
+  engine,
+  clock,
+  mesConnected = true,
+  sidebarCollapsed = false,
+  onToggleSidebar,
+}: TopBarProps) {
   const m = engine ? ROUTE_META[engine] : null;
   return (
     <header className="flex h-header flex-none items-center gap-[14px] border-b border-border-subtle bg-bg-sunken px-4">
+      {sidebarCollapsed && onToggleSidebar && (
+        <button
+          title="展开侧栏"
+          onClick={onToggleSidebar}
+          className="grid h-[30px] w-[30px] flex-none place-items-center rounded-md text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-1 hover:text-text-secondary"
+        >
+          <PanelLeftOpen size={16} />
+        </button>
+      )}
       <span className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap text-body-sm font-semibold text-text-primary">
         {session}
       </span>
 
       {m && (
-        <div className={`inline-flex h-7 items-center gap-2 rounded-pill border py-0 pl-[9px] pr-[11px] ${m.tintBg} ${m.border}`}>
+        <div
+          className={`inline-flex h-7 items-center gap-2 rounded-pill border py-0 pl-[9px] pr-[11px] ${m.tintBg} ${m.border}`}
+        >
           <span className={`h-2 w-2 rounded-full ${m.dot} ${m.glow}`} />
           <span className={`text-caption font-semibold ${m.fg}`}>{m.zh}引擎</span>
           <span className="font-mono text-[11px] text-text-tertiary">运行中</span>
@@ -42,11 +63,11 @@ export function TopBar({ session, engine, clock, mesConnected = true }: TopBarPr
         {clock}
       </span>
       <span className="h-[22px] w-px bg-border-default" />
-      <button title="通知" className="grid h-[30px] w-[30px] place-items-center rounded-md text-text-tertiary">
+      <button
+        title="通知"
+        className="grid h-[30px] w-[30px] place-items-center rounded-md text-text-tertiary"
+      >
         <Bell size={16} />
-      </button>
-      <button title="切换主题" className="grid h-[30px] w-[30px] place-items-center rounded-md text-text-tertiary">
-        <Sun size={16} />
       </button>
     </header>
   );

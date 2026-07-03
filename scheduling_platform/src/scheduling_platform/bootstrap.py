@@ -41,6 +41,7 @@ from scheduling_platform.foundation.kitting import KittingService
 from scheduling_platform.foundation.llm import LLMClient
 from scheduling_platform.foundation.master_data import MasterDataService
 from scheduling_platform.foundation.memory import ConversationMemory
+from scheduling_platform.foundation.session_store import SessionStore
 from scheduling_platform.foundation.tools.builtin import (
     QUERY_READONLY_TOOLS,
     SCHEDULING_TOOLS,
@@ -63,6 +64,7 @@ class Platform:
     pending: PendingActionStore
     gate: ActionGate
     memory: ConversationMemory
+    session_store: SessionStore
     llm: LLMClient
     tools: ToolRegistry
     strategy_registry: StrategyRegistry
@@ -99,7 +101,8 @@ def build_platform(
         settings.embed_api_key,
         settings.embed_model,
     )
-    memory = ConversationMemory()
+    session_store = SessionStore(settings.sessions_dir)
+    memory = ConversationMemory(session_store)
     master = MasterDataService(adapter)
     kitting = KittingService(adapter, audit)
     followups = FollowupStore()
@@ -157,6 +160,7 @@ def build_platform(
         pending=pending,
         gate=gate,
         memory=memory,
+        session_store=session_store,
         llm=llm,
         tools=tools,
         strategy_registry=strategy_registry,

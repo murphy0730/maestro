@@ -12,7 +12,7 @@ export const MOCK_SESSION = {
 export interface ConversationSummary {
   id: string;
   title: string;
-  engine: RouteEngine;
+  engine: RouteEngine | null;
   time: string;
 }
 

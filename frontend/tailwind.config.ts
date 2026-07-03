@@ -16,20 +16,20 @@ const config: Config = {
     extend: {
       colors: {
         // ---- Base backgrounds (depth: sunken < base < surfaces) ----
-        'bg-sunken': '#060910',
-        'bg-base': '#0A0E16',
-        'surface-1': '#10151F',
-        'surface-2': '#161D2A',
-        'surface-3': '#1E2736',
-        'surface-inset': '#0C1018',
+        'bg-sunken': 'var(--bg-sunken)',
+        'bg-base': 'var(--bg-base)',
+        'surface-1': 'var(--surface-1)',
+        'surface-2': 'var(--surface-2)',
+        'surface-3': 'var(--surface-3)',
+        'surface-inset': 'var(--surface-inset)',
 
         // ---- Text ----
-        'text-primary': '#E7EDF6',
-        'text-secondary': '#9DAABC',
-        'text-tertiary': '#647284',
-        'text-disabled': '#3C4757',
-        'text-on-color': '#06090F',
-        'text-inverse': '#0A0E16',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-tertiary': 'var(--text-tertiary)',
+        'text-disabled': 'var(--text-disabled)',
+        'text-on-color': 'var(--text-on-color)',
+        'text-inverse': 'var(--text-inverse)',
 
         // ---- Borders / hairlines (alpha → via CSS var) ----
         'border-subtle': 'var(--border-subtle)',
@@ -43,28 +43,28 @@ const config: Config = {
         // 排产 Planning — cool azure/blue
         planning: {
           DEFAULT: '#4C9DF7',
-          fg: '#8FC2FF',
+          fg: 'var(--route-planning-fg)',
           bg: 'var(--route-planning-bg)',
           border: 'var(--route-planning-border)',
         },
         // 调度 Scheduling — amber/orange
         scheduling: {
           DEFAULT: '#F7A53B',
-          fg: '#FFC676',
+          fg: 'var(--route-scheduling-fg)',
           bg: 'var(--route-scheduling-bg)',
           border: 'var(--route-scheduling-border)',
         },
         // 查询 Query — teal / 青绿
         query: {
           DEFAULT: '#16C79A',
-          fg: '#5EE0BE',
+          fg: 'var(--route-query-fg)',
           bg: 'var(--route-query-bg)',
           border: 'var(--route-query-border)',
         },
         // 不确定 Uncertain — muted slate-violet
         uncertain: {
           DEFAULT: '#8B86B8',
-          fg: '#B3AFD6',
+          fg: 'var(--route-uncertain-fg)',
           bg: 'var(--route-uncertain-bg)',
           border: 'var(--route-uncertain-border)',
         },
@@ -101,7 +101,7 @@ const config: Config = {
         accent: {
           DEFAULT: '#2DE2E6',
           strong: '#18C8D6',
-          fg: '#7CF1F2',
+          fg: 'var(--accent-fg)',
           bg: 'var(--accent-bg)',
           border: 'var(--accent-border)',
         },

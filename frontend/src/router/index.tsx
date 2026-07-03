@@ -1,12 +1,18 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, createHashRouter } from 'react-router-dom';
 import { Workspace } from '@/pages/Workspace';
 import { DesignTokens } from '@/pages/DesignTokens';
 
 /**
- * Routes. `/` is the main workspace (static UI, mock-driven);
- * `/design-tokens` keeps the token preview for design verification.
+ * Routes. `/` is the main workspace; `/design-tokens` is the token preview.
+ *
+ * Under Electron the app is served from `file://`, where history-based routing
+ * breaks — so use a hash router there and a browser router on the web.
  */
-export const router = createBrowserRouter([
+const isElectron =
+  typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
+const createRouter = isElectron ? createHashRouter : createBrowserRouter;
+
+export const router = createRouter([
   {
     path: '/',
     element: <Workspace />,

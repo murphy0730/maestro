@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "electron:dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
+    "electron:preview": "vite build --mode electron && electron .",
+    "electron:build": "vite build --mode electron && electron-builder"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.51.0",
@@ -28,6 +32,9 @@
     "@typescript-eslint/parser": "^7.16.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "concurrently": "^9.2.3",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^4.6.2",
@@ -37,11 +44,34 @@
     "prettier": "^3.3.3",
     "tailwindcss": "^3.4.6",
     "typescript": "^5.4.5",
-    "vite": "^5.3.4"
+    "vite": "^5.3.4",
+    "wait-on": "^8.0.5"
   },
   "msw": {
     "workerDirectory": [
       "public"
     ]
+  },
+  "build": {
+    "appId": "com.maestro.scheduling",
+    "productName": "Maestro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
   }
 }

@@ -54,3 +54,6 @@ class Settings(BaseSettings):
     audit_log_file: Path | None = Field(
         default_factory=lambda: project_root() / "logs" / "audit.jsonl"
     )
+    sessions_dir: Path = Field(
+        default_factory=lambda: project_root() / "data" / "sessions"
+    )
