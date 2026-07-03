@@ -142,7 +142,9 @@ def build_platform(
     vectorstore = VectorStore(embedder)
     loaders = build_loader_registry()
     chunker = Chunker()
-    ingestor = KnowledgeIngestor(vectorstore, loaders, chunker, settings.knowledge_dir)
+    ingestor = KnowledgeIngestor(
+        vectorstore, loaders, chunker, settings.knowledge_dir, settings.knowledge_upload_dir
+    )
     retriever = KnowledgeRetriever(vectorstore, ingestor, settings.rag_top_k)
     query_engine = QueryEngine(
         llm, tools, retriever, adapter, QUERY_READONLY_TOOLS, settings.rag_top_k

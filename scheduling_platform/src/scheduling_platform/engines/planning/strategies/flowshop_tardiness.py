@@ -84,7 +84,9 @@ class FlowShopTardiness(PlanningStrategy):
             model.AddExactlyOne(presences)
             # 完工日索引 ≤ due_day_index+1 视为不拖期 (end 为排他右边界)
             due_index = (o.due_date - data.today).days + 1
-            tard = model.NewIntVar(0, horizon * 2, f"tard_{o.order_id}")
+            # 上界须覆盖已过期订单 (due_index<0 时最大拖期 = horizon - due_index)，
+            # 否则过期订单会让模型整体 infeasible 而非产出大拖期解
+            tard = model.NewIntVar(0, max(horizon * 2, horizon - due_index), f"tard_{o.order_id}")
             model.Add(tard >= end_o - due_index)
             tardiness_vars.append(tard)
             order_vars[o.order_id] = {"options": options, "end": end_o, "tard": tard}
