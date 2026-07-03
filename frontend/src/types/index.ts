@@ -7,6 +7,8 @@
  */
 export * from './api';
 
+import type { PendingActionPayload } from './api';
+
 export type RouteEngine = 'planning' | 'scheduling' | 'query' | 'uncertain';
 
 export type AuthLevel = 'auto' | 'confirm';
@@ -59,6 +61,8 @@ export interface AgentMessage extends BaseMessage {
   handoff?: boolean;
   /** True while this turn is still streaming in (live, uncommitted). */
   streaming?: boolean;
+  /** Write actions awaiting human confirmation (rendered as confirm cards). */
+  pendingActions?: PendingActionPayload[];
 }
 
 export interface ClarifyMessage extends BaseMessage {

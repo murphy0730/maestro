@@ -1,4 +1,11 @@
-import type { ChatStreamEvent, ChatStreamRequest, ClarifyRequest } from '@/types';
+import type {
+  ChatStreamEvent,
+  ChatStreamRequest,
+  ClarifyRequest,
+  ConfirmActionRequest,
+  ConfirmActionResponse,
+} from '@/types';
+import { apiPost } from './client';
 import { streamSse } from './streaming';
 
 /**
@@ -26,4 +33,16 @@ export async function* clarifyChat(
   for await (const msg of streamSse('/chat/clarify', req, signal)) {
     yield msg as ChatStreamEvent;
   }
+}
+
+/**
+ * `POST /chat/confirm` — approve or reject a pending write action held by
+ * the backend ActionGate. Non-streaming; returns the gate's reply and the
+ * resolved action (status executed / rejected / failed).
+ */
+export function confirmChatAction(
+  req: ConfirmActionRequest,
+  signal?: AbortSignal,
+): Promise<ConfirmActionResponse> {
+  return apiPost<ConfirmActionResponse>('/chat/confirm', req, { signal });
 }

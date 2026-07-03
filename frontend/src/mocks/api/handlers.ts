@@ -91,7 +91,11 @@ export const handlers = [
   http.patch(url('/sessions/:sessionId'), async ({ params, request }) => {
     const body = (await request.json()) as { title?: string };
     const sess = mockSessions.find((s) => s.session_id === params.sessionId);
-    if (!sess) return HttpResponse.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, { status: 404 });
+    if (!sess)
+      return HttpResponse.json(
+        { error: { code: 'NOT_FOUND', message: 'session not found' } },
+        { status: 404 },
+      );
     sess.title = body.title?.trim() || '新对话';
     sess.updated_at = new Date().toISOString();
     return HttpResponse.json(sess);
@@ -100,7 +104,11 @@ export const handlers = [
   http.delete(url('/sessions/:sessionId'), ({ params }) => {
     const sid = params.sessionId as string;
     const idx = mockSessions.findIndex((s) => s.session_id === sid);
-    if (idx < 0) return HttpResponse.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, { status: 404 });
+    if (idx < 0)
+      return HttpResponse.json(
+        { error: { code: 'NOT_FOUND', message: 'session not found' } },
+        { status: 404 },
+      );
     mockSessions.splice(idx, 1);
     delete mockMessages[sid];
     return HttpResponse.json({ deleted: true, session_id: sid });
@@ -164,6 +172,23 @@ export const handlers = [
       },
       { event: 'done', data: { message_id: `msg-${Date.now()}` }, delay: 60 },
     ]);
+  }),
+
+  http.post(url('/chat/confirm'), async ({ request }) => {
+    const body = (await request.json()) as { action_id: string; approved: boolean };
+    await delay(200);
+    return HttpResponse.json({
+      reply: body.approved ? `已执行动作 ${body.action_id}（mock）` : `已取消动作 ${body.action_id}`,
+      pending_actions: [
+        {
+          action_id: body.action_id,
+          action_type: 'mock_action',
+          description: '',
+          params: {},
+          status: body.approved ? 'executed' : 'rejected',
+        },
+      ],
+    });
   }),
 
   /* ---- Planning ---- */

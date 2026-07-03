@@ -50,7 +50,8 @@ export function Workspace() {
   const fallbackIdRef = useRef(crypto.randomUUID().replace(/-/g, ''));
   const currentSessionId = activeSessionId ?? fallbackIdRef.current;
 
-  const { send, selectClarification, liveMessage, isStreaming } = useOrchestrator(currentSessionId);
+  const { send, selectClarification, confirmPending, liveMessage, isStreaming } =
+    useOrchestrator(currentSessionId);
 
   const [route, setRoute] = useState<ComposerRoute>('auto');
 
@@ -267,7 +268,12 @@ export function Workspace() {
       }
       conversation={
         <>
-          <Thread messages={thread} author="周文涛" onClarifySelect={selectClarification} />
+          <Thread
+            messages={thread}
+            author="周文涛"
+            onClarifySelect={selectClarification}
+            onActionConfirm={confirmPending}
+          />
           {isLoading && (
             <div className="flex items-center justify-center py-4 text-caption text-text-tertiary">
               加载历史消息中…

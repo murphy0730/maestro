@@ -5,6 +5,7 @@ import { ROUTE_META } from '@/lib/routes';
 import { ChatMessage } from './ChatMessage';
 import { RouteBadge } from './RouteBadge';
 import { ClarificationCard } from './ClarificationCard';
+import { PendingActionsCard } from './PendingActionsCard';
 import { Markdown } from '@/components/ui/Markdown';
 
 /**
@@ -16,9 +17,11 @@ interface ThreadProps {
   messages: ChatMessageData[];
   author?: string;
   onClarifySelect?: (messageId: string, optionId: string, routeTo: RouteEngine) => void;
+  /** Approve/reject a pending write action (wired to `POST /chat/confirm`). */
+  onActionConfirm?: (messageId: string, actionId: string, approved: boolean) => void;
 }
 
-export function Thread({ messages, author = '李工', onClarifySelect }: ThreadProps) {
+export function Thread({ messages, author = '李工', onClarifySelect, onActionConfirm }: ThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Keep the latest message in view as the thread grows / streams.
   useEffect(() => {
@@ -87,6 +90,12 @@ export function Thread({ messages, author = '李工', onClarifySelect }: ThreadP
                   <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-accent" />
                   正在分析意图…
                 </p>
+              )}
+              {m.pendingActions && m.pendingActions.length > 0 && (
+                <PendingActionsCard
+                  actions={m.pendingActions}
+                  onConfirm={(actionId, approved) => onActionConfirm?.(m.id, actionId, approved)}
+                />
               )}
               {m.handoff && m.route && (
                 <div

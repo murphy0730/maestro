@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ChatMessageData, EngineType, IntentType, RouteEngine } from '@/types';
-import { useStreamingChat } from '@/api';
+import { confirmChatAction, useStreamingChat } from '@/api';
 import { ROUTE_META } from '@/lib/routes';
 import { useConversationStore } from '@/stores';
 
@@ -55,6 +55,7 @@ export function useOrchestrator(sessionId: string) {
         reason: c.route?.reason,
         text: c.text || undefined,
         handoff: !!c.context,
+        pendingActions: c.actions.length > 0 ? c.actions : undefined,
       });
       if (engine) activateEngine(engine);
       pendingRef.current = false;
@@ -108,6 +109,40 @@ export function useOrchestrator(sessionId: string) {
     [updateMessage, addMessage],
   );
 
+  /** Approve/reject a pending write action; reflect the outcome in-thread. */
+  const confirmPending = useCallback(
+    async (messageId: string, actionId: string, approved: boolean) => {
+      try {
+        const resp = await confirmChatAction({
+          session_id: sessionId,
+          action_id: actionId,
+          approved,
+        });
+        const resolved = resp.pending_actions.find((a) => a.action_id === actionId);
+        const msg = useConversationStore
+          .getState()
+          .messages.find((m) => m.id === messageId);
+        if (msg?.kind === 'agent' && msg.pendingActions) {
+          updateMessage(messageId, {
+            pendingActions: msg.pendingActions.map((a) =>
+              a.action_id === actionId
+                ? { ...a, status: resolved?.status ?? (approved ? 'executed' : 'rejected') }
+                : a,
+            ),
+          });
+        }
+        addMessage({ id: `sys-${Date.now()}`, kind: 'system', time: nowHM(), text: resp.reply });
+      } catch (err) {
+        addMessage({
+          id: `err-${Date.now()}`,
+          kind: 'system',
+          text: `确认失败：${err instanceof Error ? err.message : '未知错误'}`,
+        });
+      }
+    },
+    [sessionId, addMessage, updateMessage],
+  );
+
   // The live assistant bubble while the stream is active (before commit).
   const liveMessage = useMemo<ChatMessageData | null>(() => {
     if (chat.phase !== 'streaming') return null;
@@ -123,5 +158,11 @@ export function useOrchestrator(sessionId: string) {
     };
   }, [chat.phase, chat.route, chat.text]);
 
-  return { send, selectClarification, liveMessage, isStreaming: chat.phase === 'streaming' };
+  return {
+    send,
+    selectClarification,
+    confirmPending,
+    liveMessage,
+    isStreaming: chat.phase === 'streaming',
+  };
 }

@@ -70,7 +70,11 @@ export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promis
 }
 
 /** JSON POST. Throws {@link ApiError} on non-2xx. */
-export async function apiPost<T>(path: string, body: unknown, opts: RequestOptions = {}): Promise<T> {
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -82,7 +86,11 @@ export async function apiPost<T>(path: string, body: unknown, opts: RequestOptio
 }
 
 /** JSON PATCH. Throws {@link ApiError} on non-2xx. */
-export async function apiPatch<T>(path: string, body: unknown, opts: RequestOptions = {}): Promise<T> {
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -163,7 +171,10 @@ export function apiUpload<T>(
 }
 
 /** Build a full URL with query params, dropping null/undefined values. */
-export function withQuery(path: string, params: Record<string, string | number | null | undefined>): string {
+export function withQuery(
+  path: string,
+  params: Record<string, string | number | null | undefined>,
+): string {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v != null) qs.set(k, String(v));

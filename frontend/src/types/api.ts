@@ -91,12 +91,35 @@ export type ChatContextEvent =
   | { engine: 'scheduling'; payload: Record<string, unknown> }
   | { engine: 'query'; payload: Record<string, unknown> };
 
+/** A write action held by the ActionGate awaiting human confirmation. */
+export interface PendingActionPayload {
+  action_id: string;
+  action_type: string;
+  description: string;
+  params: Record<string, unknown>;
+  status: 'pending' | 'executed' | 'rejected' | 'failed';
+}
+
+/** 2.3 确认/拒绝待执行动作 — `POST /chat/confirm`. */
+export interface ConfirmActionRequest {
+  session_id: string;
+  action_id: string;
+  approved: boolean;
+}
+
+/** `POST /chat/confirm` response (non-streaming ChatResponse subset). */
+export interface ConfirmActionResponse {
+  reply: string;
+  pending_actions: PendingActionPayload[];
+}
+
 /** Discriminated union of every SSE event on `POST /chat/stream`. */
 export type ChatStreamEvent =
   | { event: 'route'; data: RouteDecision }
   | { event: 'token'; data: { delta: string } }
   | { event: 'clarify'; data: ClarifyPayload }
   | { event: 'context'; data: ChatContextEvent }
+  | { event: 'actions'; data: { actions: PendingActionPayload[] } }
   | { event: 'done'; data: { message_id: string } }
   | { event: 'error'; data: ApiErrorResponse };
 

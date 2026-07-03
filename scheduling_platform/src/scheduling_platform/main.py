@@ -151,6 +151,10 @@ async def _sse_from_response(resp: ChatResponse) -> AsyncIterator[str]:
     for chunk in _reply_chunks(resp.reply):
         yield _sse("token", {"delta": chunk})
         await asyncio.sleep(0.02)
+    # 待确认动作随流下发，前端渲染确认卡片 (确认/拒绝走 /chat/confirm)
+    pending = [a for a in resp.pending_actions if a.status == "pending"]
+    if pending:
+        yield _sse("actions", {"actions": [a.model_dump(mode="json") for a in pending]})
     yield _sse("done", {"message_id": f"msg-{uuid4().hex[:12]}"})
 
 

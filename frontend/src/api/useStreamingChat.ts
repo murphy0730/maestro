@@ -6,6 +6,7 @@ import type {
   ClarifyPayload,
   EngineType,
   IntentType,
+  PendingActionPayload,
   RouteDecision,
 } from '@/types';
 import { ApiError } from './client';
@@ -23,6 +24,8 @@ export interface StreamingChatState {
   clarify: ClarifyPayload | null;
   /** Latest Context Panel activation/update. */
   context: ChatContextEvent | null;
+  /** Write actions awaiting human confirmation (from the `actions` event). */
+  actions: PendingActionPayload[];
   /** Final message id from the `done` event. */
   messageId: string | null;
   error: ApiErrorBody | null;
@@ -34,6 +37,7 @@ const INITIAL: StreamingChatState = {
   text: '',
   clarify: null,
   context: null,
+  actions: [],
   messageId: null,
   error: null,
 };
@@ -76,6 +80,9 @@ export function useStreamingChat(sessionId: string) {
             break;
           case 'context':
             setState((s) => ({ ...s, context: evt.data }));
+            break;
+          case 'actions':
+            setState((s) => ({ ...s, actions: evt.data.actions }));
             break;
           case 'done':
             setState((s) => ({
