@@ -283,6 +283,45 @@ data: {
 }
 ```
 
+### 5.2 知识库文档增删改查（RAG 知识库管理）
+
+查询引擎选中时，前端右侧面板对知识库文档做增删改查；embedding 与 llm 均复用后端
+配置文件模型 (`EMBED_MODEL` / `LLM_MODEL`)。`KnowledgeDoc` 形状：
+```jsonc
+{
+  "doc_id": "kb_a1b2c3d4e5",
+  "name": "排产规则手册 v3.pdf",
+  "type": "pdf",              // 文件后缀 (不含点)
+  "chunk_count": 42,          // 已入库的向量片段数
+  "bytes": 183422,
+  "status": "ready",          // ready | failed(嵌入未配置，未参与检索)
+  "added_at": "2026-07-03T10:00:00Z"
+}
+```
+
+**列出（查）** `GET /knowledge`
+```jsonc
+{
+  "docs": [ /* KnowledgeDoc[] , 按 added_at 倒序 */ ],
+  "supported_extensions": [".md", ".txt", ".csv", ".html", ".pdf", ".docx"]
+}
+```
+
+**上传（增）** `POST /knowledge` — `multipart/form-data`，字段 `file`
+→ `200` 返回新建的 `KnowledgeDoc`。
+类型不支持 → `415`；单文件超 10MB → `413`。
+
+**修改（改）** `PUT /knowledge/{doc_id}` — `multipart/form-data`
+- 传 `file` → 换内容（删旧片段 + 重新入库到同一 `doc_id`）
+- 传 `name`（表单字段）→ 仅改显示名
+→ `200` 返回更新后的 `KnowledgeDoc`；`doc_id` 不存在 → `404`。
+
+**删除（删）** `DELETE /knowledge/{doc_id}`
+```jsonc
+{ "doc_id": "kb_a1b2c3d4e5", "removed_chunks": 42 }
+```
+`doc_id` 不存在 → `404`。
+
 ---
 
 ## 6. 可观测 — 决策日志
