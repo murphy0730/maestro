@@ -27,6 +27,23 @@ function isErrorResponse(value: unknown): value is ApiErrorResponse {
   );
 }
 
+/** FastAPI HTTPException shape: `{ "detail": "message" }`. */
+function detailMessage(body: unknown): string | undefined {
+  if (typeof body === 'object' && body !== null && 'detail' in body) {
+    const d = (body as { detail: unknown }).detail;
+    if (typeof d === 'string') return d;
+  }
+  return undefined;
+}
+
+/** Map either the contract envelope or FastAPI's `{detail}` into an ApiError. */
+function bodyToApiError(status: number, statusText: string, body: unknown): ApiError {
+  if (isErrorResponse(body)) return new ApiError(status, body.error);
+  const detail = detailMessage(body);
+  if (detail) return new ApiError(status, { code: 'HTTP_ERROR', message: detail });
+  return new ApiError(status, { code: 'HTTP_ERROR', message: `${status} ${statusText}` });
+}
+
 async function toApiError(res: Response): Promise<ApiError> {
   let body: unknown;
   try {
@@ -34,8 +51,7 @@ async function toApiError(res: Response): Promise<ApiError> {
   } catch {
     body = undefined;
   }
-  if (isErrorResponse(body)) return new ApiError(res.status, body.error);
-  return new ApiError(res.status, { code: 'HTTP_ERROR', message: `${res.status} ${res.statusText}` });
+  return bodyToApiError(res.status, res.statusText, body);
 }
 
 interface RequestOptions {
@@ -63,6 +79,75 @@ export async function apiPost<T>(path: string, body: unknown, opts: RequestOptio
   });
   if (!res.ok) throw await toApiError(res);
   return res.json() as Promise<T>;
+}
+
+/** JSON DELETE. Throws {@link ApiError} on non-2xx. */
+export async function apiDelete<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+    signal: opts.signal,
+  });
+  if (!res.ok) throw await toApiError(res);
+  return res.json() as Promise<T>;
+}
+
+export interface UploadOptions extends RequestOptions {
+  /** Upload progress 0–1 (fired repeatedly as bytes flush). */
+  onProgress?: (fraction: number) => void;
+}
+
+/**
+ * multipart/form-data upload via XMLHttpRequest — `fetch` cannot report upload
+ * progress, so we use XHR to drive the progress bar. Do NOT set Content-Type;
+ * the browser adds the multipart boundary. Throws {@link ApiError} on non-2xx.
+ */
+export function apiUpload<T>(
+  path: string,
+  form: FormData,
+  method: 'POST' | 'PUT' = 'POST',
+  opts: UploadOptions = {},
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, `${API_BASE}${path}`);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.responseType = 'text';
+
+    if (opts.onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) opts.onProgress!(e.loaded / e.total);
+      };
+    }
+
+    const parseError = (): ApiError => {
+      let body: unknown;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        body = undefined;
+      }
+      return bodyToApiError(xhr.status || 0, xhr.statusText, body);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        opts.onProgress?.(1);
+        resolve((xhr.responseText ? JSON.parse(xhr.responseText) : undefined) as T);
+      } else {
+        reject(parseError());
+      }
+    };
+    xhr.onerror = () =>
+      reject(new ApiError(0, { code: 'NETWORK_ERROR', message: '上传失败 (网络错误)' }));
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
+
+    if (opts.signal) {
+      if (opts.signal.aborted) return xhr.abort();
+      opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+    }
+    xhr.send(form);
+  });
 }
 
 /** Build a full URL with query params, dropping null/undefined values. */

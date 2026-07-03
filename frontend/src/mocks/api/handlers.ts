@@ -13,6 +13,8 @@ import {
   DISPATCH_ORDERS,
   EXCEPTION_IMPACT,
   KITTING,
+  KNOWLEDGE_DOCS,
+  KNOWLEDGE_SUPPORTED_EXTENSIONS,
   PLANNING_REPLY_TOKENS,
   QUERY_ANSWER_TOKENS,
   RAG_SOURCES,
@@ -21,6 +23,13 @@ import {
   SOLVE_RUNS,
   SOLVE_RUN_FEASIBLE,
 } from './fixtures';
+
+/** Estimate chunk count from byte size so uploads look plausible. */
+const estChunks = (bytes: number) => Math.max(1, Math.round(bytes / 300));
+const extOf = (name: string) => {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot).toLowerCase() : '';
+};
 
 const url = (path: string) => `${API_BASE}${path}`;
 
@@ -131,6 +140,68 @@ export const handlers = [
       { event: 'sources', data: { sources: RAG_SOURCES }, delay: 200 },
       { event: 'done', data: { message_id: `msg-${Date.now()}` }, delay: 60 },
     ]);
+  }),
+
+  /* ---- Knowledge base (RAG CRUD) ---- */
+  http.get(url('/knowledge'), async () => {
+    await delay(150);
+    return HttpResponse.json({
+      docs: [...KNOWLEDGE_DOCS].sort((a, b) => b.added_at.localeCompare(a.added_at)),
+      supported_extensions: KNOWLEDGE_SUPPORTED_EXTENSIONS,
+    });
+  }),
+
+  http.post(url('/knowledge'), async ({ request }) => {
+    const form = await request.formData();
+    const file = form.get('file') as File | null;
+    if (!file) return HttpResponse.json({ detail: '缺少 file 字段' }, { status: 400 });
+    const ext = extOf(file.name);
+    if (!KNOWLEDGE_SUPPORTED_EXTENSIONS.includes(ext)) {
+      return HttpResponse.json({ detail: `不支持的文件类型 '${ext}'` }, { status: 415 });
+    }
+    await delay(700); // let the progress bar animate
+    const doc = {
+      doc_id: `kb_${Math.random().toString(36).slice(2, 12)}`,
+      name: file.name,
+      type: ext.replace('.', ''),
+      chunk_count: estChunks(file.size),
+      bytes: file.size,
+      status: 'ready' as const,
+      added_at: new Date().toISOString(),
+    };
+    KNOWLEDGE_DOCS.push(doc);
+    return HttpResponse.json(doc);
+  }),
+
+  http.put(url('/knowledge/:docId'), async ({ params, request }) => {
+    const { docId } = params as { docId: string };
+    const doc = KNOWLEDGE_DOCS.find((d) => d.doc_id === docId);
+    if (!doc) return HttpResponse.json({ detail: `文档不存在: ${docId}` }, { status: 404 });
+    const form = await request.formData();
+    const file = form.get('file') as File | null;
+    const name = form.get('name');
+    if (file) {
+      await delay(700);
+      doc.name = file.name;
+      doc.type = extOf(file.name).replace('.', '');
+      doc.bytes = file.size;
+      doc.chunk_count = estChunks(file.size);
+    } else if (typeof name === 'string') {
+      await delay(200);
+      doc.name = name;
+    } else {
+      return HttpResponse.json({ detail: '需提供 file 或 name' }, { status: 400 });
+    }
+    return HttpResponse.json(doc);
+  }),
+
+  http.delete(url('/knowledge/:docId'), async ({ params }) => {
+    const { docId } = params as { docId: string };
+    const idx = KNOWLEDGE_DOCS.findIndex((d) => d.doc_id === docId);
+    if (idx < 0) return HttpResponse.json({ detail: `文档不存在: ${docId}` }, { status: 404 });
+    await delay(300);
+    const [removed] = KNOWLEDGE_DOCS.splice(idx, 1);
+    return HttpResponse.json({ doc_id: docId, removed_chunks: removed.chunk_count });
   }),
 
   /* ---- Audit ---- */

@@ -2,7 +2,7 @@ import { PanelRight } from 'lucide-react';
 import type { ActiveEngine } from '@/types';
 import { PlanningPanel } from '@/features/planning/PlanningPanel';
 import { SchedulingPanel } from '@/features/scheduling/SchedulingPanel';
-import { QueryPanel } from '@/features/query/QueryPanel';
+import { KnowledgeManager } from '@/features/query/KnowledgeManager';
 
 /**
  * ContextPanelHost — the shell that swaps the right panel's content to match
@@ -33,7 +33,7 @@ export function ContextPanelHost({ engine, onClose }: ContextPanelHostProps) {
     case 'scheduling':
       return <SchedulingPanel onClose={onClose} />;
     case 'query':
-      return <QueryPanel onClose={onClose} />;
+      return <KnowledgeManager onClose={onClose} />;
     default:
       return <EmptyPanel />;
   }

@@ -226,7 +226,8 @@ def _ingestor():
 
 @app.get("/knowledge")
 async def list_knowledge():
-    """列出知识库全部文档 (供前端管理列表)。"""
+    """列出知识库全部文档 (供前端管理列表)。首次访问时惰性加载种子知识库。"""
+    await _ingestor().seed_from_directory()
     docs = _ingestor().list_docs()
     return {
         "docs": [d.model_dump(mode="json") for d in docs],

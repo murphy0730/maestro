@@ -2,13 +2,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ExecuteActionRequest,
   ExecuteActionResponse,
+  KnowledgeDoc,
+  KnowledgeListResponse,
   SolveRequest,
   SolveRun,
 } from '@/types';
+import type { UploadOptions } from './client';
 import { queryKeys } from './queryKeys';
 import { getSolveRuns, solve } from './planning';
 import { executeAction, getDispatchOrders, getExceptionImpact, getKitting } from './scheduling';
 import { getAuditTimeline } from './query';
+import {
+  deleteKnowledge,
+  listKnowledge,
+  renameKnowledge,
+  replaceKnowledge,
+  uploadKnowledge,
+} from './knowledge';
 
 /* ============================================================
    Planning
@@ -82,5 +92,69 @@ export function useAuditTimeline(sessionId: string, enabled = true) {
     queryKey: queryKeys.audit.timeline(sessionId),
     queryFn: ({ signal }) => getAuditTimeline(sessionId, signal),
     enabled: enabled && !!sessionId,
+  });
+}
+
+/* ============================================================
+   Knowledge base (RAG documents CRUD)
+   ============================================================ */
+
+/** List knowledge-base documents (drives the RAG management panel). */
+export function useKnowledgeDocs(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.knowledge.list(),
+    queryFn: ({ signal }) => listKnowledge(signal),
+    enabled,
+  });
+}
+
+/** Upload a file; onProgress drives the per-file progress bar. */
+export function useUploadKnowledge() {
+  const qc = useQueryClient();
+  return useMutation<KnowledgeDoc, Error, { file: File; opts?: UploadOptions }>({
+    mutationFn: ({ file, opts }) => uploadKnowledge(file, opts),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.knowledge.list() }),
+  });
+}
+
+/** Replace a document's content (change). */
+export function useReplaceKnowledge() {
+  const qc = useQueryClient();
+  return useMutation<KnowledgeDoc, Error, { docId: string; file: File; opts?: UploadOptions }>({
+    mutationFn: ({ docId, file, opts }) => replaceKnowledge(docId, file, opts),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.knowledge.list() }),
+  });
+}
+
+/** Rename a document (change). */
+export function useRenameKnowledge() {
+  const qc = useQueryClient();
+  return useMutation<KnowledgeDoc, Error, { docId: string; name: string }>({
+    mutationFn: ({ docId, name }) => renameKnowledge(docId, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.knowledge.list() }),
+  });
+}
+
+/** Delete a document, optimistically dropping it from the cached list. */
+export function useDeleteKnowledge() {
+  const qc = useQueryClient();
+  const key = queryKeys.knowledge.list();
+  return useMutation<{ doc_id: string; removed_chunks: number }, Error, string, { prev?: KnowledgeListResponse }>({
+    mutationFn: (docId) => deleteKnowledge(docId),
+    onMutate: async (docId) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<KnowledgeListResponse>(key);
+      if (prev) {
+        qc.setQueryData<KnowledgeListResponse>(key, {
+          ...prev,
+          docs: prev.docs.filter((d) => d.doc_id !== docId),
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _docId, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
   });
 }

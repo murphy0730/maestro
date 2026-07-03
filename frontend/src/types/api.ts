@@ -277,6 +277,40 @@ export type QueryStreamEvent =
   | { event: 'done'; data: { message_id: string } }
   | { event: 'error'; data: ApiErrorResponse };
 
+/* ------------------------------------------------------------
+   5.2 Knowledge base documents (RAG CRUD)
+   ------------------------------------------------------------ */
+
+/** `failed` = embedding not configured, so the doc isn't retrievable. */
+export type KnowledgeDocStatus = 'ready' | 'failed';
+
+/** One document in the RAG knowledge base. */
+export interface KnowledgeDoc {
+  doc_id: string;
+  name: string;
+  /** File extension without the dot: md / pdf / docx … */
+  type: string;
+  /** Number of embedded chunks currently in the vector store. */
+  chunk_count: number;
+  bytes: number;
+  status: KnowledgeDocStatus;
+  /** ISO datetime */
+  added_at: string;
+}
+
+/** `GET /knowledge` response. */
+export interface KnowledgeListResponse {
+  docs: KnowledgeDoc[];
+  /** Accepted upload extensions (with dot), for client-side validation. */
+  supported_extensions: string[];
+}
+
+/** `DELETE /knowledge/{doc_id}` response. */
+export interface KnowledgeDeleteResponse {
+  doc_id: string;
+  removed_chunks: number;
+}
+
 /* ============================================================
    6. Observability — decision log
    ============================================================ */
