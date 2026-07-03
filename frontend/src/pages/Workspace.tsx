@@ -32,6 +32,7 @@ export function Workspace() {
   const messages = useConversationStore((s) => s.messages);
   const activeEngine = useConversationStore((s) => s.activeEngine);
   const contextPanelOpen = useConversationStore((s) => s.contextPanelOpen);
+  const activateEngine = useConversationStore((s) => s.activateEngine);
   const closeContextPanel = useConversationStore((s) => s.closeContextPanel);
   const resetThread = useConversationStore((s) => s.resetThread);
 
@@ -52,6 +53,16 @@ export function Workspace() {
   const { send, selectClarification, liveMessage, isStreaming } = useOrchestrator(currentSessionId);
 
   const [route, setRoute] = useState<ComposerRoute>('auto');
+
+  /**
+   * Selecting the query route opens the RAG knowledge-base manager on the right
+   * immediately (the middle thread then converses against that knowledge base).
+   * Other routes leave panel activation to the streaming `context` event.
+   */
+  const handleRouteChange = (next: ComposerRoute) => {
+    setRoute(next);
+    if (next === 'query') activateEngine('query');
+  };
   const [mode, setMode] = useState<ComposerMode>('plan');
   const [clock, setClock] = useState('--:--:--');
   const [isLoading, setIsLoading] = useState(false);
@@ -266,7 +277,7 @@ export function Workspace() {
             onSend={(text) => send(text, route === 'auto' ? null : route)}
             route={route}
             mode={mode}
-            onRouteChange={setRoute}
+            onRouteChange={handleRouteChange}
             onModeChange={setMode}
           />
         </>

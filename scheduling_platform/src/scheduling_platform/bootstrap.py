@@ -21,6 +21,7 @@ from scheduling_platform.engines.planning.strategies.flowshop_tardiness import F
 from scheduling_platform.engines.planning.strategies.jobshop_makespan import JobShopMakespan
 from scheduling_platform.engines.planning.strategies.simple_dispatch import SimpleDispatch
 from scheduling_platform.engines.planning.validator import PlanValidator
+from scheduling_platform.engines.query.ingestor import KnowledgeIngestor
 from scheduling_platform.engines.query.query_engine import QueryEngine
 from scheduling_platform.engines.query.retriever import KnowledgeRetriever
 from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
@@ -34,11 +35,13 @@ from scheduling_platform.events.handlers import register_event_handlers
 from scheduling_platform.events.scheduler import PatrolScheduler
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import ActionGate, AuthZ, PendingActionStore
+from scheduling_platform.foundation.chunking import Chunker
 from scheduling_platform.foundation.embedding import EmbeddingClient
 from scheduling_platform.foundation.integration.base import IntegrationAdapter
 from scheduling_platform.foundation.integration.mock_adapter import MockAdapter
 from scheduling_platform.foundation.kitting import KittingService
 from scheduling_platform.foundation.llm import LLMClient
+from scheduling_platform.foundation.loaders import build_loader_registry
 from scheduling_platform.foundation.master_data import MasterDataService
 from scheduling_platform.foundation.memory import ConversationMemory
 from scheduling_platform.foundation.session_store import SessionStore
@@ -71,6 +74,7 @@ class Platform:
     planning_engine: PlanningEngine
     scheduling_engine: SchedulingEngine
     query_engine: QueryEngine
+    ingestor: KnowledgeIngestor
     orchestrator: Orchestrator
     bus: EventBus
     patrol: PatrolScheduler
@@ -132,10 +136,14 @@ def build_platform(
         extractor, selector, strategy_registry, master, PlanValidator(), llm, audit, memory
     )
 
-    # 查询引擎 (RAG + LLM): 向量库 + 知识检索器 + 只读工具
+    # 查询引擎 (RAG + LLM): 向量库 + 摄取管线 + 知识检索器 + 只读工具
+    # embedding 与 llm 均复用同一份配置 (Settings.embed_* / llm_*)，此处只注入实例。
     embedder = EmbeddingClient(llm)
     vectorstore = VectorStore(embedder)
-    retriever = KnowledgeRetriever(vectorstore, settings.knowledge_dir, settings.rag_top_k)
+    loaders = build_loader_registry()
+    chunker = Chunker()
+    ingestor = KnowledgeIngestor(vectorstore, loaders, chunker, settings.knowledge_dir)
+    retriever = KnowledgeRetriever(vectorstore, ingestor, settings.rag_top_k)
     query_engine = QueryEngine(
         llm, tools, retriever, adapter, QUERY_READONLY_TOOLS, settings.rag_top_k
     )
@@ -167,6 +175,7 @@ def build_platform(
         planning_engine=planning_engine,
         scheduling_engine=scheduling_engine,
         query_engine=query_engine,
+        ingestor=ingestor,
         orchestrator=orchestrator,
         bus=bus,
         patrol=patrol,

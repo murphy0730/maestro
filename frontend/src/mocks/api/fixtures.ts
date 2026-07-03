@@ -10,6 +10,7 @@ import type {
   ExceptionImpactResponse,
   GanttData,
   KittingResponse,
+  KnowledgeDoc,
   RagSource,
   RouteDecision,
   SolveRun,
@@ -191,6 +192,50 @@ export const RAG_SOURCES: RagSource[] = [
     section: '§4.2 产线产能基线 · 附表 3',
     snippet: '近 30 日班产峰值 1,460、均值 1,210，满足 1,440 上限需求。',
     relevance: 0.88,
+  },
+];
+
+/* ---- Knowledge base (RAG CRUD) ----
+   Mutable in-memory store so the dev UI can add/rename/replace/delete without
+   a backend. Seeded to mirror the backend's data/mock/knowledge/ files. */
+
+export const KNOWLEDGE_SUPPORTED_EXTENSIONS = [
+  '.md',
+  '.markdown',
+  '.txt',
+  '.csv',
+  '.html',
+  '.pdf',
+  '.docx',
+];
+
+export const KNOWLEDGE_DOCS: KnowledgeDoc[] = [
+  {
+    doc_id: 'seed_kitting-definition',
+    name: 'kitting-definition.md',
+    type: 'md',
+    chunk_count: 4,
+    bytes: 1192,
+    status: 'ready',
+    added_at: '2026-07-01T02:15:00Z',
+  },
+  {
+    doc_id: 'seed_scheduling-concepts',
+    name: 'scheduling-concepts.md',
+    type: 'md',
+    chunk_count: 6,
+    bytes: 1339,
+    status: 'ready',
+    added_at: '2026-07-01T02:15:00Z',
+  },
+  {
+    doc_id: 'seed_exception-handling',
+    name: 'exception-handling.md',
+    type: 'md',
+    chunk_count: 5,
+    bytes: 1722,
+    status: 'ready',
+    added_at: '2026-07-01T02:15:00Z',
   },
 ];
 

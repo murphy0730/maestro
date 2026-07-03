@@ -11,13 +11,15 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from scheduling_platform.bootstrap import build_platform
 from scheduling_platform.domain.models import SystemEvent
+from scheduling_platform.engines.query.ingestor import DocumentNotFound
+from scheduling_platform.foundation.loaders import UnsupportedFileType
 from scheduling_platform.orchestrator.schemas import ChatResponse
 
 logger = logging.getLogger(__name__)
@@ -302,6 +304,78 @@ async def delete_session(session_id: str):
 async def get_session_messages(session_id: str):
     """获取指定会话的完整消息历史。"""
     return app.state.platform.session_store.get_messages(session_id)
+
+
+# ── 知识库文档 CRUD (RAG 知识库前端增删改查) ─────────────────────
+# embedding / llm 复用配置文件模型；此处只暴露文档管理，检索/生成仍在查询引擎内。
+
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 单文件上限 10MB
+
+
+class RenameRequest(BaseModel):
+    name: str
+
+
+def _ingestor():
+    return app.state.platform.ingestor
+
+
+@app.get("/knowledge")
+async def list_knowledge():
+    """列出知识库全部文档 (供前端管理列表)。首次访问时惰性加载种子知识库。"""
+    await _ingestor().seed_from_directory()
+    docs = _ingestor().list_docs()
+    return {
+        "docs": [d.model_dump(mode="json") for d in docs],
+        "supported_extensions": _ingestor().supported_extensions,
+    }
+
+
+@app.post("/knowledge")
+async def add_knowledge(file: UploadFile = File(...)):
+    """上传一个文件入库 (增)。类型不支持 → 415；过大 → 413。"""
+    data = await file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="文件超过 10MB 上限")
+    try:
+        doc = await _ingestor().add_upload(file.filename or "untitled", data)
+    except UnsupportedFileType as e:
+        raise HTTPException(status_code=415, detail=str(e)) from e
+    return doc.model_dump(mode="json")
+
+
+@app.put("/knowledge/{doc_id}")
+async def update_knowledge(
+    doc_id: str,
+    file: UploadFile | None = File(None),
+    name: str | None = Form(None),
+):
+    """改: 传 file 换内容，传 name 改显示名 (二者可其一)。"""
+    try:
+        if file is not None:
+            data = await file.read()
+            if len(data) > _MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="文件超过 10MB 上限")
+            doc = await _ingestor().replace(doc_id, file.filename or "untitled", data)
+        elif name is not None:
+            doc = _ingestor().rename(doc_id, name)
+        else:
+            raise HTTPException(status_code=400, detail="需提供 file 或 name")
+    except DocumentNotFound as e:
+        raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}") from e
+    except UnsupportedFileType as e:
+        raise HTTPException(status_code=415, detail=str(e)) from e
+    return doc.model_dump(mode="json")
+
+
+@app.delete("/knowledge/{doc_id}")
+async def delete_knowledge(doc_id: str):
+    """删除文档及其向量片段 (删)。"""
+    try:
+        removed = _ingestor().remove(doc_id)
+    except DocumentNotFound as e:
+        raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}") from e
+    return {"doc_id": doc_id, "removed_chunks": removed}
 
 
 @app.get("/health")

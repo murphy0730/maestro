@@ -15,4 +15,7 @@ export const queryKeys = {
   audit: {
     timeline: (sessionId: string) => ['audit', 'timeline', sessionId] as const,
   },
+  knowledge: {
+    list: () => ['knowledge', 'list'] as const,
+  },
 } as const;
