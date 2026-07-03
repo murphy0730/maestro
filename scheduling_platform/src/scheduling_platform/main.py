@@ -358,13 +358,14 @@ class CreateSessionRequest(BaseModel):
 @app.get("/sessions")
 async def list_sessions():
     """列出所有历史会话（按最近更新倒序）。"""
-    return [s.model_dump() for s in app.state.platform.session_store.list_all()]
+    sessions = await asyncio.to_thread(app.state.platform.session_store.list_all)
+    return [s.model_dump() for s in sessions]
 
 
 @app.post("/sessions")
 async def create_session(req: CreateSessionRequest):
     """新建会话，返回会话元数据（含新生成的 session_id）。"""
-    meta = app.state.platform.session_store.create(req.title)
+    meta = await asyncio.to_thread(app.state.platform.session_store.create, req.title)
     return meta.model_dump()
 
 
@@ -378,14 +379,14 @@ async def rename_session(session_id: str, req: UpdateSessionRequest):
     store = app.state.platform.session_store
     if store.get(session_id) is None:
         raise HTTPException(status_code=404, detail="session not found")
-    store.update_title(session_id, req.title.strip() or "新对话")
+    await asyncio.to_thread(store.update_title, session_id, req.title.strip() or "新对话")
     return store.get(session_id).model_dump()
 
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     """删除会话及其消息历史。"""
-    ok = app.state.platform.session_store.delete(session_id)
+    ok = await asyncio.to_thread(app.state.platform.session_store.delete, session_id)
     if not ok:
         raise HTTPException(status_code=404, detail="session not found")
     return {"deleted": True, "session_id": session_id}
@@ -394,7 +395,7 @@ async def delete_session(session_id: str):
 @app.get("/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str):
     """获取指定会话的完整消息历史。"""
-    return app.state.platform.session_store.get_messages(session_id)
+    return await asyncio.to_thread(app.state.platform.session_store.get_messages, session_id)
 
 
 # ── 知识库文档 CRUD (RAG 知识库前端增删改查) ─────────────────────
