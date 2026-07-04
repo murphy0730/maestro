@@ -100,7 +100,12 @@ export function useOrchestrator(sessionId: string) {
     (messageId: string, optionId: string, routeTo: IntentType) => {
       updateMessage(messageId, { selectedOptionId: optionId });
       const zh = routeTo === 'uncertain' ? '澄清' : ROUTE_META[routeTo].zh;
-      addMessage({ id: `sys-${Date.now()}`, kind: 'system', time: nowHM(), text: `已选择 · 路由至 ${zh}引擎` });
+      addMessage({
+        id: `sys-${Date.now()}`,
+        kind: 'system',
+        time: nowHM(),
+        text: `已选择 · 路由至 ${zh}引擎`,
+      });
       turnIdRef.current = `a-${Date.now()}`;
       turnTimeRef.current = nowHM();
       pendingRef.current = true;
@@ -119,9 +124,7 @@ export function useOrchestrator(sessionId: string) {
           approved,
         });
         const resolved = resp.pending_actions.find((a) => a.action_id === actionId);
-        const msg = useConversationStore
-          .getState()
-          .messages.find((m) => m.id === messageId);
+        const msg = useConversationStore.getState().messages.find((m) => m.id === messageId);
         if (msg?.kind === 'agent' && msg.pendingActions) {
           updateMessage(messageId, {
             pendingActions: msg.pendingActions.map((a) =>

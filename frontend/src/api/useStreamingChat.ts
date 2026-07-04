@@ -102,7 +102,10 @@ export function useStreamingChat(sessionId: string) {
       const body: ApiErrorBody =
         err instanceof ApiError
           ? { code: err.code, message: err.message, detail: err.detail }
-          : { code: 'STREAM_ERROR', message: err instanceof Error ? err.message : 'Unknown stream error' };
+          : {
+              code: 'STREAM_ERROR',
+              message: err instanceof Error ? err.message : 'Unknown stream error',
+            };
       setState((s) => ({ ...s, error: body, phase: 'error' }));
     }
   }, []);
@@ -112,7 +115,9 @@ export function useStreamingChat(sessionId: string) {
       controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
-      setState((s) => (reset ? { ...INITIAL, phase: 'streaming' } : { ...s, phase: 'streaming', error: null }));
+      setState((s) =>
+        reset ? { ...INITIAL, phase: 'streaming' } : { ...s, phase: 'streaming', error: null },
+      );
       void consume(gen(controller.signal));
     },
     [consume],
@@ -121,7 +126,11 @@ export function useStreamingChat(sessionId: string) {
   /** Send a user message. `currentEngine` carries session stickiness. */
   const send = useCallback(
     (message: string, currentEngine: EngineType | null = null) => {
-      start((signal) => streamChat({ session_id: sessionId, message, current_engine: currentEngine }, signal), true);
+      start(
+        (signal) =>
+          streamChat({ session_id: sessionId, message, current_engine: currentEngine }, signal),
+        true,
+      );
     },
     [sessionId, start],
   );
@@ -130,7 +139,8 @@ export function useStreamingChat(sessionId: string) {
   const selectClarification = useCallback(
     (optionId: string, routeTo: IntentType) => {
       start(
-        (signal) => clarifyChat({ session_id: sessionId, option_id: optionId, route_to: routeTo }, signal),
+        (signal) =>
+          clarifyChat({ session_id: sessionId, option_id: optionId, route_to: routeTo }, signal),
         false,
       );
     },

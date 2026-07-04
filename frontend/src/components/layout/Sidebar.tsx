@@ -15,12 +15,17 @@ import {
 import type { ConversationSummary } from '@/mocks/session';
 import type { Theme } from '@/stores';
 import { ROUTE_META } from '@/lib/routes';
+import { isMacDesktop } from '@/lib/platform';
+import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
 
 /**
  * Sidebar — the left rail: brand mark, a "new conversation" action, the
  * conversation history list, and a user/settings footer. Each history row has a
  * kebab menu (rename inline / delete); the brand header carries a collapse
  * toggle. Presentational; all mutations are driven by callbacks from the parent.
+ *
+ * On the macOS Electron shell (hiddenInset titlebar) the brand row doubles as
+ * the window drag region and is inset to clear the traffic lights.
  */
 interface SidebarProps {
   appName: string;
@@ -103,10 +108,14 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex w-sidebar flex-none flex-col border-r border-border-subtle bg-bg-sunken">
-      {/* Brand */}
-      <div className="flex h-header flex-none items-center gap-[10px] border-b border-border-subtle px-4">
-        <span className="grid h-7 w-7 flex-none place-items-center rounded-md border border-accent-border bg-accent-bg text-accent-fg shadow-glow-accent-sm">
+    <aside className="material-chrome flex w-sidebar flex-none flex-col border-r border-border-subtle">
+      {/* Brand — window drag region on macOS desktop, inset past traffic lights */}
+      <div
+        className={`flex h-header flex-none items-center gap-[10px] border-b border-border-subtle pr-4 ${
+          isMacDesktop ? 'app-drag pl-traffic' : 'pl-4'
+        }`}
+      >
+        <span className="grid h-7 w-7 flex-none place-items-center rounded-md bg-gradient-to-b from-accent to-accent-strong text-text-on-color shadow-elev-1">
           <Boxes size={16} />
         </span>
         <div className="flex min-w-0 flex-col leading-none">
@@ -118,7 +127,7 @@ export function Sidebar({
         <button
           title="折叠侧栏"
           onClick={onCollapse}
-          className="ml-auto grid h-[28px] w-[28px] flex-none place-items-center rounded-md text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-1 hover:text-text-secondary"
+          className="app-no-drag ml-auto grid h-[28px] w-[28px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
         >
           <PanelLeftClose size={16} />
         </button>
@@ -128,7 +137,7 @@ export function Sidebar({
       <div className="flex-none p-3">
         <button
           onClick={onNewConversation}
-          className="inline-flex h-[34px] w-full items-center justify-center gap-[7px] rounded-md border border-border-default bg-surface-2 text-body-sm font-semibold text-text-primary shadow-inset-top-hi transition-colors duration-fast ease-out hover:bg-surface-3"
+          className="inline-flex h-control w-full items-center justify-center gap-[7px] rounded-md border border-border-default bg-surface-1 text-body-sm font-semibold text-text-primary shadow-elev-1 transition-colors duration-fast ease-out hover:bg-surface-3"
         >
           <SquarePen size={15} />
           新建对话
@@ -152,8 +161,8 @@ export function Sidebar({
                 key={c.id}
                 className={`group relative flex items-center rounded-md pr-1 transition-colors duration-fast ease-out ${
                   active
-                    ? 'bg-surface-2 text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-1'
+                    ? 'bg-accent-bg text-text-primary'
+                    : 'text-text-secondary hover:bg-border-subtle'
                 }`}
               >
                 {editingId === c.id ? (
@@ -166,7 +175,7 @@ export function Sidebar({
                       else if (e.key === 'Escape') setEditingId(null);
                     }}
                     onBlur={() => commitRename(c)}
-                    className="mx-1 my-[2px] min-w-0 flex-1 rounded bg-surface-inset px-2 py-[6px] text-body-sm text-text-primary outline-none ring-1 ring-accent-border"
+                    className="mx-1 my-[2px] min-w-0 flex-1 rounded-sm bg-surface-1 px-2 py-[6px] text-body-sm text-text-primary outline-none ring-1 ring-accent-border"
                   />
                 ) : (
                   <>
@@ -183,7 +192,7 @@ export function Sidebar({
                     <button
                       title="更多"
                       onClick={() => openRowMenu(c.id)}
-                      className={`grid h-[26px] w-[24px] flex-none place-items-center rounded text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-secondary ${
+                      className={`grid h-[26px] w-[24px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary ${
                         menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                       }`}
                     >
@@ -192,52 +201,47 @@ export function Sidebar({
                   </>
                 )}
                 {menuOpen && (
-                  <div
-                    ref={rowMenuRef}
-                    className="absolute right-1 top-[34px] z-50 w-[168px] overflow-hidden rounded-lg border border-border-default bg-surface-2 py-1 shadow-popover"
-                  >
-                    {confirmingDelete ? (
-                      <>
-                        <span className="block px-3 pb-1 pt-1.5 text-caption text-text-secondary">
-                          确认删除该会话？
-                        </span>
-                        <button
-                          onClick={() => {
-                            setMenuOpenId(null);
-                            setConfirmingDelete(false);
-                            onDeleteSession(c.id);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-body-sm font-semibold text-status-error transition-colors duration-fast ease-out hover:bg-status-error-bg"
-                        >
-                          <Trash2 size={14} className="flex-none" />
-                          确认删除
-                        </button>
-                        <button
-                          onClick={() => setConfirmingDelete(false)}
-                          className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-body-sm text-text-secondary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary"
-                        >
-                          <X size={14} className="flex-none text-text-tertiary" />
-                          取消
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => startRename(c)}
-                          className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-body-sm text-text-secondary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary"
-                        >
-                          <Pencil size={14} className="flex-none text-text-tertiary" />
-                          重命名
-                        </button>
-                        <button
-                          onClick={() => setConfirmingDelete(true)}
-                          className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-body-sm text-status-error transition-colors duration-fast ease-out hover:bg-status-error-bg"
-                        >
-                          <Trash2 size={14} className="flex-none" />
-                          删除
-                        </button>
-                      </>
-                    )}
+                  <div ref={rowMenuRef}>
+                    <Popover className="absolute right-1 top-[34px] w-[168px]">
+                      {confirmingDelete ? (
+                        <>
+                          <span className="block px-3 pb-1 pt-1.5 text-caption text-text-secondary">
+                            确认删除该会话？
+                          </span>
+                          <PopoverItem
+                            tone="danger"
+                            icon={<Trash2 size={14} />}
+                            className="font-semibold"
+                            onClick={() => {
+                              setMenuOpenId(null);
+                              setConfirmingDelete(false);
+                              onDeleteSession(c.id);
+                            }}
+                          >
+                            确认删除
+                          </PopoverItem>
+                          <PopoverItem
+                            icon={<X size={14} />}
+                            onClick={() => setConfirmingDelete(false)}
+                          >
+                            取消
+                          </PopoverItem>
+                        </>
+                      ) : (
+                        <>
+                          <PopoverItem icon={<Pencil size={14} />} onClick={() => startRename(c)}>
+                            重命名
+                          </PopoverItem>
+                          <PopoverItem
+                            tone="danger"
+                            icon={<Trash2 size={14} />}
+                            onClick={() => setConfirmingDelete(true)}
+                          >
+                            删除
+                          </PopoverItem>
+                        </>
+                      )}
+                    </Popover>
                   </div>
                 )}
               </div>
@@ -248,7 +252,7 @@ export function Sidebar({
 
       {/* User + settings */}
       <div className="flex flex-none items-center gap-[9px] border-t border-border-subtle px-3 py-3">
-        <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-border-default bg-surface-2 text-body-sm font-semibold text-text-primary">
+        <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-border-default bg-surface-1 text-body-sm font-semibold text-text-primary">
           {user.slice(0, 1)}
         </span>
         <div className="flex min-w-0 flex-1 flex-col leading-none">
@@ -259,35 +263,36 @@ export function Sidebar({
           <button
             title="设置"
             onClick={() => setSettingsOpen((v) => !v)}
-            className={`grid h-[30px] w-[30px] place-items-center rounded-md transition-colors duration-fast ease-out hover:bg-surface-1 hover:text-text-secondary ${
-              settingsOpen ? 'bg-surface-1 text-text-secondary' : 'text-text-tertiary'
+            className={`grid h-[30px] w-[30px] place-items-center rounded-sm transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary ${
+              settingsOpen ? 'bg-border-subtle text-text-secondary' : 'text-text-tertiary'
             }`}
           >
             <Settings size={16} />
           </button>
           {settingsOpen && (
-            <div className="absolute bottom-[38px] right-0 z-50 w-[168px] overflow-hidden rounded-lg border border-border-default bg-surface-2 py-1 shadow-popover">
-              <span className="block px-3 pb-1 pt-1.5 text-micro font-semibold uppercase text-text-tertiary">
-                外观
-              </span>
+            <Popover className="absolute bottom-[38px] right-0 w-[168px]">
+              <PopoverLabel>外观</PopoverLabel>
               {[
                 { value: 'light' as const, label: '浅色', Icon: Sun },
                 { value: 'dark' as const, label: '深色', Icon: Moon },
               ].map(({ value, label, Icon }) => (
-                <button
+                <PopoverItem
                   key={value}
+                  icon={<Icon size={15} />}
+                  trailing={
+                    theme === value ? (
+                      <Check size={14} className="flex-none text-accent-fg" />
+                    ) : undefined
+                  }
                   onClick={() => {
                     onSetTheme(value);
                     setSettingsOpen(false);
                   }}
-                  className="flex w-full items-center gap-[9px] px-3 py-[7px] text-left text-body-sm text-text-secondary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary"
                 >
-                  <Icon size={15} className="flex-none text-text-tertiary" />
-                  <span className="flex-1">{label}</span>
-                  {theme === value && <Check size={14} className="flex-none text-accent-fg" />}
-                </button>
+                  {label}
+                </PopoverItem>
               ))}
-            </div>
+            </Popover>
           )}
         </div>
       </div>

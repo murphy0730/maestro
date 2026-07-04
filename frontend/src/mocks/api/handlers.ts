@@ -178,7 +178,9 @@ export const handlers = [
     const body = (await request.json()) as { action_id: string; approved: boolean };
     await delay(200);
     return HttpResponse.json({
-      reply: body.approved ? `已执行动作 ${body.action_id}（mock）` : `已取消动作 ${body.action_id}`,
+      reply: body.approved
+        ? `已执行动作 ${body.action_id}（mock）`
+        : `已取消动作 ${body.action_id}`,
       pending_actions: [
         {
           action_id: body.action_id,

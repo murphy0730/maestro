@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Check, Zap } from 'lucide-react';
 import type { AuthLevel } from '@/types';
 
 /**
@@ -6,7 +7,10 @@ import type { AuthLevel } from '@/types';
  * `auto` (green, executes immediately) vs `confirm` (amber, needs a human).
  * The distinction must read at a glance. `compact` is the footer-row form.
  */
-const LEVELS: Record<AuthLevel, { text: string; surface: string; dot: string; glow: string; tag: string }> = {
+const LEVELS: Record<
+  AuthLevel,
+  { text: string; surface: string; dot: string; glow: string; tag: string }
+> = {
   auto: {
     text: 'text-auth-auto',
     surface: 'bg-auth-auto-bg border-auth-auto-border',
@@ -66,12 +70,16 @@ export function AuthAction({
       } ${cfg.text} border-l-current ${disabled ? 'cursor-not-allowed opacity-50' : `cursor-pointer ${cfg.glow}`} ${className}`}
       {...rest}
     >
-      <span className={`grid h-[22px] w-[22px] flex-none place-items-center rounded-sm border bg-black/25 ${cfg.surface} ${cfg.text}`}>
-        {icon ?? (level === 'auto' ? '⚡' : '✓')}
+      <span
+        className={`grid h-[22px] w-[22px] flex-none place-items-center rounded-sm bg-surface-1 shadow-elev-1 ${cfg.text}`}
+      >
+        {icon ?? (level === 'auto' ? <Zap size={12} /> : <Check size={12} />)}
       </span>
       <span className="flex-1">
         <span className="block text-body font-semibold text-text-primary">{children}</span>
-        <span className={`mt-[2px] block text-micro font-semibold ${cfg.text}`}>{hint ?? cfg.tag}</span>
+        <span className={`mt-[2px] block text-micro font-semibold ${cfg.text}`}>
+          {hint ?? cfg.tag}
+        </span>
       </span>
     </button>
   );

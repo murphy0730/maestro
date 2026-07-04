@@ -2,6 +2,7 @@ import { ContextPanel } from '@/components/ContextPanel';
 import { Badge } from '@/components/ui/Badge';
 import { AuthAction } from '@/components/ui/AuthAction';
 import { EngineStrip, SectionLabel, ParamRow, PanelFootNote } from '@/components/ui/panel';
+import { ProgressBar } from '@/components/ui/ProgressBar';
 import { PLANNING_PANEL } from '@/mocks/panels';
 
 /** Capacity load bar — warns (amber) at >= 95% utilization. */
@@ -11,16 +12,13 @@ function CapacityBar({ name, used }: { name: string; used: number }) {
     <div className="mb-[11px]">
       <div className="mb-[5px] flex items-baseline gap-2">
         <span className="flex-1 text-body-sm text-text-secondary">{name}</span>
-        <span className={`font-mono text-mono-sm font-semibold ${hot ? 'text-status-warning' : 'text-text-primary'}`}>
+        <span
+          className={`font-mono text-mono-sm font-semibold ${hot ? 'text-status-warning' : 'text-text-primary'}`}
+        >
           {used}%
         </span>
       </div>
-      <div className="h-[7px] overflow-hidden rounded-pill border border-border-subtle bg-surface-inset">
-        <div
-          className={`h-full rounded-pill bg-planning ${hot ? '' : 'shadow-glow-planning'}`}
-          style={{ width: `${used}%` }}
-        />
-      </div>
+      <ProgressBar percent={used} fillClassName={hot ? 'bg-status-warning' : 'bg-planning'} />
     </div>
   );
 }
@@ -58,9 +56,19 @@ export function PlanningPanel({ onClose }: PanelProps) {
       <EngineStrip route="planning" title={d.strip.title} meta={d.strip.meta} />
 
       <div>
-        <SectionLabel right={<span className="font-mono text-[10.5px] text-accent-fg">1 项变更</span>}>参数确认</SectionLabel>
+        <SectionLabel
+          right={<span className="font-mono text-[10.5px] text-accent-fg">1 项变更</span>}
+        >
+          参数确认
+        </SectionLabel>
         {d.params.map((p) => (
-          <ParamRow key={p.label} label={p.label} value={p.value} unit={p.unit} changed={p.changed} />
+          <ParamRow
+            key={p.label}
+            label={p.label}
+            value={p.value}
+            unit={p.unit}
+            changed={p.changed}
+          />
         ))}
       </div>
 

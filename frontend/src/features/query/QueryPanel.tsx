@@ -3,14 +3,20 @@ import { ContextPanel } from '@/components/ContextPanel';
 import { Badge } from '@/components/ui/Badge';
 import { AuthAction } from '@/components/ui/AuthAction';
 import { EngineStrip, SectionLabel } from '@/components/ui/panel';
-import { QUERY_PANEL, type AnswerSegment as AnswerSegmentData, type QuerySource } from '@/mocks/panels';
+import {
+  QUERY_PANEL,
+  type AnswerSegment as AnswerSegmentData,
+  type QuerySource,
+} from '@/mocks/panels';
 
 function AnswerSegment({ type, cite, text }: AnswerSegmentData) {
   const grounded = type === 'grounded';
   return (
     <div
       className={`mb-2 rounded-sm py-[9px] pl-[13px] pr-3 ${
-        grounded ? 'border-l-2 border-l-query bg-query-bg' : 'border-l-2 border-dashed border-l-text-disabled bg-surface-inset'
+        grounded
+          ? 'border-l-2 border-l-query bg-query-bg'
+          : 'border-l-2 border-dashed border-l-text-disabled bg-surface-inset'
       }`}
     >
       <div className="text-body-sm leading-relaxed text-text-primary">
@@ -20,7 +26,7 @@ function AnswerSegment({ type, cite, text }: AnswerSegmentData) {
             {cite.map((n) => (
               <span
                 key={n}
-                className="ml-[2px] rounded-[3px] border border-query-border bg-query-bg px-[3px] font-mono text-[9px] font-bold text-query-fg"
+                className="ml-[2px] rounded-xs border border-query-border bg-query-bg px-[3px] font-mono text-[9px] font-bold text-query-fg"
               >
                 {n}
               </span>
@@ -53,7 +59,9 @@ function SourceCard({ index, title, snippet, meta, score }: QuerySource) {
         </span>
         <span className="font-mono text-micro font-semibold text-query">{pct}%</span>
       </div>
-      <div className="border-l-2 border-border-strong pl-[9px] text-caption leading-normal text-text-secondary">{snippet}</div>
+      <div className="border-l-2 border-border-strong pl-[9px] text-caption leading-normal text-text-secondary">
+        {snippet}
+      </div>
       <div className="mt-2 font-mono text-micro text-text-tertiary">{meta}</div>
     </div>
   );
@@ -112,7 +120,11 @@ export function QueryPanel({ onClose }: PanelProps) {
       </div>
 
       <div>
-        <SectionLabel right={<span className="font-mono text-[10.5px] text-text-tertiary">2 命中 / 4 检索</span>}>
+        <SectionLabel
+          right={
+            <span className="font-mono text-[10.5px] text-text-tertiary">2 命中 / 4 检索</span>
+          }
+        >
           来源溯源
         </SectionLabel>
         <div className="flex flex-col gap-2">

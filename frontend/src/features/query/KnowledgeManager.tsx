@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import type { KnowledgeDoc } from '@/types';
+import { ProgressBar } from '@/components/ui/ProgressBar';
 import { ApiError } from '@/api/client';
 import {
   useDeleteKnowledge,
@@ -52,17 +53,17 @@ interface UploadTask {
 
 /* ------------------------------------------------------------ progress bar */
 
-function ProgressBar({ fraction, error }: { fraction: number; error?: string }) {
+function UploadProgress({ fraction, error }: { fraction: number; error?: string }) {
   const pct = Math.round(fraction * 100);
   return (
     <div className="mt-[6px]">
-      <div className="h-[5px] w-full overflow-hidden rounded-full bg-surface-3">
-        <div
-          className={`h-full rounded-full transition-[width] duration-200 ${error ? 'bg-status-error' : 'bg-query'}`}
-          style={{ width: `${error ? 100 : pct}%` }}
-        />
-      </div>
-      <div className={`mt-[3px] font-mono text-micro ${error ? 'text-status-error' : 'text-text-tertiary'}`}>
+      <ProgressBar
+        percent={error ? 100 : pct}
+        fillClassName={error ? 'bg-status-error' : 'bg-query'}
+      />
+      <div
+        className={`mt-[3px] font-mono text-micro ${error ? 'text-status-error' : 'text-text-tertiary'}`}
+      >
         {error ? error : pct < 100 ? `上传中 ${pct}%` : '入库中…'}
       </div>
     </div>
@@ -138,12 +139,19 @@ function DocRow({ doc, onReplace, replacing }: DocRowProps) {
         </div>
       )}
 
-      {replacing !== undefined && <ProgressBar fraction={replacing} />}
+      {replacing !== undefined && <UploadProgress fraction={replacing} />}
 
       {/* actions */}
       {!confirming ? (
         <div className="mt-[10px] flex gap-[6px] pl-[34px]">
-          <RowButton icon={<Pencil size={11} />} label="重命名" onClick={() => { setDraft(doc.name); setEditing(true); }} />
+          <RowButton
+            icon={<Pencil size={11} />}
+            label="重命名"
+            onClick={() => {
+              setDraft(doc.name);
+              setEditing(true);
+            }}
+          />
           <RowButton icon={<RefreshCw size={11} />} label="换内容" onClick={() => onReplace(doc)} />
           <RowButton
             icon={<Trash2 size={11} />}
@@ -156,7 +164,10 @@ function DocRow({ doc, onReplace, replacing }: DocRowProps) {
         <div className="mt-[10px] flex items-center gap-[6px] pl-[34px]">
           <span className="text-[11px] text-text-secondary">确认删除？</span>
           <button
-            onClick={() => { del.mutate(doc.doc_id); setConfirming(false); }}
+            onClick={() => {
+              del.mutate(doc.doc_id);
+              setConfirming(false);
+            }}
             className="inline-flex items-center gap-1 rounded-sm border border-status-error/50 bg-status-error-bg px-2 py-[3px] text-[11px] font-semibold text-status-error"
           >
             <Check size={11} /> 删除
@@ -228,7 +239,10 @@ export function KnowledgeManager({ onClose }: PanelProps) {
     for (const file of files) {
       const id = `up-${Math.random().toString(36).slice(2, 8)}`;
       if (supported.length && !supported.includes(extOf(file.name))) {
-        setTasks((ts) => [...ts, { id, name: file.name, fraction: 0, error: `不支持的类型 ${extOf(file.name)}` }]);
+        setTasks((ts) => [
+          ...ts,
+          { id, name: file.name, fraction: 0, error: `不支持的类型 ${extOf(file.name)}` },
+        ]);
         continue;
       }
       setTasks((ts) => [...ts, { id, name: file.name, fraction: 0 }]);
@@ -291,19 +305,28 @@ export function KnowledgeManager({ onClose }: PanelProps) {
         multiple
         accept={accept}
         className="hidden"
-        onChange={(e) => { onPickFiles(e.target.files); e.target.value = ''; }}
+        onChange={(e) => {
+          onPickFiles(e.target.files);
+          e.target.value = '';
+        }}
       />
       <input
         ref={replaceInput}
         type="file"
         accept={accept}
         className="hidden"
-        onChange={(e) => { onReplaceFile(e.target.files); e.target.value = ''; }}
+        onChange={(e) => {
+          onReplaceFile(e.target.files);
+          e.target.value = '';
+        }}
       />
 
       {/* dropzone */}
       <div
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => {
           e.preventDefault();
@@ -330,7 +353,10 @@ export function KnowledgeManager({ onClose }: PanelProps) {
           <SectionLabel>上传队列</SectionLabel>
           <div className="flex flex-col gap-2">
             {tasks.map((t) => (
-              <div key={t.id} className="rounded-md border border-border-default bg-surface-inset p-3">
+              <div
+                key={t.id}
+                className="rounded-md border border-border-default bg-surface-inset p-3"
+              >
                 <div className="flex items-center gap-2">
                   {t.error ? (
                     <AlertTriangle size={13} className="text-status-error" />
@@ -350,7 +376,7 @@ export function KnowledgeManager({ onClose }: PanelProps) {
                     </button>
                   )}
                 </div>
-                <ProgressBar fraction={t.fraction} error={t.error} />
+                <UploadProgress fraction={t.fraction} error={t.error} />
               </div>
             ))}
           </div>
@@ -359,11 +385,15 @@ export function KnowledgeManager({ onClose }: PanelProps) {
 
       {/* document list */}
       <div>
-        <SectionLabel right={<span className="font-mono text-[10.5px] text-text-tertiary">{stats}</span>}>
+        <SectionLabel
+          right={<span className="font-mono text-[10.5px] text-text-tertiary">{stats}</span>}
+        >
           知识库文档
         </SectionLabel>
 
-        {isLoading && <div className="py-6 text-center text-body-sm text-text-tertiary">加载中…</div>}
+        {isLoading && (
+          <div className="py-6 text-center text-body-sm text-text-tertiary">加载中…</div>
+        )}
         {error && (
           <div className="flex items-center gap-[6px] rounded-md border border-status-error/40 bg-status-error-bg px-3 py-2 text-body-sm text-status-error">
             <AlertTriangle size={13} />
@@ -371,7 +401,9 @@ export function KnowledgeManager({ onClose }: PanelProps) {
           </div>
         )}
         {!isLoading && !error && docs.length === 0 && (
-          <div className="py-6 text-center text-body-sm text-text-tertiary">知识库为空，上传文件开始构建。</div>
+          <div className="py-6 text-center text-body-sm text-text-tertiary">
+            知识库为空，上传文件开始构建。
+          </div>
         )}
 
         <div className="flex flex-col gap-2">

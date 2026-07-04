@@ -1,23 +1,25 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 /**
- * Primary control. Tech feel via thin border + subtle glow on primary;
- * ghost is borderless for dense toolbars. Pure presentational.
+ * Primary control. macOS idiom: filled accent for the primary action, white
+ * hairline-bordered surface for secondary; ghost is borderless for dense
+ * toolbars. Pure presentational.
  */
 type Variant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
 
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-accent text-text-on-color border-accent-strong shadow-glow-accent-sm',
+  primary: 'bg-accent text-text-on-color border-accent-strong shadow-elev-1 hover:bg-accent-strong',
   accent: 'bg-accent-bg text-accent-fg border-accent-border',
-  secondary: 'bg-surface-2 text-text-primary border-border-default shadow-inset-top-hi',
-  ghost: 'bg-transparent text-text-secondary border-transparent',
+  secondary:
+    'bg-surface-1 text-text-primary border-border-default shadow-elev-1 hover:bg-surface-3',
+  ghost: 'bg-transparent text-text-secondary border-transparent hover:bg-border-subtle',
   danger: 'bg-status-error-bg text-status-error border-status-error/40',
 };
 
 const SIZES: Record<Size, string> = {
   sm: 'h-7 px-2 text-body-sm gap-[6px]',
-  md: 'h-[34px] px-3 text-body gap-[7px]',
+  md: 'h-control px-3 text-body gap-[7px]',
   lg: 'h-[42px] px-4 text-body-lg gap-2',
 };
 

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 
 /**
  * Markdown — renders an agent reply (GFM: headings, bold, lists, tables, hr,
- * code) with the app's dark design tokens, so the chat bubble never shows raw
+ * code) with the app's design tokens (theme-aware), so the chat bubble never shows raw
  * `#`, `*`, `|` symbols. Element styling is mapped inline (no Typography plugin).
  */
 type Props = ComponentPropsWithoutRef<'div'>;

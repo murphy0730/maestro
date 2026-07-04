@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { ComposerMode, ComposerRoute } from '@/types';
 import { Button } from '@/components/ui/Button';
+import { Popover } from '@/components/ui/Popover';
 
 /**
  * Composer — the message input. Draft text is local UI state; the route and
@@ -98,15 +99,17 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
 
   const chip = (active: boolean) =>
     `inline-flex h-8 cursor-pointer items-center gap-[6px] rounded-md border px-[9px] font-sans text-caption font-semibold text-text-secondary transition-colors duration-fast ease-out ${
-      active ? 'border-accent-border bg-accent-bg' : 'border-border-default hover:bg-surface-2'
+      active ? 'border-accent-border bg-accent-bg' : 'border-border-default hover:bg-border-subtle'
     }`;
 
   return (
-    <div className="flex-none border-t border-border-subtle bg-bg-base px-[30px] pb-[18px] pt-[14px]">
-      <div className="mx-auto max-w-[760px]">
+    <div className="flex-none px-[30px] pb-[18px] pt-2">
+      <div className="pointer-events-auto mx-auto max-w-[760px]">
         <div
-          className={`rounded-lg border bg-surface-inset transition-colors duration-fast ${
-            slash ? 'border-accent-border shadow-glow-accent-sm' : 'border-border-default'
+          className={`material-dock rounded-xl border transition-colors duration-fast ${
+            slash
+              ? 'border-accent-border shadow-glow-accent'
+              : 'border-border-default shadow-elev-2'
           }`}
         >
           <textarea
@@ -125,7 +128,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
           <div ref={toolbarRef} className="flex items-center gap-2 px-[10px] py-2">
             <button
               title="添加文件"
-              className="grid h-8 w-8 flex-none cursor-pointer place-items-center rounded-md border border-border-default text-text-tertiary"
+              className="grid h-8 w-8 flex-none cursor-pointer place-items-center rounded-md border border-border-default text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
             >
               <Paperclip size={16} />
             </button>
@@ -143,10 +146,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
                 <ChevronDown size={13} className="text-text-tertiary" />
               </button>
               {openMenu === 'route' && (
-                <div
-                  role="menu"
-                  className="absolute bottom-full left-0 z-20 mb-2 w-[212px] rounded-md border border-border-default bg-surface-2 p-1 shadow-popover"
-                >
+                <Popover role="menu" className="absolute bottom-full left-0 mb-2 w-[212px] px-1">
                   {ROUTE_OPTS.map((o) => {
                     const Icon = o.icon;
                     const selected = o.id === route;
@@ -160,7 +160,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
                           setOpenMenu(null);
                         }}
                         className={`flex w-full items-center gap-[10px] rounded-sm px-2 py-[7px] text-left transition-colors duration-fast ease-out ${
-                          selected ? 'bg-surface-3' : 'hover:bg-surface-1'
+                          selected ? 'bg-accent-bg' : 'hover:bg-border-subtle'
                         }`}
                       >
                         <span className={`h-[7px] w-[7px] flex-none rounded-full ${o.dot}`} />
@@ -175,7 +175,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
                       </button>
                     );
                   })}
-                </div>
+                </Popover>
               )}
             </div>
 
@@ -192,10 +192,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
                 <ChevronDown size={13} className="text-text-tertiary" />
               </button>
               {openMenu === 'mode' && (
-                <div
-                  role="menu"
-                  className="absolute bottom-full left-0 z-20 mb-2 w-[224px] rounded-md border border-border-default bg-surface-2 p-1 shadow-popover"
-                >
+                <Popover role="menu" className="absolute bottom-full left-0 mb-2 w-[224px] px-1">
                   {MODE_OPTS.map((o) => {
                     const Icon = o.icon;
                     const selected = o.id === mode;
@@ -209,7 +206,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
                           setOpenMenu(null);
                         }}
                         className={`flex w-full items-center gap-[10px] rounded-sm px-2 py-[7px] text-left transition-colors duration-fast ease-out ${
-                          selected ? 'bg-surface-3' : 'hover:bg-surface-1'
+                          selected ? 'bg-accent-bg' : 'hover:bg-border-subtle'
                         }`}
                       >
                         <Icon size={14} className={`flex-none ${o.tint}`} />
@@ -223,7 +220,7 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
                       </button>
                     );
                   })}
-                </div>
+                </Popover>
               )}
             </div>
 

@@ -16,7 +16,13 @@ interface ChatMessageProps {
   avatar?: string;
 }
 
-export function ChatMessage({ role = 'agent', children, author, timestamp, avatar }: ChatMessageProps) {
+export function ChatMessage({
+  role = 'agent',
+  children,
+  author,
+  timestamp,
+  avatar,
+}: ChatMessageProps) {
   if (role === 'system') {
     return (
       <div className="flex items-center gap-[10px] py-2 font-sans">
@@ -48,9 +54,7 @@ export function ChatMessage({ role = 'agent', children, author, timestamp, avata
         )}
         <div
           className={`rounded-lg border px-[13px] py-[10px] text-body leading-normal text-text-primary shadow-elev-1 ${
-            isUser
-              ? 'rounded-tr-xs border-accent-border bg-accent-bg'
-              : 'rounded-tl-xs border-border-default bg-surface-2'
+            isUser ? 'border-accent-border bg-accent-bg' : 'border-border-default bg-surface-1'
           }`}
         >
           {children}

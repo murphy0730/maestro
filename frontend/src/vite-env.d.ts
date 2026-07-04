@@ -10,3 +10,11 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Bridge exposed by electron/preload.cjs; absent in the plain browser build. */
+interface Window {
+  electronAPI?: {
+    isElectron: boolean;
+    platform: string;
+  };
+}

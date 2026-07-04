@@ -6,7 +6,15 @@
 
 type Swatch = { name: string; className: string; hex?: string; note?: string };
 
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="mb-12">
       <div className="mb-6 border-b border-border-subtle pb-3">
@@ -42,46 +50,66 @@ function Grid({ items }: { items: Swatch[] }) {
 }
 
 const routes: Swatch[] = [
-  { name: '排产 Planning', className: 'bg-planning', hex: '#4C9DF7', note: '冷蓝 · cool azure' },
-  { name: '调度 Scheduling', className: 'bg-scheduling', hex: '#F7A53B', note: '橙 · amber' },
-  { name: '查询 Query', className: 'bg-query', hex: '#16C79A', note: 'teal · 青绿' },
-  { name: '不确定 Uncertain', className: 'bg-uncertain', hex: '#8B86B8', note: '灰紫 · slate-violet' },
+  {
+    name: '排产 Planning',
+    className: 'bg-planning',
+    hex: 'var(--route-planning)',
+    note: 'systemBlue',
+  },
+  {
+    name: '调度 Scheduling',
+    className: 'bg-scheduling',
+    hex: 'var(--route-scheduling)',
+    note: 'systemOrange',
+  },
+  { name: '查询 Query', className: 'bg-query', hex: 'var(--route-query)', note: 'teal / mint' },
+  {
+    name: '不确定 Uncertain',
+    className: 'bg-uncertain',
+    hex: 'var(--route-uncertain)',
+    note: 'systemIndigo',
+  },
 ];
 
 const status: Swatch[] = [
-  { name: 'Success', className: 'bg-status-success', hex: '#34D399' },
-  { name: 'Warning', className: 'bg-status-warning', hex: '#FBBF24' },
-  { name: 'Error', className: 'bg-status-error', hex: '#F8736A' },
-  { name: 'Info', className: 'bg-status-info', hex: '#5DA6FF' },
+  { name: 'Success', className: 'bg-status-success', hex: 'var(--status-success)' },
+  { name: 'Warning', className: 'bg-status-warning', hex: 'var(--status-warning)' },
+  { name: 'Error', className: 'bg-status-error', hex: 'var(--status-error)' },
+  { name: 'Info', className: 'bg-status-info', hex: 'var(--status-info)' },
 ];
 
 const auth: Swatch[] = [
-  { name: 'Auto · 可直接执行', className: 'bg-auth-auto', hex: '#2CC56F', note: 'green' },
-  { name: 'Confirm · 需确认', className: 'bg-auth-confirm', hex: '#F59E0B', note: 'amber' },
+  { name: 'Auto · 可直接执行', className: 'bg-auth-auto', hex: 'var(--auth-auto)', note: 'green' },
+  {
+    name: 'Confirm · 需确认',
+    className: 'bg-auth-confirm',
+    hex: 'var(--auth-confirm)',
+    note: 'amber',
+  },
 ];
 
 const accent: Swatch[] = [
-  { name: 'Accent', className: 'bg-accent', hex: '#2DE2E6', note: 'electric cyan' },
-  { name: 'Accent strong', className: 'bg-accent-strong', hex: '#18C8D6' },
-  { name: 'Accent fg', className: 'bg-accent-fg', hex: '#7CF1F2' },
+  { name: 'Accent', className: 'bg-accent', hex: 'var(--accent)', note: 'brand cyan · restrained' },
+  { name: 'Accent strong', className: 'bg-accent-strong', hex: 'var(--accent-strong)' },
+  { name: 'Accent fg', className: 'bg-accent-fg', hex: 'var(--accent-fg)' },
 ];
 
 const surfaces: Swatch[] = [
-  { name: 'bg-sunken', className: 'bg-bg-sunken', hex: '#060910' },
-  { name: 'bg-base', className: 'bg-bg-base', hex: '#0A0E16' },
-  { name: 'surface-1', className: 'bg-surface-1', hex: '#10151F' },
-  { name: 'surface-2', className: 'bg-surface-2', hex: '#161D2A' },
-  { name: 'surface-3', className: 'bg-surface-3', hex: '#1E2736' },
-  { name: 'surface-inset', className: 'bg-surface-inset', hex: '#0C1018' },
+  { name: 'bg-sunken', className: 'bg-bg-sunken', hex: 'var(--bg-sunken)' },
+  { name: 'bg-base', className: 'bg-bg-base', hex: 'var(--bg-base)' },
+  { name: 'surface-1', className: 'bg-surface-1', hex: 'var(--surface-1)' },
+  { name: 'surface-2', className: 'bg-surface-2', hex: 'var(--surface-2)' },
+  { name: 'surface-3', className: 'bg-surface-3', hex: 'var(--surface-3)' },
+  { name: 'surface-inset', className: 'bg-surface-inset', hex: 'var(--surface-inset)' },
 ];
 
 const dataViz: Swatch[] = [
-  { name: 'data-1', className: 'bg-data-1', hex: '#4C9DF7' },
-  { name: 'data-2', className: 'bg-data-2', hex: '#16C79A' },
-  { name: 'data-3', className: 'bg-data-3', hex: '#F7A53B' },
-  { name: 'data-4', className: 'bg-data-4', hex: '#8B86B8' },
-  { name: 'data-5', className: 'bg-data-5', hex: '#2DE2E6' },
-  { name: 'data-6', className: 'bg-data-6', hex: '#F8736A' },
+  { name: 'data-1', className: 'bg-data-1', hex: 'var(--data-1)' },
+  { name: 'data-2', className: 'bg-data-2', hex: 'var(--data-2)' },
+  { name: 'data-3', className: 'bg-data-3', hex: 'var(--data-3)' },
+  { name: 'data-4', className: 'bg-data-4', hex: 'var(--data-4)' },
+  { name: 'data-5', className: 'bg-data-5', hex: 'var(--data-5)' },
+  { name: 'data-6', className: 'bg-data-6', hex: 'var(--data-6)' },
 ];
 
 const spacing = [
@@ -101,11 +129,11 @@ const spacing = [
 ];
 
 const radii = [
-  ['rounded-xs', '3px'],
-  ['rounded-sm', '5px'],
-  ['rounded-md', '8px'],
-  ['rounded-lg', '12px'],
-  ['rounded-xl', '16px'],
+  ['rounded-xs', '4px'],
+  ['rounded-sm', '6px'],
+  ['rounded-md', '10px'],
+  ['rounded-lg', '14px'],
+  ['rounded-xl', '20px'],
   ['rounded-pill', '999px'],
 ];
 
@@ -124,16 +152,25 @@ export function DesignTokens() {
     <div className="min-h-full bg-bg-base px-9 py-11">
       <div className="mx-auto max-w-[1100px]">
         <header className="mb-12">
-          <div className="text-micro uppercase tracking-eyebrow text-accent">Cadence Design System</div>
-          <h1 className="mt-2 text-display font-bold tracking-tight text-text-primary">Design Tokens</h1>
+          <div className="text-micro uppercase tracking-eyebrow text-accent">
+            Cadence Design System
+          </div>
+          <h1 className="mt-2 text-display font-bold tracking-tight text-text-primary">
+            Design Tokens
+          </h1>
           <p className="mt-3 max-w-max-readable text-body-lg text-text-secondary">
-            从 <span className="font-mono text-mono text-accent-fg">design-export/Maestro.html</span>{' '}
-            提取并落地到 <span className="font-mono text-mono text-accent-fg">tailwind.config.ts</span>。
-            用于确认配色与字体是否正确。
+            macOS 材质版设计 token：原始值定义在{' '}
+            <span className="font-mono text-mono text-accent-fg">src/index.css</span>（浅色默认 /
+            深色覆盖），由{' '}
+            <span className="font-mono text-mono text-accent-fg">tailwind.config.ts</span>{' '}
+            镜像为语义类。色板标签即 CSS 变量名，切换主题可对照验证两套取值。
           </p>
         </header>
 
-        <Section title="路由语义色 · Route Classification" subtitle="colors.planning / scheduling / query / uncertain">
+        <Section
+          title="路由语义色 · Route Classification"
+          subtitle="colors.planning / scheduling / query / uncertain"
+        >
           <Grid items={routes} />
           <div className="mt-5 flex flex-wrap gap-4">
             {routes.map((r) => (
@@ -168,10 +205,15 @@ export function DesignTokens() {
           <Grid items={dataViz} />
         </Section>
 
-        <Section title="字体 · Typography" subtitle="IBM Plex Sans (UI) + IBM Plex Mono (ID/参数/日志)">
+        <Section
+          title="字体 · Typography"
+          subtitle="系统字体栈：SF Pro / PingFang SC (UI) + SF Mono (ID/参数/日志)"
+        >
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-lg border border-border-subtle bg-surface-1 p-7">
-              <div className="mb-4 text-micro uppercase tracking-eyebrow text-text-tertiary">font-sans · IBM Plex Sans</div>
+              <div className="mb-4 text-micro uppercase tracking-eyebrow text-text-tertiary">
+                font-sans · system / SF Pro / PingFang SC
+              </div>
               <p className="text-display font-bold text-text-primary">排产 40 Display</p>
               <p className="text-h1 font-semibold text-text-primary">调度调度 H1 30</p>
               <p className="text-h3 font-medium text-text-primary">Query Engine · H3 20</p>
@@ -181,14 +223,20 @@ export function DesignTokens() {
               <p className="text-caption text-text-tertiary">Caption 12 — labels / meta</p>
             </div>
             <div className="rounded-lg border border-border-subtle bg-surface-inset p-7">
-              <div className="mb-4 text-micro uppercase tracking-eyebrow text-text-tertiary">font-mono · IBM Plex Mono</div>
+              <div className="mb-4 text-micro uppercase tracking-eyebrow text-text-tertiary">
+                font-mono · ui-monospace / SF Mono
+              </div>
               <p className="font-mono text-mono-lg text-accent-fg">ORD-2026-0042 · mono-lg 14</p>
-              <p className="font-mono text-mono text-text-primary">qty=1200 lead_time=72h · mono 13</p>
+              <p className="font-mono text-mono text-text-primary">
+                qty=1200 lead_time=72h · mono 13
+              </p>
               <p className="font-mono text-mono-sm text-text-secondary">
                 [12:04:31] scheduler: dispatched job#88 → line-A
               </p>
               <p className="font-mono text-mono-sm text-status-success">✓ auth=auto status=ok</p>
-              <p className="font-mono text-mono-sm text-auth-confirm">⚠ auth=confirm needs review</p>
+              <p className="font-mono text-mono-sm text-auth-confirm">
+                ⚠ auth=confirm needs review
+              </p>
             </div>
           </div>
         </Section>
@@ -197,9 +245,7 @@ export function DesignTokens() {
           <div className="space-y-2">
             {spacing.map(([k, v]) => (
               <div key={k} className="flex items-center gap-4">
-                <div className="w-24 font-mono text-mono-sm text-text-tertiary">
-                  space-{k}
-                </div>
+                <div className="w-24 font-mono text-mono-sm text-text-tertiary">space-{k}</div>
                 <div className="h-4 rounded-xs bg-accent" style={{ width: v }} />
                 <div className="font-mono text-mono-sm text-text-secondary">{v}</div>
               </div>

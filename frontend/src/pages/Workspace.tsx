@@ -267,26 +267,29 @@ export function Workspace() {
         />
       }
       conversation={
-        <>
+        <div className="relative flex min-h-0 flex-1 flex-col">
           <Thread
             messages={thread}
             author="周文涛"
             onClarifySelect={selectClarification}
             onActionConfirm={confirmPending}
           />
-          {isLoading && (
-            <div className="flex items-center justify-center py-4 text-caption text-text-tertiary">
-              加载历史消息中…
-            </div>
-          )}
-          <Composer
-            onSend={(text) => send(text, route === 'auto' ? null : route)}
-            route={route}
-            mode={mode}
-            onRouteChange={handleRouteChange}
-            onModeChange={setMode}
-          />
-        </>
+          {/* Composer floats over the thread so content scrolls under its glass */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0">
+            {isLoading && (
+              <div className="flex items-center justify-center py-2 text-caption text-text-tertiary">
+                加载历史消息中…
+              </div>
+            )}
+            <Composer
+              onSend={(text) => send(text, route === 'auto' ? null : route)}
+              route={route}
+              mode={mode}
+              onRouteChange={handleRouteChange}
+              onModeChange={setMode}
+            />
+          </div>
+        </div>
       }
       panel={
         panelOpen ? (

@@ -1,14 +1,14 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Cadence design tokens — extracted verbatim from the Claude Design export
- * (design-export/Maestro.html). The CSS custom properties live in src/index.css;
- * this file mirrors them as semantic Tailwind utilities so JSX can use
- * `bg-planning`, `text-route-query-fg`, `shadow-glow-scheduling`, etc.
+ * Cadence design tokens — macOS-material restyle.
+ * The CSS custom properties live in src/index.css (light = :root default,
+ * dark = [data-theme='dark'] overrides); this file mirrors them as semantic
+ * Tailwind utilities so JSX can use `bg-planning`, `text-route-query-fg`,
+ * `shadow-glow-scheduling`, etc.
  *
- * Source of truth for the raw values is index.css :root. Where a token is a
- * single solid color we inline the hex here; alpha-blended fills/borders/glows
- * reference the CSS vars so there is exactly one definition.
+ * Every color references its CSS var so hues can differ per theme — no
+ * raw hex here. Source of truth for the raw values is index.css.
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -31,7 +31,7 @@ const config: Config = {
         'text-on-color': 'var(--text-on-color)',
         'text-inverse': 'var(--text-inverse)',
 
-        // ---- Borders / hairlines (alpha → via CSS var) ----
+        // ---- Borders / hairlines ----
         'border-subtle': 'var(--border-subtle)',
         'border-default': 'var(--border-default)',
         'border-strong': 'var(--border-strong)',
@@ -40,30 +40,30 @@ const config: Config = {
         // ============================================================
         // ROUTE CLASSIFICATION — four engine families
         // ============================================================
-        // 排产 Planning — cool azure/blue
+        // 排产 Planning — systemBlue
         planning: {
-          DEFAULT: '#4C9DF7',
+          DEFAULT: 'var(--route-planning)',
           fg: 'var(--route-planning-fg)',
           bg: 'var(--route-planning-bg)',
           border: 'var(--route-planning-border)',
         },
-        // 调度 Scheduling — amber/orange
+        // 调度 Scheduling — systemOrange
         scheduling: {
-          DEFAULT: '#F7A53B',
+          DEFAULT: 'var(--route-scheduling)',
           fg: 'var(--route-scheduling-fg)',
           bg: 'var(--route-scheduling-bg)',
           border: 'var(--route-scheduling-border)',
         },
-        // 查询 Query — teal / 青绿
+        // 查询 Query — teal/mint
         query: {
-          DEFAULT: '#16C79A',
+          DEFAULT: 'var(--route-query)',
           fg: 'var(--route-query-fg)',
           bg: 'var(--route-query-bg)',
           border: 'var(--route-query-border)',
         },
-        // 不确定 Uncertain — muted slate-violet
+        // 不确定 Uncertain — systemIndigo
         uncertain: {
-          DEFAULT: '#8B86B8',
+          DEFAULT: 'var(--route-uncertain)',
           fg: 'var(--route-uncertain-fg)',
           bg: 'var(--route-uncertain-bg)',
           border: 'var(--route-uncertain-border)',
@@ -73,13 +73,13 @@ const config: Config = {
         // STATUS — feedback states
         // ============================================================
         status: {
-          success: '#34D399',
+          success: 'var(--status-success)',
           'success-bg': 'var(--status-success-bg)',
-          warning: '#FBBF24',
+          warning: 'var(--status-warning)',
           'warning-bg': 'var(--status-warning-bg)',
-          error: '#F8736A',
+          error: 'var(--status-error)',
           'error-bg': 'var(--status-error-bg)',
-          info: '#5DA6FF',
+          info: 'var(--status-info)',
           'info-bg': 'var(--status-info-bg)',
         },
 
@@ -87,37 +87,56 @@ const config: Config = {
         // ACTION AUTHORIZATION — auto (green) vs confirm (amber)
         // ============================================================
         auth: {
-          auto: '#2CC56F',
+          auto: 'var(--auth-auto)',
           'auto-bg': 'var(--auth-auto-bg)',
           'auto-border': 'var(--auth-auto-border)',
-          confirm: '#F59E0B',
+          confirm: 'var(--auth-confirm)',
           'confirm-bg': 'var(--auth-confirm-bg)',
           'confirm-border': 'var(--auth-confirm-border)',
         },
 
         // ============================================================
-        // ACCENT — electric cyan (small-area glow / focus / highlights)
+        // ACCENT — brand cyan (focus / highlights / live indicators)
         // ============================================================
         accent: {
-          DEFAULT: '#2DE2E6',
-          strong: '#18C8D6',
+          DEFAULT: 'var(--accent)',
+          strong: 'var(--accent-strong)',
           fg: 'var(--accent-fg)',
           bg: 'var(--accent-bg)',
           border: 'var(--accent-border)',
         },
 
         // ---- Data-viz sequence (charts, gantt tracks) ----
-        'data-1': '#4C9DF7',
-        'data-2': '#16C79A',
-        'data-3': '#F7A53B',
-        'data-4': '#8B86B8',
-        'data-5': '#2DE2E6',
-        'data-6': '#F8736A',
+        'data-1': 'var(--data-1)',
+        'data-2': 'var(--data-2)',
+        'data-3': 'var(--data-3)',
+        'data-4': 'var(--data-4)',
+        'data-5': 'var(--data-5)',
+        'data-6': 'var(--data-6)',
       },
 
       fontFamily: {
-        sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        mono: ['IBM Plex Mono', 'SFMono-Regular', 'ui-monospace', 'Menlo', 'monospace'],
+        sans: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'SF Pro Text',
+          'Helvetica Neue',
+          'PingFang SC',
+          'Hiragino Sans GB',
+          'Microsoft YaHei',
+          'system-ui',
+          'Segoe UI',
+          'sans-serif',
+        ],
+        mono: [
+          'ui-monospace',
+          'SF Mono',
+          'SFMono-Regular',
+          'Menlo',
+          'Consolas',
+          'Liberation Mono',
+          'monospace',
+        ],
       },
 
       fontSize: {
@@ -173,14 +192,19 @@ const config: Config = {
         header: '56px',
         composer: '88px',
         'max-readable': '720px',
+        // macOS traffic-light inset (hiddenInset titlebar, Electron only)
+        traffic: '72px',
+        // standard control height (buttons, inputs)
+        control: '34px',
       },
 
+      // ---- Radii (macOS continuous-corner feel) ----
       borderRadius: {
-        xs: '3px',
-        sm: '5px',
-        md: '8px',
-        lg: '12px',
-        xl: '16px',
+        xs: '4px',
+        sm: '6px',
+        md: '10px',
+        lg: '14px',
+        xl: '20px',
         pill: '999px',
       },
 
@@ -190,28 +214,28 @@ const config: Config = {
       },
 
       boxShadow: {
-        // elevation
-        'elev-1': '0 1px 2px rgba(0, 0, 0, 0.40)',
-        'elev-2': '0 4px 12px rgba(0, 0, 0, 0.45)',
-        'elev-3': '0 12px 32px rgba(0, 0, 0, 0.55)',
-        popover: '0 8px 28px rgba(0, 0, 0, 0.60), 0 0 0 1px var(--border-default)',
-        // glow (tech accent — small area)
-        'glow-accent': '0 0 0 1px var(--accent-border), 0 0 16px var(--accent-glow)',
-        'glow-accent-sm': '0 0 10px var(--accent-glow)',
-        'glow-planning': '0 0 14px var(--route-planning-glow)',
-        'glow-scheduling': '0 0 14px var(--route-scheduling-glow)',
-        'glow-query': '0 0 14px var(--route-query-glow)',
-        'glow-uncertain': '0 0 14px var(--route-uncertain-glow)',
-        'glow-success': '0 0 14px rgba(44, 197, 111, 0.35)',
-        'glow-confirm': '0 0 14px rgba(245, 158, 11, 0.35)',
-        // inner top hairline highlight
-        'inset-top-hi': 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+        // elevation — diffuse macOS shadows, per-theme via CSS vars
+        'elev-1': 'var(--shadow-elev-1)',
+        'elev-2': 'var(--shadow-elev-2)',
+        'elev-3': 'var(--shadow-elev-3)',
+        popover: 'var(--shadow-popover)',
+        // glow — restrained; only glow-accent stays assertive (AI/live)
+        'glow-accent': '0 0 0 1px var(--accent-border), 0 0 12px var(--accent-glow)',
+        'glow-accent-sm': '0 0 8px var(--accent-glow)',
+        'glow-planning': '0 0 8px var(--route-planning-glow)',
+        'glow-scheduling': '0 0 8px var(--route-scheduling-glow)',
+        'glow-query': '0 0 8px var(--route-query-glow)',
+        'glow-uncertain': '0 0 8px var(--route-uncertain-glow)',
+        'glow-success': '0 0 8px rgba(48, 209, 88, 0.25)',
+        'glow-confirm': '0 0 8px rgba(255, 176, 32, 0.25)',
+        // inner top hairline highlight (per-theme via CSS var)
+        'inset-top-hi': 'inset 0 1px 0 var(--inset-hi)',
         // focus ring
-        focus: '0 0 0 2px #0A0E16, 0 0 0 4px var(--accent-border)',
+        focus: '0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent-border)',
       },
 
       backdropBlur: {
-        glass: '14px',
+        glass: '20px',
       },
 
       transitionTimingFunction: {

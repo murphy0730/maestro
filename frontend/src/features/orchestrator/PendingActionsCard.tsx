@@ -1,4 +1,4 @@
-import { Check, X } from 'lucide-react';
+import { Check, TriangleAlert, X } from 'lucide-react';
 import type { PendingActionPayload } from '@/types';
 import { AuthAction } from '@/components/ui/AuthAction';
 
@@ -12,10 +12,13 @@ interface PendingActionsCardProps {
   onConfirm: (actionId: string, approved: boolean) => void;
 }
 
-const RESOLVED_LABEL: Record<Exclude<PendingActionPayload['status'], 'pending'>, string> = {
-  executed: '✓ 已确认执行',
-  rejected: '✕ 已取消',
-  failed: '⚠ 执行失败',
+const RESOLVED_LABEL: Record<
+  Exclude<PendingActionPayload['status'], 'pending'>,
+  { Icon: typeof Check; label: string }
+> = {
+  executed: { Icon: Check, label: '已确认执行' },
+  rejected: { Icon: X, label: '已取消' },
+  failed: { Icon: TriangleAlert, label: '执行失败' },
 };
 
 export function PendingActionsCard({ actions, onConfirm }: PendingActionsCardProps) {
@@ -42,7 +45,7 @@ export function PendingActionsCard({ actions, onConfirm }: PendingActionsCardPro
                 确认执行
               </AuthAction>
               <button
-                className="inline-flex h-[38px] cursor-pointer items-center gap-[6px] rounded-md border border-border-default bg-surface-3 px-3 font-sans text-body font-semibold text-text-secondary transition-shadow duration-fast ease-out hover:shadow-elev-1"
+                className="inline-flex h-[38px] cursor-pointer items-center gap-[6px] rounded-md border border-border-default bg-surface-1 px-3 font-sans text-body font-semibold text-text-secondary shadow-elev-1 transition-colors duration-fast ease-out hover:bg-surface-3"
                 onClick={() => onConfirm(a.action_id, false)}
               >
                 <X size={14} />
@@ -50,9 +53,15 @@ export function PendingActionsCard({ actions, onConfirm }: PendingActionsCardPro
               </button>
             </div>
           ) : (
-            <div className="mt-2 text-caption font-semibold text-text-tertiary">
-              {RESOLVED_LABEL[a.status]}
-            </div>
+            (() => {
+              const { Icon, label } = RESOLVED_LABEL[a.status];
+              return (
+                <div className="mt-2 flex items-center gap-[6px] text-caption font-semibold text-text-tertiary">
+                  <Icon size={13} className="flex-none" />
+                  {label}
+                </div>
+              );
+            })()
           )}
         </div>
       ))}

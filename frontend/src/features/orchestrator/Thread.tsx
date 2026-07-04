@@ -21,7 +21,12 @@ interface ThreadProps {
   onActionConfirm?: (messageId: string, actionId: string, approved: boolean) => void;
 }
 
-export function Thread({ messages, author = '李工', onClarifySelect, onActionConfirm }: ThreadProps) {
+export function Thread({
+  messages,
+  author = '李工',
+  onClarifySelect,
+  onActionConfirm,
+}: ThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Keep the latest message in view as the thread grows / streams.
   useEffect(() => {
@@ -29,7 +34,7 @@ export function Thread({ messages, author = '李工', onClarifySelect, onActionC
   }, [messages]);
 
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-[30px] py-6">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-[30px] pb-[150px] pt-6">
       <div className="mx-auto flex min-h-full max-w-[760px] flex-col justify-end gap-[18px]">
         {messages.map((m) => {
           if (m.kind === 'system') {
@@ -82,7 +87,9 @@ export function Thread({ messages, author = '李工', onClarifySelect, onActionC
               {m.text && (
                 <div className="text-body leading-relaxed">
                   <Markdown>{m.text}</Markdown>
-                  {m.streaming && <span className="ml-[2px] animate-pulse text-accent-fg">▍</span>}
+                  {m.streaming && (
+                    <span className="ml-[3px] inline-block h-[14px] w-[2px] animate-pulse rounded-pill bg-accent align-middle" />
+                  )}
                 </div>
               )}
               {m.streaming && !m.route && !m.text && (
