@@ -20,13 +20,12 @@ function createWindow() {
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1a1a1e' : '#f5f5f7',
     title: 'Maestro',
     autoHideMenuBar: true,
-    // macOS: hide the titlebar, keep inset traffic lights; the renderer's
-    // sidebar/topbar provide the drag regions (.app-drag) and a 72px inset.
-    // Known limit: in fullscreen the lights auto-hide but the inset stays
-    // (fixing needs an IPC fullscreen listener — out of scope).
+    // macOS: hide the titlebar, keep inset traffic lights; the renderer draws
+    // a dedicated 44px drag strip (Layout.tsx) at the top and the lights are
+    // vertically centered in it. App chrome starts below the strip.
     ...(isMac && {
       titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 18, y: 21 },
+      trafficLightPosition: { x: 18, y: 16 },
     }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

@@ -192,8 +192,6 @@ const config: Config = {
         header: '56px',
         composer: '88px',
         'max-readable': '720px',
-        // macOS traffic-light inset (hiddenInset titlebar, Electron only)
-        traffic: '72px',
         // standard control height (buttons, inputs)
         control: '34px',
       },
