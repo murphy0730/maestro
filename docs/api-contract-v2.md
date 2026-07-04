@@ -27,7 +27,19 @@
 
 ## 1. `POST /chat/stream` — v2 增量
 
-SSE 帧序列：`route → token… → [actions] → done`，或 `route → clarify → done`，异常 `error`。
+SSE 帧序列：`[progress…] → route → token… → [actions] → done`，或 `… → clarify → done`，异常 `error`。
+
+**新增 `progress` 帧**（2026-07-04）：编排/引擎执行期间**实时**下发的阶段进度，
+解决长任务（ReAct 多步、CP-SAT 求解）期间前端零反馈的问题。前端在流式气泡的
+占位行展示最新一条即可，无需累积。
+
+```jsonc
+event: progress
+data: { "text": "调用工具 check_kitting" }
+// 其它示例: "识别意图…" / "思考中 (第 2/8 步)" / "求解中 (FlowShopTardiness)…" / "检索知识库…"
+```
+
+`/chat/clarify` 的续流同样携带 progress 帧。
 
 **新增 `actions` 帧**（本轮产生了需人工确认的写动作时，在 `done` 前下发一次）：
 

@@ -61,6 +61,8 @@ export interface AgentMessage extends BaseMessage {
   handoff?: boolean;
   /** True while this turn is still streaming in (live, uncommitted). */
   streaming?: boolean;
+  /** Latest execution progress line (streaming turns only). */
+  progress?: string;
   /** Write actions awaiting human confirmation (rendered as confirm cards). */
   pendingActions?: PendingActionPayload[];
 }

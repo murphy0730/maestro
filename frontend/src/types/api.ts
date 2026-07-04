@@ -119,6 +119,7 @@ export type ChatStreamEvent =
   | { event: 'token'; data: { delta: string } }
   | { event: 'clarify'; data: ClarifyPayload }
   | { event: 'context'; data: ChatContextEvent }
+  | { event: 'progress'; data: { text: string } }
   | { event: 'actions'; data: { actions: PendingActionPayload[] } }
   | { event: 'done'; data: { message_id: string } }
   | { event: 'error'; data: ApiErrorResponse };

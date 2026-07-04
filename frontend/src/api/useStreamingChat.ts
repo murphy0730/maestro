@@ -24,6 +24,8 @@ export interface StreamingChatState {
   clarify: ClarifyPayload | null;
   /** Latest Context Panel activation/update. */
   context: ChatContextEvent | null;
+  /** Latest execution progress line (from real-time `progress` events). */
+  progress: string | null;
   /** Write actions awaiting human confirmation (from the `actions` event). */
   actions: PendingActionPayload[];
   /** Final message id from the `done` event. */
@@ -37,6 +39,7 @@ const INITIAL: StreamingChatState = {
   text: '',
   clarify: null,
   context: null,
+  progress: null,
   actions: [],
   messageId: null,
   error: null,
@@ -80,6 +83,9 @@ export function useStreamingChat(sessionId: string) {
             break;
           case 'context':
             setState((s) => ({ ...s, context: evt.data }));
+            break;
+          case 'progress':
+            setState((s) => ({ ...s, progress: evt.data.text }));
             break;
           case 'actions':
             setState((s) => ({ ...s, actions: evt.data.actions }));

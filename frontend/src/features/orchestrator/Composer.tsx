@@ -26,6 +26,10 @@ interface ComposerProps {
   mode: ComposerMode;
   onRouteChange: (route: ComposerRoute) => void;
   onModeChange: (mode: ComposerMode) => void;
+  /** Stream in flight: the send button becomes a stop button. */
+  isStreaming?: boolean;
+  /** Abort the in-flight stream (wired to useOrchestrator.stop). */
+  onStop?: () => void;
 }
 
 type IconType = typeof WandSparkles;
@@ -63,13 +67,22 @@ const MODE_OPTS: { id: ComposerMode; label: string; desc: string; icon: IconType
 
 type OpenMenu = 'route' | 'mode' | null;
 
-export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: ComposerProps) {
+export function Composer({
+  onSend,
+  route,
+  mode,
+  onRouteChange,
+  onModeChange,
+  isStreaming = false,
+  onStop,
+}: ComposerProps) {
   const [draft, setDraft] = useState('');
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   const slash = draft.startsWith('/');
   const submit = () => {
+    if (isStreaming) return;
     const t = draft.trim();
     if (t) {
       onSend(t);
@@ -225,9 +238,19 @@ export function Composer({ onSend, route, mode, onRouteChange, onModeChange }: C
             </div>
 
             <span className="flex-1" />
-            <Button variant="primary" onClick={submit} leadingIcon={<ArrowUp size={15} />}>
-              发送
-            </Button>
+            {isStreaming ? (
+              <Button
+                variant="danger"
+                onClick={onStop}
+                leadingIcon={<Square size={12} fill="currentColor" />}
+              >
+                停止
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={submit} leadingIcon={<ArrowUp size={15} />}>
+                发送
+              </Button>
+            )}
           </div>
         </div>
 

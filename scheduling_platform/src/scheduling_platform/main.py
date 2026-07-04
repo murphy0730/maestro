@@ -115,6 +115,19 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _progress_frames(task: asyncio.Task, q: "asyncio.Queue[str]") -> AsyncIterator[str]:
+    """编排任务运行期间实时产出 progress 帧 (真流式反馈)，任务结束后清空余量。"""
+    while not task.done():
+        getter = asyncio.ensure_future(q.get())
+        done, _ = await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
+        if getter in done:
+            yield _sse("progress", {"text": getter.result()})
+        else:
+            getter.cancel()
+    while not q.empty():
+        yield _sse("progress", {"text": q.get_nowait()})
+
+
 def _contract_route(rd) -> dict:
     """内部 RouteDecision → 前端契约 RouteDecision 形状。"""
     return {
@@ -197,10 +210,20 @@ async def chat_stream(req: ChatStreamRequest):
             if is_first_turn
             else None
         )
-        try:
-            resp = await platform.orchestrator.handle(
-                req.session_id, req.message, route=req.current_engine or "auto"
+        # 真流式: 编排放后台任务，执行中经队列实时推 progress 帧
+        progress_q: asyncio.Queue[str] = asyncio.Queue()
+        handle_task = asyncio.create_task(
+            platform.orchestrator.handle(
+                req.session_id,
+                req.message,
+                route=req.current_engine or "auto",
+                on_progress=progress_q.put,
             )
+        )
+        try:
+            async for frame in _progress_frames(handle_task, progress_q):
+                yield frame
+            resp = await handle_task
             if title_task is not None:
                 title = await title_task
                 if title:
@@ -208,6 +231,7 @@ async def chat_stream(req: ChatStreamRequest):
             async for frame in _sse_from_response(resp):
                 yield frame
         except Exception as e:  # noqa: BLE001 — 编排失败也要以 error 帧收口，不断流
+            handle_task.cancel()
             if title_task is not None and not title_task.done():
                 title_task.cancel()
             logger.exception("[CHAT-STREAM] 处理失败")
@@ -221,13 +245,20 @@ async def chat_clarify(req: ClarifyStreamRequest):
     """澄清回选：按所选引擎直接路由暂存的原请求并续流。"""
 
     async def gen() -> AsyncIterator[str]:
-        try:
-            resp = await app.state.platform.orchestrator.resume_clarification(
-                req.session_id, req.route_to
+        progress_q: asyncio.Queue[str] = asyncio.Queue()
+        resume_task = asyncio.create_task(
+            app.state.platform.orchestrator.resume_clarification(
+                req.session_id, req.route_to, on_progress=progress_q.put
             )
+        )
+        try:
+            async for frame in _progress_frames(resume_task, progress_q):
+                yield frame
+            resp = await resume_task
             async for frame in _sse_from_response(resp):
                 yield frame
         except Exception as e:  # noqa: BLE001
+            resume_task.cancel()
             logger.exception("[CHAT-CLARIFY] 处理失败")
             yield _sse("error", {"error": {"code": "ORCHESTRATOR_ERROR", "message": str(e)}})
 

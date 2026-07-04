@@ -19,6 +19,8 @@ import {
   replaceKnowledge,
   uploadKnowledge,
 } from './knowledge';
+import { createSession, deleteSession, listSessions, renameSession } from './sessions';
+import type { SessionInfo } from '@/stores/sessionStore';
 
 /* ============================================================
    Planning
@@ -92,6 +94,66 @@ export function useAuditTimeline(sessionId: string, enabled = true) {
     queryKey: queryKeys.audit.timeline(sessionId),
     queryFn: ({ signal }) => getAuditTimeline(sessionId, signal),
     enabled: enabled && !!sessionId,
+  });
+}
+
+/* ============================================================
+   Sessions (conversation list CRUD)
+   ============================================================ */
+
+/** All sessions, most recently updated first (drives the sidebar). */
+export function useSessions() {
+  return useQuery({
+    queryKey: queryKeys.sessions.list(),
+    queryFn: () => listSessions(),
+  });
+}
+
+/** Create a session and prepend it to the cached list. */
+export function useCreateSession() {
+  const qc = useQueryClient();
+  return useMutation<SessionInfo, Error, string | undefined>({
+    mutationFn: (title) => createSession(title ?? '新对话'),
+    onSuccess: (s) =>
+      qc.setQueryData<SessionInfo[]>(queryKeys.sessions.list(), (prev) => [s, ...(prev ?? [])]),
+  });
+}
+
+/** Rename a session, updating it in place in the cached list. */
+export function useRenameSession() {
+  const qc = useQueryClient();
+  return useMutation<SessionInfo, Error, { id: string; title: string }>({
+    mutationFn: ({ id, title }) => renameSession(id, title),
+    onSuccess: (updated) =>
+      qc.setQueryData<SessionInfo[]>(queryKeys.sessions.list(), (prev) =>
+        (prev ?? []).map((s) => (s.session_id === updated.session_id ? updated : s)),
+      ),
+  });
+}
+
+/** Delete a session, optimistically dropping it from the cached list. */
+export function useDeleteSession() {
+  const qc = useQueryClient();
+  const key = queryKeys.sessions.list();
+  return useMutation<
+    { deleted: boolean; session_id: string },
+    Error,
+    string,
+    { prev?: SessionInfo[] }
+  >({
+    mutationFn: (id) => deleteSession(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<SessionInfo[]>(key);
+      if (prev) {
+        qc.setQueryData<SessionInfo[]>(key, prev.filter((s) => s.session_id !== id));
+      }
+      return { prev };
+    },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
   });
 }
 

@@ -183,3 +183,18 @@ async def test_engine_degraded_without_llm(adapter, audit, gate, settings):
     resp = await engine.handle_chat("齐套情况", {}, "s1")
     assert "齐套" in resp.reply
     assert not resp.pending_actions
+
+
+async def test_agent_progress_reporting(adapter, audit, gate, settings):
+    """on_progress 在思考/工具步实时上报 (SSE progress 帧数据源)。"""
+    llm = FakeLLM(chat_script=[[("check_kitting", {"wo_ids": ["WO-104"]})], "WO-104 已齐套。"])
+    _, _, _, agent, _ = _assemble(adapter, audit, gate, llm, settings)
+    seen: list[str] = []
+
+    async def on_progress(text: str) -> None:
+        seen.append(text)
+
+    result = await agent.run("查 WO-104 齐套", on_progress=on_progress)
+    assert result.answer == "WO-104 已齐套。"
+    assert any("思考中" in t for t in seen)
+    assert any("check_kitting" in t for t in seen)

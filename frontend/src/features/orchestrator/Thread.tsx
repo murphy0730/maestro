@@ -92,10 +92,10 @@ export function Thread({
                   )}
                 </div>
               )}
-              {m.streaming && !m.route && !m.text && (
+              {m.streaming && !m.text && (
                 <p className="m-0 flex items-center gap-2 leading-relaxed text-text-tertiary">
                   <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-accent" />
-                  正在分析意图…
+                  {m.progress ?? '正在分析意图…'}
                 </p>
               )}
               {m.pendingActions && m.pendingActions.length > 0 && (

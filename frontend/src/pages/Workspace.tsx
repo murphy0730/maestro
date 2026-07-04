@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessageData, ComposerMode, ComposerRoute } from '@/types';
 import { Layout } from '@/components/layout/Layout';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -9,13 +9,8 @@ import { Composer } from '@/features/orchestrator/Composer';
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
 import { useConversationStore, useThemeStore } from '@/stores';
 import { useSessionStore } from '@/stores/sessionStore';
-import {
-  listSessions,
-  createSession,
-  getSessionMessages,
-  renameSession,
-  deleteSession,
-} from '@/api/sessions';
+import { useSessions, useCreateSession, useRenameSession, useDeleteSession } from '@/api';
+import { getSessionMessages } from '@/api/sessions';
 import type { ConversationSummary } from '@/mocks/session';
 import type { RouteEngine } from '@/types';
 
@@ -36,12 +31,16 @@ export function Workspace() {
   const closeContextPanel = useConversationStore((s) => s.closeContextPanel);
   const resetThread = useConversationStore((s) => s.resetThread);
 
-  const sessions = useSessionStore((s) => s.sessions);
+  // 服务器状态 (会话列表) 归 TanStack Query；本地只保留"当前选中哪个会话"
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const setSessions = useSessionStore((s) => s.setSessions);
-  const upsertSession = useSessionStore((s) => s.upsertSession);
-  const removeSession = useSessionStore((s) => s.removeSession);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
+
+  const sessionsQuery = useSessions();
+  const sessionsData = sessionsQuery.data;
+  const sessions = useMemo(() => sessionsData ?? [], [sessionsData]);
+  const createSessionMut = useCreateSession();
+  const renameSessionMut = useRenameSession();
+  const deleteSessionMut = useDeleteSession();
 
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -79,14 +78,13 @@ export function Workspace() {
 
   // 一轮流式对话结束后刷新会话列表，拿到后端生成的智能标题（及引擎/时间）
   const prevStreamingRef = useRef(false);
+  const refetchSessions = sessionsQuery.refetch;
   useEffect(() => {
     if (prevStreamingRef.current && !isStreaming) {
-      listSessions()
-        .then(setSessions)
-        .catch(() => {});
+      void refetchSessions();
     }
     prevStreamingRef.current = isStreaming;
-  }, [isStreaming, setSessions]);
+  }, [isStreaming, refetchSessions]);
 
   /** 把后端 StoredMessage 列表转为前端 ChatMessageData */
   const storedToThread = useCallback(
@@ -126,43 +124,42 @@ export function Workspace() {
     [resetThread, storedToThread],
   );
 
-  // 挂载时初始化会话列表
+  // 会话列表首次加载完成后初始化：选最近会话，无则自动新建。
+  // 后端不可达 (query 不 success) 时保持欢迎消息。
+  const initializedRef = useRef(false);
   useEffect(() => {
+    if (initializedRef.current || !sessionsQuery.isSuccess) return;
+    initializedRef.current = true;
     const init = async () => {
-      try {
-        const fetched = await listSessions();
-        setSessions(fetched);
-        if (fetched.length > 0) {
-          const recent = fetched[0];
-          setActiveSessionId(recent.session_id);
-          await loadSession(recent.session_id);
-        } else {
-          // 无会话 → 自动新建
-          const newSess = await createSession('新对话');
-          upsertSession(newSess);
+      const fetched = sessionsQuery.data;
+      if (fetched.length > 0) {
+        const recent = fetched[0];
+        setActiveSessionId(recent.session_id);
+        await loadSession(recent.session_id);
+      } else {
+        try {
+          const newSess = await createSessionMut.mutateAsync('新对话');
           setActiveSessionId(newSess.session_id);
           resetThread();
+        } catch {
+          // 新建失败：保持欢迎消息
         }
-      } catch {
-        // 后端不可达：保持欢迎消息
       }
     };
-    init();
+    void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionsQuery.isSuccess]);
 
   /** 新建对话 */
   const handleNewConversation = useCallback(async () => {
     try {
-      const newSess = await createSession('新对话');
-      upsertSession(newSess);
+      const newSess = await createSessionMut.mutateAsync('新对话');
       setActiveSessionId(newSess.session_id);
-      resetThread();
     } catch {
       // fallback: 只重置线程
-      resetThread();
     }
-  }, [upsertSession, setActiveSessionId, resetThread]);
+    resetThread();
+  }, [createSessionMut, setActiveSessionId, resetThread]);
 
   /** 切换历史会话 */
   const handleSelectSession = useCallback(
@@ -178,24 +175,22 @@ export function Workspace() {
   const handleRenameSession = useCallback(
     async (id: string, title: string) => {
       try {
-        const updated = await renameSession(id, title);
-        upsertSession(updated);
+        await renameSessionMut.mutateAsync({ id, title });
       } catch {
         // 忽略重命名失败
       }
     },
-    [upsertSession],
+    [renameSessionMut],
   );
 
   /** 删除会话；若删的是当前会话，切到剩余最近一条，无则新建 */
   const handleDeleteSession = useCallback(
     async (id: string) => {
       try {
-        await deleteSession(id);
+        await deleteSessionMut.mutateAsync(id); // 乐观移除，失败自动回滚
       } catch {
-        // 后端删除失败仍从本地移除，避免残留
+        return; // 删除失败：列表已回滚，当前会话不动
       }
-      removeSession(id);
       if (id !== activeSessionId) return;
       const remaining = sessions.filter((s) => s.session_id !== id);
       if (remaining.length > 0) {
@@ -203,21 +198,19 @@ export function Workspace() {
         await loadSession(remaining[0].session_id);
       } else {
         try {
-          const newSess = await createSession('新对话');
-          upsertSession(newSess);
+          const newSess = await createSessionMut.mutateAsync('新对话');
           setActiveSessionId(newSess.session_id);
-          resetThread();
         } catch {
           setActiveSessionId(null);
-          resetThread();
         }
+        resetThread();
       }
     },
     [
       activeSessionId,
       sessions,
-      removeSession,
-      upsertSession,
+      deleteSessionMut,
+      createSessionMut,
       setActiveSessionId,
       loadSession,
       resetThread,

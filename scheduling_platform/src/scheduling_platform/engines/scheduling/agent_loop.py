@@ -33,6 +33,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 
+from scheduling_platform.engines.base import ProgressFn, emit_progress
 from scheduling_platform.engines.scheduling.schemas import AgentResult, AgentStep
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import PendingActionStore
@@ -95,7 +96,12 @@ class AgentLoop:
     def available(self) -> bool:
         return self._llm.available
 
-    async def run(self, task: str, history: list[dict] | None = None) -> AgentResult:
+    async def run(
+        self,
+        task: str,
+        history: list[dict] | None = None,
+        on_progress: ProgressFn | None = None,
+    ) -> AgentResult:
         """跑一轮 ReAct。`history` 注入多轮上下文 (前若干轮 user/assistant 文本)。
 
         LLM 未配置时抛 LLMError，由引擎降级；运行中 LLM 抖动经重试仍失败则收口为 ERROR。
@@ -115,8 +121,11 @@ class AgentLoop:
             if self._is_stuck(st):  # 软检测: 卡死
                 st.status = AgentStatus.STUCK
                 break
+            await emit_progress(
+                on_progress, f"思考中 (第 {iteration + 1}/{self._max_steps} 步)"
+            )
             try:
-                await self._step(st, openai_tools)
+                await self._step(st, openai_tools, on_progress)
             except LLMError:  # 重试仍失败 → 收口 (保留已有轨迹兜底)
                 st.status = AgentStatus.ERROR
                 break
@@ -124,6 +133,7 @@ class AgentLoop:
 
         # 被硬上限 / 卡死强制中断的，追加一次收尾发言 (让模型基于观察给结论)
         if st.status in (AgentStatus.MAX_STEPS, AgentStatus.STUCK):
+            await emit_progress(on_progress, "整理结论…")
             st.answer = await self._force_final(st) or st.answer
 
         new_pending = [
@@ -138,7 +148,12 @@ class AgentLoop:
 
     # ── 单步: 一次「思考 → 行动 → 观察」，按 LLM 响应类型三分支 ──
 
-    async def _step(self, st: _RunState, openai_tools: list[dict]) -> None:
+    async def _step(
+        self,
+        st: _RunState,
+        openai_tools: list[dict],
+        on_progress: ProgressFn | None = None,
+    ) -> None:
         turn = await self._chat_turn_resilient(st.messages, openai_tools)
 
         if not turn.tool_calls:
@@ -158,6 +173,7 @@ class AgentLoop:
         # TOOL_CALLS: 逐个过护栏执行，观察回喂
         st.messages.append(turn.assistant_message)
         for call in turn.tool_calls:
+            await emit_progress(on_progress, f"调用工具 {call.name}")
             observation, blocked = await self._handle_call(call.name, call.arguments, st)
             st.steps.append(
                 AgentStep(

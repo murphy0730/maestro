@@ -11,7 +11,7 @@ import json
 import logging
 from datetime import date
 
-from scheduling_platform.engines.base import Engine, EngineResponse
+from scheduling_platform.engines.base import Engine, EngineResponse, ProgressFn, emit_progress
 from scheduling_platform.engines.planning.extractor import PlanningExtractor
 from scheduling_platform.engines.planning.registry import StrategyRegistry
 from scheduling_platform.engines.planning.schemas import (
@@ -60,10 +60,16 @@ class PlanningEngine(Engine):
         self._memory = memory
 
     async def handle_chat(
-        self, message: str, entities: dict, session_id: str, history: list[dict] | None = None
+        self,
+        message: str,
+        entities: dict,
+        session_id: str,
+        history: list[dict] | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> EngineResponse:
         # 固定工作流，不使用多轮 history
         # 1) 抽参
+        await emit_progress(on_progress, "解析排产参数…")
         request = await self._extractor.extract(message, entities)
 
         # 2) 加载数据快照
@@ -76,6 +82,7 @@ class PlanningEngine(Engine):
         data = PlanningData(orders=orders, lines=lines, today=date.today())
 
         # 3) 选策略 (规则映射优先, LLM 辅助, 低置信澄清)
+        await emit_progress(on_progress, "选择排产策略…")
         selection = await self._selector.select(request)
         self._audit.record(
             actor=session_id,
@@ -109,6 +116,7 @@ class PlanningEngine(Engine):
             )
 
         # 5) 求解 (计算只由策略做；CP-SAT 为阻塞调用，放线程池)
+        await emit_progress(on_progress, f"求解中 ({strategy.name})…")
         result = await asyncio.to_thread(strategy.solve, request, data)
         self._audit.record(
             actor=session_id,
@@ -123,6 +131,7 @@ class PlanningEngine(Engine):
             )
 
         # 6) 通用硬约束校验 (不信任求解器，二次确认)
+        await emit_progress(on_progress, "校验排程并生成解释…")
         report = self._validator.validate(result, request, data)
 
         # 7) LLM 解释 (失败降级为模板)

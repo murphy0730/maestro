@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+/** Backend SessionMeta shape (docs/api-contract-v2.md §5). */
 export interface SessionInfo {
   session_id: string;
   title: string;
@@ -9,34 +10,17 @@ export interface SessionInfo {
   message_count: number;
 }
 
+/**
+ * Client-only session UI state. The session *list* is server state and lives
+ * in the TanStack Query cache (`useSessions` in `@/api`); this store keeps
+ * only which session is active.
+ */
 interface SessionStoreState {
-  sessions: SessionInfo[];
   activeSessionId: string | null;
-  setSessions: (sessions: SessionInfo[]) => void;
-  upsertSession: (session: SessionInfo) => void;
-  removeSession: (id: string) => void;
   setActiveSessionId: (id: string | null) => void;
 }
 
 export const useSessionStore = create<SessionStoreState>((set) => ({
-  sessions: [],
   activeSessionId: null,
-
-  setSessions: (sessions) => set({ sessions }),
-
-  upsertSession: (session) =>
-    set((s) => {
-      const idx = s.sessions.findIndex((x) => x.session_id === session.session_id);
-      const next = [...s.sessions];
-      if (idx >= 0) {
-        next[idx] = session;
-      } else {
-        next.unshift(session);
-      }
-      return { sessions: next };
-    }),
-
-  removeSession: (id) => set((s) => ({ sessions: s.sessions.filter((x) => x.session_id !== id) })),
-
   setActiveSessionId: (id) => set({ activeSessionId: id }),
 }));

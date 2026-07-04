@@ -95,6 +95,35 @@ export function useOrchestrator(sessionId: string) {
     [addMessage],
   );
 
+  /** Stop the in-flight stream: keep whatever streamed so far, mark the turn interrupted. */
+  const stop = useCallback(() => {
+    const c = chatRef.current;
+    if (pendingRef.current) {
+      // Clear the pending guard first so the phase effect won't re-commit
+      // whatever phase the abort settles into.
+      pendingRef.current = false;
+      if (c.text || c.route) {
+        addMessage({
+          id: turnIdRef.current,
+          kind: 'agent',
+          time: turnTimeRef.current,
+          route: c.route?.intent,
+          confidence: c.route?.confidence,
+          reason: c.route?.reason,
+          text: c.text || undefined,
+        });
+      }
+      addMessage({
+        id: `sys-${Date.now()}`,
+        kind: 'system',
+        time: nowHM(),
+        text: '已停止本次回答',
+      });
+    }
+    c.abort();
+    c.reset();
+  }, [addMessage]);
+
   /** Answer a clarification: record the choice, then resume the stream. */
   const selectClarification = useCallback(
     (messageId: string, optionId: string, routeTo: IntentType) => {
@@ -157,12 +186,14 @@ export function useOrchestrator(sessionId: string) {
       confidence: chat.route?.confidence,
       reason: chat.route?.reason,
       text: chat.text || undefined,
+      progress: chat.progress ?? undefined,
       streaming: true,
     };
-  }, [chat.phase, chat.route, chat.text]);
+  }, [chat.phase, chat.route, chat.text, chat.progress]);
 
   return {
     send,
+    stop,
     selectClarification,
     confirmPending,
     liveMessage,

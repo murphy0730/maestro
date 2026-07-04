@@ -7,7 +7,7 @@
 import logging
 
 from scheduling_platform.config import Settings
-from scheduling_platform.engines.base import Engine, EngineResponse
+from scheduling_platform.engines.base import Engine, EngineResponse, ProgressFn, emit_progress
 from scheduling_platform.engines.query.query_engine import QueryEngine
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import ActionGate
@@ -63,7 +63,11 @@ class Orchestrator:
         self._settings = settings
 
     async def handle(
-        self, session_id: str, message: str, route: str = "auto"
+        self,
+        session_id: str,
+        message: str,
+        route: str = "auto",
+        on_progress: ProgressFn | None = None,
     ) -> ChatResponse:
         state = self._memory.get(session_id)
 
@@ -78,7 +82,7 @@ class Orchestrator:
             )
             self._memory.append(session_id, "user", message)
             self._record_route(session_id, message, decision)
-            resp = await self._dispatch(decision, message, session_id, state)
+            resp = await self._dispatch(decision, message, session_id, state, on_progress)
             return self._finish(session_id, decision, resp)
 
         # ── 澄清后处理 (设计文档 5.2 第 3 层)：选项式不重跑、开放式回 LLM ──
@@ -89,20 +93,28 @@ class Orchestrator:
             intent = resolve_clarification(message)
             if intent and len(message.strip()) <= 4:
                 # 选项式回答 → 直接按所选选项路由原请求，不再跑嵌入/LLM
-                return await self._route_clarified(session_id, pending["message"], intent, state)
+                return await self._route_clarified(
+                    session_id, pending["message"], intent, state, on_progress
+                )
             # 开放式回答 → 合并上下文，回到第 2 层 LLM 分类 (跳过嵌入)
             skip_embedding = True
 
         # ── 正常路由: 嵌入 → LLM → (低置信澄清) ───────────────
+        await emit_progress(on_progress, "识别意图…")
         decision = await self._router.route(
             message, state.history, state.current_engine, skip_embedding=skip_embedding
         )
         self._memory.append(session_id, "user", message)
         self._record_route(session_id, message, decision)
-        return await self._gate_and_dispatch(session_id, message, decision, state)
+        return await self._gate_and_dispatch(session_id, message, decision, state, on_progress)
 
     async def _route_clarified(
-        self, session_id: str, original: str, intent: str, state
+        self,
+        session_id: str,
+        original: str,
+        intent: str,
+        state,
+        on_progress: ProgressFn | None = None,
     ) -> ChatResponse:
         decision = RouteDecision(
             intent=intent,  # type: ignore[arg-type]
@@ -113,15 +125,20 @@ class Orchestrator:
         )
         self._memory.append(session_id, "user", f"(澄清选择→{intent})")
         self._record_route(session_id, original, decision, clarified_from=original)
-        resp = await self._dispatch(decision, original, session_id, state)
+        resp = await self._dispatch(decision, original, session_id, state, on_progress)
         return self._finish(session_id, decision, resp)
 
     async def _gate_and_dispatch(
-        self, session_id: str, message: str, decision: RouteDecision, state
+        self,
+        session_id: str,
+        message: str,
+        decision: RouteDecision,
+        state,
+        on_progress: ProgressFn | None = None,
     ) -> ChatResponse:
         threshold = self._settings.route_confidence_threshold
         if decision.intent in ("planning", "scheduling", "query") and decision.confidence >= threshold:
-            resp = await self._dispatch(decision, message, session_id, state)
+            resp = await self._dispatch(decision, message, session_id, state, on_progress)
         else:
             # 低置信 / ambiguous → 带选项澄清，并记下原请求供澄清后直接路由
             self._memory.set_context(session_id, "pending_clarification", {"message": message})
@@ -133,20 +150,31 @@ class Orchestrator:
         return self._finish(session_id, decision, resp)
 
     async def _dispatch(
-        self, decision: RouteDecision, message: str, session_id: str, state
+        self,
+        decision: RouteDecision,
+        message: str,
+        session_id: str,
+        state,
+        on_progress: ProgressFn | None = None,
     ) -> EngineResponse:
         """按意图把请求派发到对应引擎/查询处理器 (正常路由与澄清后路由共用)。"""
         if decision.intent == "planning":
             self._memory.set_engine(session_id, "planning")
-            return await self._planning.handle_chat(message, decision.entities, session_id)
+            return await self._planning.handle_chat(
+                message, decision.entities, session_id, on_progress=on_progress
+            )
         if decision.intent == "scheduling":
             self._memory.set_engine(session_id, "scheduling")
             # 历史已含本轮用户消息，去掉末条作为多轮上下文注入 ReAct
             return await self._scheduling.handle_chat(
-                message, decision.entities, session_id, history=state.history[:-1]
+                message,
+                decision.entities,
+                session_id,
+                history=state.history[:-1],
+                on_progress=on_progress,
             )
         # query: 历史已含本轮用户消息，去掉末条作为上下文
-        return await self._query.handle(message, state.history[:-1])
+        return await self._query.handle(message, state.history[:-1], on_progress=on_progress)
 
     def _record_route(
         self, session_id: str, message: str, decision: RouteDecision, clarified_from: str | None = None
@@ -177,13 +205,15 @@ class Orchestrator:
             options=resp.clarification_options,
         )
 
-    async def resume_clarification(self, session_id: str, route_to: str) -> ChatResponse:
+    async def resume_clarification(
+        self, session_id: str, route_to: str, on_progress: ProgressFn | None = None
+    ) -> ChatResponse:
         """澄清回选 (前端 /chat/clarify)：按所选引擎直接路由暂存的原请求。"""
         state = self._memory.get(session_id)
         pending = state.context.get("pending_clarification")
         original = pending["message"] if pending else ""
         self._memory.set_context(session_id, "pending_clarification", None)
-        return await self._route_clarified(session_id, original, route_to, state)
+        return await self._route_clarified(session_id, original, route_to, state, on_progress)
 
     async def confirm(self, session_id: str, action_id: str, approved: bool) -> ChatResponse:
         """确认/拒绝一个待执行动作。"""

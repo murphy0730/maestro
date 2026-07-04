@@ -12,7 +12,7 @@ Orchestrator 对齐 (替换原 QueryHandler)。
 
 import logging
 
-from scheduling_platform.engines.base import EngineResponse
+from scheduling_platform.engines.base import EngineResponse, ProgressFn, emit_progress
 from scheduling_platform.engines.query.retriever import KnowledgeRetriever
 from scheduling_platform.foundation.integration.base import IntegrationAdapter
 from scheduling_platform.foundation.llm import LLMClient, LLMError
@@ -44,8 +44,14 @@ class QueryEngine:
         self._readonly_tools = list(readonly_tools)
         self._top_k = top_k
 
-    async def handle(self, message: str, history: list[dict]) -> EngineResponse:
+    async def handle(
+        self,
+        message: str,
+        history: list[dict],
+        on_progress: ProgressFn | None = None,
+    ) -> EngineResponse:
         # 1) retrieve
+        await emit_progress(on_progress, "检索知识库…")
         passages: list = []
         try:
             passages = await self._retriever.search_passages(message, self._top_k)
@@ -61,6 +67,7 @@ class QueryEngine:
         sources = [src.model_dump() for _, src in passages]
 
         # 3) generate (只读工具)
+        await emit_progress(on_progress, "结合知识与实时数据生成回答…")
         try:
             reply = await self._llm.complete(
                 system,
