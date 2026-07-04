@@ -24,9 +24,7 @@ it('renders a pending action and lifts confirm / reject', () => {
 });
 
 it('renders the resolved status line instead of buttons', () => {
-  render(
-    <PendingActionsCard actions={[{ ...action, status: 'executed' }]} onConfirm={() => {}} />,
-  );
+  render(<PendingActionsCard actions={[{ ...action, status: 'executed' }]} onConfirm={() => {}} />);
   expect(screen.getByText('已确认执行')).toBeTruthy();
   expect(screen.queryByText('确认执行')).toBeNull();
 });

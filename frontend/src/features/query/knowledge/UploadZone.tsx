@@ -13,7 +13,13 @@ interface UploadZoneProps {
   onBrowse: () => void;
 }
 
-export function UploadZone({ supported, tasks, onPickFiles, onRemoveTask, onBrowse }: UploadZoneProps) {
+export function UploadZone({
+  supported,
+  tasks,
+  onPickFiles,
+  onRemoveTask,
+  onBrowse,
+}: UploadZoneProps) {
   const [dragging, setDragging] = useState(false);
 
   return (

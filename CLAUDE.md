@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Two independently-run apps that talk over an HTTP/SSE contract:
 
 - `scheduling_platform/` — Python 3.12 FastAPI backend ("一个平台 / 三个引擎 / 一个入口"). Source under `src/scheduling_platform/`. Source of truth for behavior; see its `README.md`.
-- `frontend/` — React 18 + Vite + TypeScript + Tailwind SPA (internal name "Cadence"/"Maestro"). Talks to the backend contract in `docs/api-contract.md`; ships with MSW mocks so it runs without the backend.
+- `frontend/` — React 18 + Vite + TypeScript + Tailwind SPA (internal name "Cadence"/"Maestro"), with an optional Electron shell (`frontend/electron/`). Talks to the backend contract in `docs/api-contract-v2.md` (v2 supersedes `api-contract.md` and marks not-yet-implemented endpoints); MSW mocks available for offline demo.
 
 The package is `scheduling_platform`, **not** `platform` — `platform` is a stdlib name that shadows dependency imports. Design docs say `src/platform/`; the real path is `src/scheduling_platform/`.
 
@@ -29,12 +29,14 @@ pytest tests/test_planning.py::test_strategy_plugin_registration   # single test
 ### Frontend (`frontend/`)
 ```bash
 npm install
-npm run dev        # Vite on :5173; MSW mocks by default (VITE_API_MOCKING=enabled in .env.development)
+npm run dev        # Vite on :5173; hits the real backend by default via /api/v1 proxy → :8000
+npm test           # vitest (jsdom + React Testing Library)
 npm run build      # tsc -b && vite build
 npm run lint       # eslint, --max-warnings 0
 npm run format     # prettier
+npm run electron:dev   # desktop shell against the Vite dev server
 ```
-To hit the real backend instead of mocks, set `VITE_API_MOCKING=disabled` in `frontend/.env.development` (API base is `/api/v1`; Vite has no proxy configured, so wire one to `:8000` if needed).
+`VITE_API_MOCKING=disabled` is the committed default in `frontend/.env.development`; set it to `enabled` to run offline on MSW mocks. `./restart.sh` at the repo root restarts backend (:8000) + frontend (:5173) in the background.
 
 ## Backend architecture
 
@@ -53,14 +55,17 @@ Request flow: **user (CLI/HTTP) → Orchestrator → one of three engines**, wit
 `bootstrap.py::build_platform()` is the composition root — it constructs and wires the adapter, registries, all engines, and the orchestrator into a `Platform`; both FastAPI (`main.py`) and the CLI use it.
 
 ### HTTP endpoints (`main.py`)
-`POST /chat`, `POST /chat/confirm`, `POST /events` (inject system events to test event-driven wakeup), `GET /audit`, `GET /pending`, `GET /health`.
+`POST /chat`, `POST /chat/stream` (SSE: `progress` → `route` → `token…` → `actions` → `done` | `clarify` | `error`), `POST /chat/clarify`, `POST /chat/confirm`, `POST /scheduling/execute` (executes a pending action through the ActionGate), `GET /audit`, `GET /audit/timeline`, `GET /pending`, `POST /events` (inject system events to test event-driven wakeup), `/sessions` CRUD + `/sessions/{id}/messages`, `/knowledge` CRUD, `GET /health`. Shapes in `docs/api-contract-v2.md`.
+
+### Session persistence (`foundation/session_store.py` + `memory.py`)
+`SessionStore` persists session metadata + messages to `data/sessions/` (gitignored); `ConversationMemory` is a cache over it that rehydrates history/current_engine on restart — agent context survives restarts, while `context` (pending clarification, last planning result) is process-transient.
 
 ### Degraded mode
 With no API key: routing falls back to clarification, param extraction to regex, explanation to templates — but solving / kitting / expediting / dispatch / event-driven flow / audit all still work, so the architecture is verifiable offline.
 
 ## Frontend architecture
 
-- **Data layer** (`src/api/`) — plain request fns + TanStack Query hooks + SSE streaming hooks (`useStreamingChat`, `useStreamingQuery`), all re-exported from `api/index.ts`. Contract in `docs/api-contract.md`.
+- **Data layer** (`src/api/`) — plain request fns + TanStack Query hooks (incl. sessions/knowledge CRUD) + SSE streaming hooks (`useStreamingChat`, `useStreamingQuery`), all re-exported from `api/index.ts`. Contract in `docs/api-contract-v2.md`. Server state lives in the Query cache; Zustand stores hold client-only state (`sessionStore` = active session id only).
 - **MSW mocks** (`src/mocks/`) — `api/` handlers + SSE simulation intercept requests in dev; `session.ts`/`conversation.ts`/`panels.ts` hold demo UI state.
 - **Features** (`src/features/`) — `orchestrator` (chat thread + Composer with route/mode selectors), `planning`/`scheduling`/`query` panels mirror the three backend engines.
 - **Shell** — `components/layout/` (`Sidebar` + `Layout` + `TopBar`); `Workspace.tsx` is the page; Zustand `conversationStore` holds committed messages + active engine + panel state (the in-flight streaming turn lives in the hook, not the store).
