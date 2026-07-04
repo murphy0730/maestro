@@ -49,19 +49,21 @@ export function Workspace() {
   const fallbackIdRef = useRef(crypto.randomUUID().replace(/-/g, ''));
   const currentSessionId = activeSessionId ?? fallbackIdRef.current;
 
-  const { send, selectClarification, confirmPending, liveMessage, isStreaming } =
+  const { send, stop, selectClarification, confirmPending, liveMessage, isStreaming } =
     useOrchestrator(currentSessionId);
 
   const [route, setRoute] = useState<ComposerRoute>('auto');
 
   /**
-   * Selecting the query route opens the RAG knowledge-base manager on the right
-   * immediately (the middle thread then converses against that knowledge base).
-   * Other routes leave panel activation to the streaming `context` event.
+   * The query route and the RAG panel are strongly bound: selecting query
+   * opens the knowledge-base manager on the right immediately; switching to
+   * any other route closes it again. Other routes leave panel activation to
+   * the streaming `context` event.
    */
   const handleRouteChange = (next: ComposerRoute) => {
     setRoute(next);
     if (next === 'query') activateEngine('query');
+    else if (activeEngine === 'query') closeContextPanel();
   };
   const [mode, setMode] = useState<ComposerMode>('plan');
   const [clock, setClock] = useState('--:--:--');
@@ -228,6 +230,20 @@ export function Workspace() {
   const thread = liveMessage ? [...messages, liveMessage] : messages;
   const panelOpen = contextPanelOpen && activeEngine !== null;
   const activeSession = sessions.find((s) => s.session_id === activeSessionId);
+  // 空会话（只有系统欢迎语）→ 输入框居中的开屏形态
+  const isEmptyThread = thread.every((m) => m.kind === 'system');
+
+  const composer = (
+    <Composer
+      onSend={(text) => send(text, route === 'auto' ? null : route)}
+      route={route}
+      mode={mode}
+      onRouteChange={handleRouteChange}
+      onModeChange={setMode}
+      isStreaming={isStreaming}
+      onStop={stop}
+    />
+  );
 
   return (
     <Layout
@@ -260,29 +276,45 @@ export function Workspace() {
         />
       }
       conversation={
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <Thread
-            messages={thread}
-            author="周文涛"
-            onClarifySelect={selectClarification}
-            onActionConfirm={confirmPending}
-          />
-          {/* Composer floats over the thread so content scrolls under its glass */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0">
-            {isLoading && (
-              <div className="flex items-center justify-center py-2 text-caption text-text-tertiary">
-                加载历史消息中…
+        isEmptyThread ? (
+          /* 开屏形态：欢迎语 + 居中输入框；发出第一条消息后切回常规布局 */
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-12">
+            <div className="w-full max-w-[820px]">
+              <div className="mb-5 text-center">
+                <h1 className="text-h2 font-semibold tracking-tight text-text-primary">
+                  您好，我是 Maestro
+                </h1>
+                <p className="mt-2 text-body text-text-secondary">
+                  描述排产 / 调度 / 查询需求，或输入 / 使用斜杠命令
+                </p>
               </div>
-            )}
-            <Composer
-              onSend={(text) => send(text, route === 'auto' ? null : route)}
-              route={route}
-              mode={mode}
-              onRouteChange={handleRouteChange}
-              onModeChange={setMode}
-            />
+              {isLoading && (
+                <div className="flex items-center justify-center pb-2 text-caption text-text-tertiary">
+                  加载历史消息中…
+                </div>
+              )}
+              {composer}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <Thread
+              messages={thread}
+              author="周文涛"
+              onClarifySelect={selectClarification}
+              onActionConfirm={confirmPending}
+            />
+            {/* Composer floats over the thread so content scrolls under its glass */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0">
+              {isLoading && (
+                <div className="flex items-center justify-center py-2 text-caption text-text-tertiary">
+                  加载历史消息中…
+                </div>
+              )}
+              {composer}
+            </div>
+          </div>
+        )
       }
       panel={
         panelOpen ? (

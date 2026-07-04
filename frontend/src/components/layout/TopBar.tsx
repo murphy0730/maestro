@@ -1,17 +1,12 @@
 import { Clock, Bell, PanelLeftOpen } from 'lucide-react';
 import type { ActiveEngine } from '@/types';
 import { ROUTE_META } from '@/lib/routes';
-import { isMacDesktop } from '@/lib/platform';
 import { Badge } from '@/components/ui/Badge';
 
 /**
  * TopBar — session title + an engine indicator that follows the active route.
  * Pure presentational; clock is passed in so the bar stays stateless. When the
  * sidebar is collapsed, shows a leading button to expand it again.
- *
- * On the macOS Electron shell the whole bar is a window drag region; when the
- * sidebar is collapsed the traffic lights sit over this bar, so it takes the
- * left inset instead of the sidebar.
  */
 interface TopBarProps {
   session: string;
@@ -32,16 +27,12 @@ export function TopBar({
 }: TopBarProps) {
   const m = engine ? ROUTE_META[engine] : null;
   return (
-    <header
-      className={`material-chrome flex h-header flex-none items-center gap-[14px] border-b border-border-subtle pr-4 ${
-        isMacDesktop ? 'app-drag' : ''
-      } ${sidebarCollapsed && isMacDesktop ? 'pl-traffic' : 'pl-4'}`}
-    >
+    <header className="material-chrome flex h-header flex-none items-center gap-[14px] border-b border-border-subtle px-4">
       {sidebarCollapsed && onToggleSidebar && (
         <button
           title="展开侧栏"
           onClick={onToggleSidebar}
-          className="app-no-drag grid h-[30px] w-[30px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
+          className="grid h-[30px] w-[30px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
         >
           <PanelLeftOpen size={16} />
         </button>
@@ -74,7 +65,7 @@ export function TopBar({
       <span className="h-[22px] w-px bg-border-default" />
       <button
         title="通知"
-        className="app-no-drag grid h-[30px] w-[30px] place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
+        className="grid h-[30px] w-[30px] place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
       >
         <Bell size={16} />
       </button>

@@ -15,7 +15,6 @@ import {
 import type { ConversationSummary } from '@/mocks/session';
 import type { Theme } from '@/stores';
 import { ROUTE_META } from '@/lib/routes';
-import { isMacDesktop } from '@/lib/platform';
 import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
 
 /**
@@ -23,9 +22,6 @@ import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
  * conversation history list, and a user/settings footer. Each history row has a
  * kebab menu (rename inline / delete); the brand header carries a collapse
  * toggle. Presentational; all mutations are driven by callbacks from the parent.
- *
- * On the macOS Electron shell (hiddenInset titlebar) the brand row doubles as
- * the window drag region and is inset to clear the traffic lights.
  */
 interface SidebarProps {
   appName: string;
@@ -109,12 +105,8 @@ export function Sidebar({
 
   return (
     <aside className="material-chrome flex w-sidebar flex-none flex-col border-r border-border-subtle">
-      {/* Brand — window drag region on macOS desktop, inset past traffic lights */}
-      <div
-        className={`flex h-header flex-none items-center gap-[10px] border-b border-border-subtle pr-4 ${
-          isMacDesktop ? 'app-drag pl-traffic' : 'pl-4'
-        }`}
-      >
+      {/* Brand */}
+      <div className="flex h-header flex-none items-center gap-[10px] border-b border-border-subtle px-4">
         <span className="grid h-7 w-7 flex-none place-items-center rounded-md bg-gradient-to-b from-accent to-accent-strong text-text-on-color shadow-elev-1">
           <Boxes size={16} />
         </span>
@@ -127,7 +119,7 @@ export function Sidebar({
         <button
           title="折叠侧栏"
           onClick={onCollapse}
-          className="app-no-drag ml-auto grid h-[28px] w-[28px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
+          className="ml-auto grid h-[28px] w-[28px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
         >
           <PanelLeftClose size={16} />
         </button>
