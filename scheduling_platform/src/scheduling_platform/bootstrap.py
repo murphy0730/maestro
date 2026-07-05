@@ -56,6 +56,7 @@ from scheduling_platform.foundation.vectorstore import VectorStore
 from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter, load_examples
 from scheduling_platform.orchestrator.orchestrator import Orchestrator
 from scheduling_platform.orchestrator.router import IntentRouter
+from scheduling_platform.skills.engine import SkillEngine
 from scheduling_platform.skills.store import SkillStore
 
 
@@ -80,6 +81,7 @@ class Platform:
     bus: EventBus
     patrol: PatrolScheduler
     skill_store: SkillStore
+    skill_engine: SkillEngine
     named_preconditions: dict[str, Precondition]
 
 
@@ -149,6 +151,11 @@ def build_platform(
         kind="read",
     )
 
+    # 技能引擎 (按 skill_id 执行单个技能包内的 AgentLoop；不拥有 Context Panel)
+    skill_engine = SkillEngine(
+        llm, tools, pending, audit, skill_store, settings, named_preconditions
+    )
+
     # 调度引擎 (ReAct 智能体)
     agent = AgentLoop(
         llm, tools, pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS, settings.react_max_steps
@@ -186,7 +193,8 @@ def build_platform(
     embed_router = EmbeddingRouter(llm, load_examples())
     router = IntentRouter(llm, settings, embed_router)
     orchestrator = Orchestrator(
-        router, planning_engine, scheduling_engine, query_engine, memory, audit, gate, settings
+        router, planning_engine, scheduling_engine, query_engine, memory, audit, gate, settings,
+        skill_engine=skill_engine,
     )
 
     # 事件层 (事件唤醒调度引擎的 ReAct 智能体)
@@ -214,5 +222,6 @@ def build_platform(
         bus=bus,
         patrol=patrol,
         skill_store=skill_store,
+        skill_engine=skill_engine,
         named_preconditions=named_preconditions,
     )

@@ -14,6 +14,7 @@ from scheduling_platform.foundation.authz import ActionGate
 from scheduling_platform.foundation.memory import ConversationMemory
 from scheduling_platform.orchestrator.router import IntentRouter, extract_entities
 from scheduling_platform.orchestrator.schemas import ChatResponse, RouteDecision
+from scheduling_platform.skills.engine import SkillEngine
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class Orchestrator:
         audit: AuditLog,
         gate: ActionGate,
         settings: Settings,
+        skill_engine: SkillEngine,
     ):
         self._router = router
         self._planning = planning_engine
@@ -61,6 +63,7 @@ class Orchestrator:
         self._audit = audit
         self._gate = gate
         self._settings = settings
+        self._skills = skill_engine
 
     async def handle(
         self,
@@ -172,6 +175,12 @@ class Orchestrator:
                 session_id,
                 history=state.history[:-1],
                 on_progress=on_progress,
+            )
+        if decision.intent == "skill":
+            # 技能不拥有 Context Panel，不调 set_engine；历史去掉末条作上下文
+            return await self._skills.handle(
+                decision.skill_id, message, session_id,
+                history=state.history[:-1], on_progress=on_progress,
             )
         # query: 历史已含本轮用户消息，去掉末条作为上下文
         return await self._query.handle(message, state.history[:-1], on_progress=on_progress)

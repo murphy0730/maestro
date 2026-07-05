@@ -102,3 +102,17 @@ def test_routedecision_skill_fields():
     schema = RouteDecision.model_json_schema()
     assert "skill" in schema["properties"]["intent"]["enum"]
     assert "skill_id" in schema["properties"]
+
+
+# ── bootstrap 装配 SkillEngine (Task 3.3) ──────────────────────────────
+
+from scheduling_platform.bootstrap import build_platform  # noqa: E402
+
+
+async def test_bootstrap_wires_skill_engine(tmp_path, settings):
+    p = build_platform(settings=Settings(llm_api_key="", mock_data_dir=settings.mock_data_dir,
+                                         audit_log_file=None, skills_dir=tmp_path / "skills"))
+    assert p.skill_engine is not None
+    # 技能不存在 → 友好回复(不抛)
+    r = await p.skill_engine.handle("nope", "msg", "s1")
+    assert "不存在" in r.reply
