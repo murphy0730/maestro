@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessageData, ComposerMode, ComposerRoute } from '@/types';
+import type { ChatMessageData, ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Layout } from '@/components/layout/Layout';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
 import { ContextPanelHost } from '@/components/ContextPanelHost';
 import { Thread } from '@/features/orchestrator/Thread';
 import { Composer } from '@/features/orchestrator/Composer';
+import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModal';
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
 import { useConversationStore, useThemeStore } from '@/stores';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useSessions, useCreateSession, useRenameSession, useDeleteSession } from '@/api';
+import { useSessions, useCreateSession, useRenameSession, useDeleteSession, useSkills } from '@/api';
 import { getSessionMessages } from '@/api/sessions';
 import type { ConversationSummary } from '@/mocks/session';
 import type { RouteEngine } from '@/types';
@@ -52,18 +53,32 @@ export function Workspace() {
   const { send, stop, selectClarification, confirmPending, liveMessage, isStreaming } =
     useOrchestrator(currentSessionId);
 
+  const skillsQuery = useSkills();
+  const skills = skillsQuery.data?.skills ?? [];
+
   const [route, setRoute] = useState<ComposerRoute>('auto');
+  const [skill, setSkill] = useState<SkillMeta | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   /**
    * The query route and the RAG panel are strongly bound: selecting query
    * opens the knowledge-base manager on the right immediately; switching to
    * any other route closes it again. Other routes leave panel activation to
    * the streaming `context` event.
+   *
+   * Selecting a non-auto route also clears any active skill (mutual exclusion:
+   * a forced engine and a skill cannot both win the route decision).
    */
   const handleRouteChange = (next: ComposerRoute) => {
     setRoute(next);
     if (next === 'query') activateEngine('query');
     else if (activeEngine === 'query') closeContextPanel();
+    if (next !== 'auto') setSkill(null);
+  };
+  /** Selecting a skill forces the route back to auto (skill owns routing). */
+  const handleSkillChange = (s: SkillMeta | null) => {
+    setSkill(s);
+    if (s) setRoute('auto');
   };
   const [mode, setMode] = useState<ComposerMode>('plan');
   const [clock, setClock] = useState('--:--:--');
@@ -235,18 +250,31 @@ export function Workspace() {
 
   const composer = (
     <Composer
-      onSend={(text) => send(text, route === 'auto' ? null : route)}
+      onSend={(text) => send(text, route === 'auto' ? null : route, skill?.name ?? null)}
       route={route}
       mode={mode}
       onRouteChange={handleRouteChange}
       onModeChange={setMode}
       isStreaming={isStreaming}
       onStop={stop}
+      skills={skills}
+      skill={skill}
+      onSkillChange={handleSkillChange}
+      onImportSkill={() => setImportOpen(true)}
     />
   );
 
   return (
-    <Layout
+    <>
+      <SkillImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(s) => {
+          setSkill(s);
+          setImportOpen(false);
+        }}
+      />
+      <Layout
       sidebar={
         sidebarCollapsed ? null : (
           <Sidebar
@@ -322,6 +350,7 @@ export function Workspace() {
         ) : undefined
       }
     />
+    </>
   );
 }
 

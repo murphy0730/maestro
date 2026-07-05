@@ -12,11 +12,11 @@ afterEach(cleanup);
 describe('SkillImportModal', () => {
   it('renders drop zone and accepts a file', async () => {
     const mutateAsync = vi.fn().mockResolvedValue({ name: 'cap' });
-    (useImportSkill as any).mockReturnValue({
+    vi.mocked(useImportSkill).mockReturnValue({
       mutateAsync,
       isPending: false,
       error: null,
-    });
+    } as unknown as ReturnType<typeof useImportSkill>);
     render(<SkillImportModal open onClose={() => {}} onImported={() => {}} />);
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['x'], 'cap.md')] } });
@@ -24,11 +24,11 @@ describe('SkillImportModal', () => {
   });
 
   it('shows error message on failure', () => {
-    (useImportSkill as any).mockReturnValue({
+    vi.mocked(useImportSkill).mockReturnValue({
       mutateAsync: vi.fn(),
       isPending: false,
-      error: { message: 'skill name 重复' },
-    });
+      error: { message: 'skill name 重复' } as unknown as Error,
+    } as unknown as ReturnType<typeof useImportSkill>);
     render(<SkillImportModal open onClose={() => {}} onImported={() => {}} />);
     expect(screen.getByText(/技能包不符合规范/)).toBeTruthy();
   });

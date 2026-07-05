@@ -12,9 +12,10 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import type { ComposerMode, ComposerRoute } from '@/types';
+import type { ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Popover } from '@/components/ui/Popover';
+import { SkillMenu } from './skills/SkillMenu';
 
 /**
  * Composer — the message input. Draft text is local UI state; the route and
@@ -31,6 +32,13 @@ interface ComposerProps {
   isStreaming?: boolean;
   /** Abort the in-flight stream (wired to useOrchestrator.stop). */
   onStop?: () => void;
+  /** Registered skill packages (drives the skills chip popover). */
+  skills: SkillMeta[];
+  /** Currently selected skill, or null when none is active. */
+  skill: SkillMeta | null;
+  onSkillChange: (s: SkillMeta | null) => void;
+  /** Open the skill import modal (owned by Workspace). */
+  onImportSkill: () => void;
 }
 
 type IconType = typeof WandSparkles;
@@ -66,7 +74,7 @@ const MODE_OPTS: { id: ComposerMode; label: string; desc: string; icon: IconType
     },
   ];
 
-type OpenMenu = 'route' | 'mode' | null;
+type OpenMenu = 'route' | 'mode' | 'skill' | null;
 
 export function Composer({
   onSend,
@@ -76,6 +84,10 @@ export function Composer({
   onModeChange,
   isStreaming = false,
   onStop,
+  skills,
+  skill,
+  onSkillChange,
+  onImportSkill,
 }: ComposerProps) {
   const [draft, setDraft] = useState('');
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -237,6 +249,16 @@ export function Composer({
                 </Popover>
               )}
             </div>
+
+            {/* skill selector — click to open, pick a skill package */}
+            <SkillMenu
+              skills={skills}
+              skill={skill}
+              onSkillChange={onSkillChange}
+              onImportSkill={onImportSkill}
+              open={openMenu === 'skill'}
+              onToggle={() => setOpenMenu(openMenu === 'skill' ? null : 'skill')}
+            />
 
             <span className="flex-1" />
             {isStreaming ? (
