@@ -15,11 +15,12 @@ class RouteStep(BaseModel):
 
 
 class RouteDecision(BaseModel):
-    intent: Literal["planning", "scheduling", "query", "ambiguous"]
+    intent: Literal["planning", "scheduling", "query", "ambiguous", "skill"]
     confidence: float  # 0~1
     entities: dict = Field(default_factory=dict)  # 产线/订单/任务令等关键实体
     reason: str = ""  # 判定理由 (用于日志和解释)
     route_method: Literal["embedding", "llm", "clarified", "fallback", "forced"] = "llm"
+    skill_id: str | None = None  # 命中技能路由时的技能 ID (intent=skill 时填)
     steps: list[RouteStep] | None = None  # TODO(v0.2): 复合任务
 
 

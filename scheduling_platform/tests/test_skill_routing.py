@@ -6,6 +6,7 @@ from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import PendingActionStore
 from scheduling_platform.foundation.tools.registry import ToolRegistry, PreconditionResult
+from scheduling_platform.orchestrator.schemas import RouteDecision
 from scheduling_platform.skills.engine import SkillEngine
 from scheduling_platform.skills.schemas import SkillMeta
 from scheduling_platform.skills.store import SkillStore
@@ -90,3 +91,14 @@ async def test_skill_engine_precondition_blocks(tmp_path):
     r = await e.handle("cap", "msg", "s1")
     assert r.data["steps"][0]["blocked"] is True
     assert "技能前置断言未通过" in r.data["steps"][0]["observation"]["blocked"]
+
+
+# ── RouteDecision skill intent (Task 3.4) ──────────────────────────────
+
+
+def test_routedecision_skill_fields():
+    d = RouteDecision(intent="skill", skill_id="cap", confidence=0.9)
+    assert d.intent == "skill" and d.skill_id == "cap"
+    schema = RouteDecision.model_json_schema()
+    assert "skill" in schema["properties"]["intent"]["enum"]
+    assert "skill_id" in schema["properties"]
