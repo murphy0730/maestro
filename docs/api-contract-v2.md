@@ -19,6 +19,9 @@
 | `GET /audit/timeline` | ✅ | 决策时间线（v2 实装） |
 | `GET/POST /sessions`, `PATCH/DELETE /sessions/{id}`, `GET /sessions/{id}/messages` | ✅ | **v1 未收录** 会话管理 |
 | `GET/POST /knowledge`, `PUT/DELETE /knowledge/{doc_id}` | ✅ | 同 v1 §5.2 |
+| `GET /skills` | ✅ | **v2 新增** 技能列表（见 §7） |
+| `POST /skills/import` | ✅ 201 | **v2 新增** multipart 导入技能包（见 §7） |
+| `DELETE /skills/{name}` | ✅ | **v2 新增** 删除技能；404 不存在 |
 | `POST /scheduling/execute` | ✅ | 调度动作执行（v2 实装，语义见下） |
 | `GET /health` | ✅ | `{status, llm_available}` |
 | `POST /planning/solve` / `GET /planning/solve-runs` | ❌ 未实现 | 面板暂由 MSW mock 演示 |
@@ -59,6 +62,30 @@ data: {
 ```
 
 前端渲染确认卡片，确认/拒绝走 `POST /chat/confirm`。
+
+**`skill_id` 透传（v2 新增）**：`/chat` 与 `/chat/stream` 请求体新增可选 `skill_id: str | null`
+（前端选定技能时透传，对应 `Orchestrator.handle(skill_id=…)` 的 forced 分支，跳过路由层）。
+缺省 `null` 时走原有三层路由，行为与 v1 逐字节一致。
+
+```jsonc
+// /chat、/chat/stream 请求体增量
+{ "session_id": "string", "message": "…", "current_engine": null, "skill_id": "capacity-report" }
+```
+
+**`route` 帧扩展（v2 新增）**：
+- `intent` 枚举增加 `"skill"`（v1 `IntentType` 为 `planning | scheduling | query | uncertain` 四分类，现为五分类）。
+- payload 增加 `skill_id` 字段：技能路由为技能 `name`，非技能路由为 `null`。
+
+```jsonc
+event: route
+data: {
+  "intent": "skill",                       // 新增枚举值
+  "confidence": 1.0,
+  "source": "command",                     // forced 路由（前端选定）
+  "skill_id": "capacity-report",           // 新增字段；非技能路由为 null
+  "entities": {}, "reason": "用户显式选择技能", "is_composite": false, "steps": []
+}
+```
 
 ## 2. `POST /chat/confirm` — 确认/拒绝待执行动作
 
@@ -136,6 +163,61 @@ GET    /sessions/{id}/messages       → StoredMessage[]
 
 `POST /chat`、`POST /events`、`GET /audit`、`GET /pending`、`/knowledge` CRUD、`GET /health`
 的形状同后端实现（`main.py`），`/knowledge` 部分与 v1 §5.2 一致。
+
+## 7. 技能模块 (Skills)
+
+照 `/knowledge` 模式（见 design-v1 §3.5）。frontmatter 规范见 `docs/skills-design-v1.md` §2。
+
+### 端点
+
+```
+GET    /skills                       → { "skills": [SkillMeta…] }
+POST   /skills/import                → 201, { "skill": SkillMeta }   # multipart，见下
+DELETE /skills/{name}                → { "deleted": true, "name": "…" }；404 不存在
+```
+
+### SkillMeta
+
+frontmatter 全字段（见 design-v1 §2.2，共 10 个）**外加落盘元数据** 3 个：
+
+```jsonc
+{
+  "name": "capacity-report",
+  "display_name": "产能日报",
+  "description": "汇总当日订单/任务令/齐套数据，生成产能与瓶颈分析报告",
+  "when_to_use": ["给我出一份今天的产能报告", "分析一下最近的产线瓶颈"],
+  "allowed_tools": ["query_orders", "query_work_orders", "check_kitting"],
+  "user_invocable": true,
+  "disable_model_invocation": false,
+  "tool_preconditions": {},                  // 缺省 {}；写操作技能示例见 design-v1 §2.2
+  "version": "1.0",
+  "author": "周文涛",
+  // —— 以下为落盘元数据（导入时生成）——
+  "file_count": 1,                            // .md=1；.zip=成员数（含 SKILL.md）
+  "bytes": 4096,                              // 解压后总字节数
+  "added_at": "2026-07-03T10:00:00"           // 导入时间
+}
+```
+
+### multipart 约定
+
+`POST /skills/import` 表单字段 `file`，支持两种格式（后端统一落盘为目录）：
+
+- **单 `.md` 文件**：整个文件即 `SKILL.md`，无附属文件。
+- **`.zip` 包**：根级（或唯一顶层目录内，自动归一化）必须有 `SKILL.md`；其余为附属文件，
+  由 agent 经 `read_skill_file` 工具按需读取。
+
+导入流程：大小 → 后缀 → 解包归一化 → frontmatter 解析 → 字段校验 → 落盘。
+完整校验规则见 design-v1 §2.3。
+
+### 错误语义
+
+| HTTP | 触发条件 |
+|---|---|
+| 413 | 上传体超过 10MB（`_MAX_UPLOAD_BYTES`） |
+| 415 | 后缀非 `.zip`/`.md` |
+| 422 | `SkillValidationError`：frontmatter 非法、必填缺失、正文空/超 32KB、`allowed_tools` 含未注册工具、`tool_preconditions` key 越界 `allowed_tools` 或断言名非法、zip 穿越/缺 `SKILL.md`/超成员上限等（消息列出具体原因） |
+| 409 | `name` 与已存在技能重复 |
 
 ## 未实现端点的前端处理
 
