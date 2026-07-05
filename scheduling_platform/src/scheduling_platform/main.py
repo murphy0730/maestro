@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncIterator, Literal
 from uuid import uuid4
 
@@ -20,7 +21,10 @@ from scheduling_platform.bootstrap import build_platform
 from scheduling_platform.domain.models import SystemEvent
 from scheduling_platform.engines.query.ingestor import DocumentNotFound
 from scheduling_platform.foundation.loaders import UnsupportedFileType
+from scheduling_platform.foundation.tools.builtin import QUERY_READONLY_TOOLS
 from scheduling_platform.orchestrator.schemas import ChatResponse
+from scheduling_platform.skills.parser import extract_package, validate_allowed_tools
+from scheduling_platform.skills.schemas import SkillMeta, SkillValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +60,8 @@ class ChatRequest(BaseModel):
     message: str
     # 前端引擎选择: auto=自动路由；指定引擎则跳过路由直达 (支持"选定调度引擎"多轮对话)
     route: Literal["auto", "planning", "scheduling", "query"] = "auto"
+    # 技能包选择: Phase 3 透传到 orchestrator.handle；本字段仅声明，不影响路由
+    skill_id: str | None = None
 
 
 EngineName = Literal["planning", "scheduling", "query"]
@@ -67,6 +73,8 @@ class ChatStreamRequest(BaseModel):
     session_id: str = "default"
     message: str
     current_engine: EngineName | None = None
+    # 技能包选择: Phase 3 透传到 orchestrator.handle；本字段仅声明，不影响路由
+    skill_id: str | None = None
 
 
 class ClarifyStreamRequest(BaseModel):
@@ -499,6 +507,61 @@ async def delete_knowledge(doc_id: str):
     except DocumentNotFound as e:
         raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}") from e
     return {"doc_id": doc_id, "removed_chunks": removed}
+
+
+# ── 技能包管理 (GET/POST/DELETE /skills) ──────────────────────────
+# 上传流程镜像 /knowledge: 读全部 → 大小 413 → 后缀 415 → 解析+校验 422 → 重名 409。
+# POST /skills/import 返回 201 (创建新资源)。
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@app.get("/skills")
+async def list_skills():
+    """列出全部已导入技能包的元数据。"""
+    return {"skills": [m.model_dump() for m in app.state.platform.skill_store.list_all()]}
+
+
+@app.post("/skills/import", status_code=201)
+async def import_skill(file: UploadFile = File(...)):
+    """导入技能包 (.md / .zip)。过大 → 413；后缀不支持 → 415；校验失败 → 422；重名 → 409。"""
+    platform = app.state.platform
+    data = await file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="文件超过 10MB 上限")
+    filename = file.filename or ""
+    if not (filename.lower().endswith(".md") or filename.lower().endswith(".zip")):
+        raise HTTPException(status_code=415, detail="仅支持 .md / .zip 后缀")
+    try:
+        fm, body, attachments = extract_package(data, filename)
+        allowed = validate_allowed_tools(
+            fm,
+            set(platform.tools.names()),
+            list(QUERY_READONLY_TOOLS),
+            set(platform.named_preconditions.keys()),
+        )
+    except SkillValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    meta = SkillMeta(
+        **{**fm.model_dump(), "allowed_tools": allowed},
+        file_count=len(attachments),
+        bytes=len(data),
+        added_at=_now_iso(),
+    )
+    try:
+        platform.skill_store.save(meta, body, attachments)
+    except KeyError:
+        raise HTTPException(status_code=409, detail=f"技能 {meta.name} 已存在")
+    return meta
+
+
+@app.delete("/skills/{name}")
+async def delete_skill(name: str):
+    """删除技能包。不存在 → 404。"""
+    if not app.state.platform.skill_store.delete(name):
+        raise HTTPException(status_code=404, detail=f"技能 {name} 不存在")
+    return {"deleted": True, "name": name}
 
 
 @app.get("/health")

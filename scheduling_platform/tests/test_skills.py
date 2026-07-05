@@ -256,3 +256,65 @@ def test_bootstrap_wires_skill_store_and_tool(tmp_path, monkeypatch):
     assert "read_skill_file" in p.tools.names()
     assert "dispatch_ready" in p.named_preconditions
     assert "expedite_valid" in p.named_preconditions
+
+
+# --- Task 2.2: HTTP 端点 (GET/POST/DELETE /skills) + ChatRequest.skill_id ---
+
+from fastapi.testclient import TestClient
+from scheduling_platform.main import app, _MAX_UPLOAD_BYTES
+
+
+def _client(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = Settings(llm_api_key="", audit_log_file=None,
+                 sessions_dir=tmp_path / "sessions", skills_dir=tmp_path / "skills")
+    app.state.platform = build_platform(settings=s)
+    return TestClient(app)
+
+
+_DEMO_MD = """---
+name: capacity-report
+display_name: 产能日报
+description: 汇总当日产能
+allowed_tools: [query_orders]
+---
+你是产能分析技能。"""
+
+
+def test_skills_endpoint_import_list_delete(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    assert c.get("/skills").json() == {"skills": []}
+    r = c.post("/skills/import", files={"file": ("cap.md", _DEMO_MD.encode(), "text/markdown")})
+    assert r.status_code == 201
+    assert r.json()["name"] == "capacity-report"
+    skills = c.get("/skills").json()["skills"]
+    assert len(skills) == 1 and skills[0]["display_name"] == "产能日报"
+    d = c.delete("/skills/capacity-report")
+    assert d.json() == {"deleted": True, "name": "capacity-report"}
+
+
+def test_skills_import_duplicate_409(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    c.post("/skills/import", files={"file": ("cap.md", _DEMO_MD.encode(), "text/markdown")})
+    r = c.post("/skills/import", files={"file": ("cap.md", _DEMO_MD.encode(), "text/markdown")})
+    assert r.status_code == 409
+
+
+def test_skills_import_unknown_tool_422(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    bad = _DEMO_MD.replace("[query_orders]", "[nope_tool]")
+    r = c.post("/skills/import", files={"file": ("cap.md", bad.encode(), "text/markdown")})
+    assert r.status_code == 422
+
+
+def test_skills_import_bad_suffix_415(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/skills/import", files={"file": ("cap.txt", b"x", "text/plain")})
+    assert r.status_code == 415
+
+
+def test_skills_import_too_large_413(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    big = b"x" * (_MAX_UPLOAD_BYTES + 1)
+    r = c.post("/skills/import", files={"file": ("cap.md", big, "text/markdown")})
+    assert r.status_code == 413
