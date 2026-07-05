@@ -13,6 +13,7 @@ import type {
   KnowledgeDoc,
   RagSource,
   RouteDecision,
+  SkillMeta,
   SolveRun,
 } from '@/types';
 
@@ -236,6 +237,43 @@ export const KNOWLEDGE_DOCS: KnowledgeDoc[] = [
     bytes: 1722,
     status: 'ready',
     added_at: '2026-07-01T02:15:00Z',
+  },
+];
+
+/* ---- Skills (skill package registry CRUD) ----
+   Mutable in-memory store so the dev UI can import/delete without a backend.
+   Seeded with two demo skills mirroring the backend's skills/ directory. */
+
+export const SKILLS: SkillMeta[] = [
+  {
+    name: 'capacity-report',
+    display_name: '产能日报',
+    description: '汇总当日产能与瓶颈',
+    when_to_use: ['给我出一份今天的产能报告'],
+    allowed_tools: ['query_orders', 'query_work_orders'],
+    user_invocable: true,
+    disable_model_invocation: false,
+    tool_preconditions: {},
+    version: '1.0',
+    author: 'demo',
+    file_count: 0,
+    bytes: 0,
+    added_at: '2026-07-05T00:00:00Z',
+  },
+  {
+    name: 'changeover-checklist',
+    display_name: '换线检查清单',
+    description: '换线前齐套与产线核对',
+    when_to_use: ['3号线换线前检查'],
+    allowed_tools: ['query_work_orders', 'check_kitting'],
+    user_invocable: true,
+    disable_model_invocation: false,
+    tool_preconditions: {},
+    version: '1.0',
+    author: 'demo',
+    file_count: 0,
+    bytes: 0,
+    added_at: '2026-07-05T00:00:00Z',
   },
 ];
 

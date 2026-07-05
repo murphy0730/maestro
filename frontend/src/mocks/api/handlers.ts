@@ -15,6 +15,7 @@ import {
   RAG_SOURCES,
   ROUTE_PLANNING,
   ROUTE_UNCERTAIN,
+  SKILLS,
   SOLVE_RUNS,
   SOLVE_RUN_FEASIBLE,
 } from './fixtures';
@@ -308,6 +309,45 @@ export const handlers = [
     await delay(300);
     const [removed] = KNOWLEDGE_DOCS.splice(idx, 1);
     return HttpResponse.json({ doc_id: docId, removed_chunks: removed.chunk_count });
+  }),
+
+  /* ---- Skills (skill package registry CRUD) ---- */
+  http.get(url('/skills'), async () => {
+    await delay(150);
+    return HttpResponse.json({ skills: SKILLS });
+  }),
+
+  http.post(url('/skills/import'), async ({ request }) => {
+    const fd = await request.formData();
+    const file = fd.get('file') as File | null;
+    if (!file || !/\.(zip|md)$/i.test(file.name)) {
+      return HttpResponse.json({ detail: '仅支持 .md/.zip' }, { status: 415 });
+    }
+    await delay(700); // let the progress bar animate
+    const meta = {
+      name: file.name.replace(/\.(zip|md)$/i, ''),
+      display_name: file.name.replace(/\.(zip|md)$/i, ''),
+      description: '已导入技能',
+      when_to_use: [],
+      allowed_tools: [],
+      user_invocable: true,
+      disable_model_invocation: false,
+      tool_preconditions: {},
+      file_count: 0,
+      bytes: file.size,
+      added_at: new Date().toISOString(),
+    };
+    SKILLS.push(meta);
+    return HttpResponse.json(meta, { status: 201 });
+  }),
+
+  http.delete(url('/skills/:name'), async ({ params }) => {
+    const { name } = params as { name: string };
+    const idx = SKILLS.findIndex((s) => s.name === name);
+    if (idx < 0) return HttpResponse.json({ detail: '不存在' }, { status: 404 });
+    await delay(300);
+    SKILLS.splice(idx, 1);
+    return HttpResponse.json({ deleted: true, name });
   }),
 
   /* ---- Audit ---- */
