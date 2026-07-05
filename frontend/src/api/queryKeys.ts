@@ -18,6 +18,9 @@ export const queryKeys = {
   knowledge: {
     list: () => ['knowledge', 'list'] as const,
   },
+  skills: {
+    list: () => ['skills', 'list'] as const,
+  },
   sessions: {
     list: () => ['sessions', 'list'] as const,
   },

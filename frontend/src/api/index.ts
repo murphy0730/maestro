@@ -26,6 +26,7 @@ export {
   renameKnowledge,
   deleteKnowledge,
 } from './knowledge';
+export { listSkills, importSkill, deleteSkill } from './skills';
 
 // Query keys + TanStack Query hooks
 export { queryKeys } from './queryKeys';
@@ -46,6 +47,9 @@ export {
   useReplaceKnowledge,
   useRenameKnowledge,
   useDeleteKnowledge,
+  useSkills,
+  useImportSkill,
+  useDeleteSkill,
 } from './hooks';
 
 // Streaming hooks

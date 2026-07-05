@@ -4,6 +4,7 @@ import type {
   ExecuteActionResponse,
   KnowledgeDoc,
   KnowledgeListResponse,
+  SkillMeta,
   SolveRequest,
   SolveRun,
 } from '@/types';
@@ -19,6 +20,7 @@ import {
   replaceKnowledge,
   uploadKnowledge,
 } from './knowledge';
+import { deleteSkill, importSkill, listSkills } from './skills';
 import { createSession, deleteSession, listSessions, renameSession } from './sessions';
 import type { SessionInfo } from '@/stores/sessionStore';
 
@@ -218,5 +220,35 @@ export function useDeleteKnowledge() {
       if (ctx?.prev) qc.setQueryData(key, ctx.prev);
     },
     onSettled: () => qc.invalidateQueries({ queryKey: key }),
+  });
+}
+
+/* ============================================================
+   Skills (skill package registry CRUD)
+   ============================================================ */
+
+/** List registered skill packages (drives the skills management panel). */
+export function useSkills() {
+  return useQuery({
+    queryKey: queryKeys.skills.list(),
+    queryFn: () => listSkills(),
+  });
+}
+
+/** Import a skill bundle file; onProgress drives the progress bar. */
+export function useImportSkill() {
+  const qc = useQueryClient();
+  return useMutation<SkillMeta, Error, File>({
+    mutationFn: (file) => importSkill(file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.skills.list() }),
+  });
+}
+
+/** Delete a skill package by name; refreshes the list on success. */
+export function useDeleteSkill() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (name) => deleteSkill(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.skills.list() }),
   });
 }
