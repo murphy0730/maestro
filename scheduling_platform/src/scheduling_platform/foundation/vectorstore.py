@@ -12,6 +12,7 @@ TODO(v0.2): rerank、混合检索、持久化与增量更新。
 
 import logging
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from scheduling_platform.foundation.embedding import EmbeddingClient, cosine_similarity
 
@@ -30,6 +31,26 @@ class Document:
 class ScoredDocument:
     document: Document
     score: float
+
+
+@runtime_checkable
+class VectorStoreProtocol(Protocol):
+    """向量库契约。业务侧 (ingestor/retriever) 只依赖此协议，可换内存 / Chroma 等实现。"""
+
+    @property
+    def available(self) -> bool: ...
+
+    async def add_documents(
+        self, doc_id: str, texts: list[str], metadatas: list[dict] | None = None
+    ) -> int: ...
+
+    def delete_document(self, doc_id: str) -> int: ...
+
+    def rename_document(self, doc_id: str, name: str) -> int: ...
+
+    async def search(self, query: str, top_k: int = 3) -> list[ScoredDocument]: ...
+
+    def chunk_count(self, doc_id: str) -> int: ...
 
 
 class VectorStore:

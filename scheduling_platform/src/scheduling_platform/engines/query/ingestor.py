@@ -20,7 +20,7 @@ from pathlib import Path
 from scheduling_platform.engines.query.schemas import KnowledgeDoc
 from scheduling_platform.foundation.chunking import Chunker
 from scheduling_platform.foundation.loaders import LoaderRegistry, UnsupportedFileType
-from scheduling_platform.foundation.vectorstore import VectorStore
+from scheduling_platform.foundation.vectorstore import VectorStoreProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class KnowledgeIngestor:
 
     def __init__(
         self,
-        store: VectorStore,
+        store: VectorStoreProtocol,
         loaders: LoaderRegistry,
         chunker: Chunker,
         knowledge_dir: Path,

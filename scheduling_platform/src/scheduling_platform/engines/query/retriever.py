@@ -10,13 +10,13 @@ import logging
 
 from scheduling_platform.engines.query.ingestor import KnowledgeIngestor
 from scheduling_platform.engines.query.schemas import QuerySource
-from scheduling_platform.foundation.vectorstore import VectorStore
+from scheduling_platform.foundation.vectorstore import VectorStoreProtocol
 
 logger = logging.getLogger(__name__)
 
 
 class KnowledgeRetriever:
-    def __init__(self, store: VectorStore, ingestor: KnowledgeIngestor, top_k: int = 3):
+    def __init__(self, store: VectorStoreProtocol, ingestor: KnowledgeIngestor, top_k: int = 3):
         self._store = store
         self._ingestor = ingestor
         self._top_k = top_k

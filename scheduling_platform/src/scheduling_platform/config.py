@@ -41,6 +41,8 @@ class Settings(BaseSettings):
 
     # 查询引擎 (RAG)
     rag_top_k: int = 3  # 每次检索返回的知识片段数
+    # 向量库后端: "chroma" (PersistentClient 持久化) | "memory" (进程内, 测试/降级用)
+    vector_backend: str = "chroma"
 
     # 事件层
     patrol_interval_seconds: float = 30.0
@@ -63,3 +65,5 @@ class Settings(BaseSettings):
     )
     # 技能包落盘目录 (SkillStore 索引 + 各技能包 SKILL.md 与附属文件，运行时数据，不入 git)
     skills_dir: Path = Field(default_factory=lambda: project_root() / "data" / "skills")
+    # Chroma 向量库持久化目录 (vector_backend=chroma 时使用，运行时数据，不入 git)
+    chroma_dir: Path = Field(default_factory=lambda: project_root() / "data" / "chroma")

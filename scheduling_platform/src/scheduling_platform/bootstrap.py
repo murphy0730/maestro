@@ -178,7 +178,11 @@ def build_platform(
     # 查询引擎 (RAG + LLM): 向量库 + 摄取管线 + 知识检索器 + 只读工具
     # embedding 与 llm 均复用同一份配置 (Settings.embed_* / llm_*)，此处只注入实例。
     embedder = EmbeddingClient(llm)
-    vectorstore = VectorStore(embedder)
+    if settings.vector_backend == "chroma":
+        from scheduling_platform.foundation.chroma_store import ChromaVectorStore
+        vectorstore = ChromaVectorStore(embedder, settings.chroma_dir)
+    else:
+        vectorstore = VectorStore(embedder)
     loaders = build_loader_registry()
     chunker = Chunker()
     ingestor = KnowledgeIngestor(
