@@ -1,4 +1,4 @@
-# 设计文档改进建议 — `docs/scheduling-platform-design.md`
+# 设计文档改进建议 — `docs/platform/scheduling-platform-design.md`
 
 > 目标：审查 v0.1 设计文档，找出**设计层面**可改进的点（架构思路、描述完整性、缺失考虑、可落地性）。
 > 方法：通读设计文档 + 对照实际代码（约 4282 行）落地情况，代码问题作为"设计描述不够刚性/不完整→落地打折"的佐证。

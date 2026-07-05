@@ -1,6 +1,6 @@
 # 查询引擎 RAG 能力设计 v1
 
-> 本文档为 `scheduling-platform-design-v3.md` §7B（QueryEngine）中「rerank / 混合检索 v0.2+」预留项的展开设计。
+> 本文档为 `../platform/scheduling-platform-design-v3.md` §7B（QueryEngine）中「rerank / 混合检索 v0.2+」预留项的展开设计。
 > 设计基线以**仓库现有代码**为准，不以任何外部模板假设为准。
 
 ---
