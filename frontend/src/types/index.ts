@@ -9,7 +9,7 @@ export * from './api';
 
 import type { PendingActionPayload } from './api';
 
-export type RouteEngine = 'planning' | 'scheduling' | 'query' | 'uncertain';
+export type RouteEngine = 'planning' | 'scheduling' | 'query' | 'uncertain' | 'skill';
 
 export type AuthLevel = 'auto' | 'confirm';
 

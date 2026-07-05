@@ -11,8 +11,8 @@
    1. Core enums & shared types
    ============================================================ */
 
-/** 1.1 路由四分类 */
-export type IntentType = 'planning' | 'scheduling' | 'query' | 'uncertain';
+/** 1.1 路由四分类 (+ skill: 命中技能包路由) */
+export type IntentType = 'planning' | 'scheduling' | 'query' | 'uncertain' | 'skill';
 
 /** Engines that own a Context Panel (uncertain has none). */
 export type EngineType = 'planning' | 'scheduling' | 'query';
@@ -49,6 +49,8 @@ export interface RouteDecision {
   /** Extracted entities; free-form key/value. */
   entities: Record<string, unknown>;
   reason: string;
+  /** 命中技能路由时的技能 ID (intent = skill 时填)。 */
+  skill_id?: string | null;
   is_composite: boolean;
   /** Sub-task sequence for composite tasks, otherwise empty. */
   steps: RouteStep[];
@@ -63,6 +65,8 @@ export interface ChatStreamRequest {
   message: string;
   /** Session stickiness: the engine the conversation is currently in. */
   current_engine: EngineType | null;
+  /** 技能包选择: 透传到 orchestrator；仅声明，不影响路由。 */
+  skill_id?: string | null;
 }
 
 /** Clarification option offered when intent = uncertain. */
@@ -351,4 +355,34 @@ export interface AuditEvent {
 
 export interface AuditTimelineResponse {
   events: AuditEvent[];
+}
+
+/* ============================================================
+   7. Skills — 技能包注册表 (跨引擎，不拥有 Context Panel)
+   ============================================================ */
+
+/**
+ * 技能包元数据 — 镜像后端 `SkillMeta`(继承 SkillFrontmatter)。
+ * 字段对齐 `scheduling_platform/skills/schemas.py`。
+ */
+export interface SkillMeta {
+  name: string;
+  display_name?: string;
+  description: string;
+  when_to_use?: string[];
+  allowed_tools?: string[];
+  user_invocable?: boolean;
+  disable_model_invocation?: boolean;
+  tool_preconditions?: Record<string, string[]>;
+  version?: string;
+  author?: string;
+  file_count: number;
+  bytes: number;
+  /** ISO datetime */
+  added_at: string;
+}
+
+/** `GET /skills` response. */
+export interface SkillListResponse {
+  skills: SkillMeta[];
 }
