@@ -100,7 +100,7 @@ class EventRequest(BaseModel):
 async def chat(req: ChatRequest):
     """统一对话入口。route 指定引擎时跳过意图路由，直达该引擎。"""
     response = await app.state.platform.orchestrator.handle(
-        req.session_id, req.message, route=req.route
+        req.session_id, req.message, route=req.route, skill_id=req.skill_id
     )
     return response.model_dump(mode="json")
 
@@ -146,6 +146,7 @@ def _contract_route(rd) -> dict:
         "reason": rd.reason,
         "is_composite": False,
         "steps": [],
+        "skill_id": rd.skill_id if rd.intent == "skill" else None,
     }
 
 
@@ -226,6 +227,7 @@ async def chat_stream(req: ChatStreamRequest):
                 req.message,
                 route=req.current_engine or "auto",
                 on_progress=progress_q.put,
+                skill_id=req.skill_id,
             )
         )
         try:

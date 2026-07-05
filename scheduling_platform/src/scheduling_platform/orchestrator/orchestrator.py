@@ -71,8 +71,24 @@ class Orchestrator:
         message: str,
         route: str = "auto",
         on_progress: ProgressFn | None = None,
+        skill_id: str | None = None,
     ) -> ChatResponse:
         state = self._memory.get(session_id)
+
+        # ── 前端选定技能 (skill_id≠None)：跳过路由，直接派发到 SkillEngine ──
+        if skill_id is not None:
+            decision = RouteDecision(
+                intent="skill",
+                skill_id=skill_id,
+                confidence=1.0,
+                entities=extract_entities(message),
+                reason="前端选定技能",
+                route_method="forced",
+            )
+            self._memory.append(session_id, "user", message)
+            self._record_route(session_id, message, decision)
+            resp = await self._dispatch(decision, message, session_id, state, on_progress)
+            return self._finish(session_id, decision, resp)
 
         # ── 前端指定引擎 (route≠auto)：跳过路由，直接派发 (支持"选定调度引擎"多轮对话) ──
         if route in ("planning", "scheduling", "query"):
@@ -140,7 +156,7 @@ class Orchestrator:
         on_progress: ProgressFn | None = None,
     ) -> ChatResponse:
         threshold = self._settings.route_confidence_threshold
-        if decision.intent in ("planning", "scheduling", "query") and decision.confidence >= threshold:
+        if decision.intent in ("planning", "scheduling", "query", "skill") and decision.confidence >= threshold:
             resp = await self._dispatch(decision, message, session_id, state, on_progress)
         else:
             # 低置信 / ambiguous → 带选项澄清，并记下原请求供澄清后直接路由
@@ -197,6 +213,7 @@ class Orchestrator:
             params=params,
             result={
                 "intent": decision.intent,
+                "skill_id": decision.skill_id,
                 "confidence": decision.confidence,
                 "method": decision.route_method,
                 "reason": decision.reason,

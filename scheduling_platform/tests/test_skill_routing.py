@@ -197,3 +197,67 @@ async def test_embedding_routes_to_skill(tmp_path, settings):
     d = await _router(FakeLLM(embed=True), store, settings).route("出一份产能报告")
     assert d.intent == "skill" and d.skill_id == "capacity-report"
     assert d.route_method == "embedding"
+
+
+# ── Orchestrator forced skill + _contract_route + chat 透传 (Task 3.7) ────
+
+from pathlib import Path  # noqa: E402
+
+from fastapi.testclient import TestClient  # noqa: E402
+from scheduling_platform.main import _contract_route, app  # noqa: E402
+
+_MOCK_DATA = Path(__file__).resolve().parents[1] / "data" / "mock"
+
+
+async def test_orchestrator_forced_skill(tmp_path):
+    s = Settings(
+        llm_api_key="",
+        mock_data_dir=_MOCK_DATA,
+        audit_log_file=None,
+        sessions_dir=tmp_path / "sessions",
+        skills_dir=tmp_path / "skills",
+    )
+    p = build_platform(settings=s, llm=FakeLLM(chat_script=["产能结论"]))
+    _seed_skill(p.skill_store)
+    resp = await p.orchestrator.handle("s1", "出产能报告", skill_id="capacity-report")
+    assert resp.reply == "产能结论"
+    assert resp.route.intent == "skill"
+    assert resp.route.skill_id == "capacity-report"
+    assert resp.route.route_method == "forced"
+
+
+def test_contract_route_emits_skill_id():
+    rd = RouteDecision(
+        intent="skill", skill_id="cap", confidence=1.0, route_method="forced"
+    )
+    out = _contract_route(rd)
+    assert out["intent"] == "skill"
+    assert out["skill_id"] == "cap"
+    assert _contract_route(RouteDecision(intent="planning", confidence=0.9))["skill_id"] is None
+
+
+async def test_chat_endpoint_threads_skill_id(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = Settings(
+        llm_api_key="",
+        mock_data_dir=_MOCK_DATA,
+        audit_log_file=None,
+        sessions_dir=tmp_path / "sessions",
+        skills_dir=tmp_path / "skills",
+    )
+    p = build_platform(settings=s, llm=FakeLLM(chat_script=["产能结论"]))
+    _seed_skill(p.skill_store)
+    app.state.platform = p
+    c = TestClient(app)
+    r = c.post(
+        "/chat",
+        json={
+            "session_id": "s1",
+            "message": "出产能报告",
+            "skill_id": "capacity-report",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["route"]["intent"] == "skill"
+    assert body["route"]["skill_id"] == "capacity-report"
