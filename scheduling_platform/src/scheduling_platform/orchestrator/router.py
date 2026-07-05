@@ -43,6 +43,20 @@ line_ids(产线号列表)、materials(物料列表)。
 confidence 为 0~1 的判定置信度，没把握就给低分并倾向 ambiguous。"""
 
 
+def _classify_system(skill_candidates: list[tuple[str, str]]) -> str:
+    """LLM 分类系统提示: 无技能时逐字节等于 CLASSIFY_SYSTEM (零行为变更),
+    有可路由技能时追加技能候选清单 + skill intent 填充指引。"""
+    if not skill_candidates:
+        return CLASSIFY_SYSTEM
+    block = "\n".join(f"- skill:{name}: {desc}" for name, desc in skill_candidates)
+    return (
+        CLASSIFY_SYSTEM
+        + "\n\n此外有可路由的「技能(skill)」用于长尾流程化任务:\n"
+        + block
+        + '\n若匹配某技能，intent 填 "skill"，skill_id 填该技能 name。'
+    )
+
+
 def extract_entities(message: str) -> dict:
     """正则抽取常见实体 (订单/任务令/产线)，作为各路由路径的实体补充。"""
     entities: dict = {}
@@ -59,11 +73,18 @@ def extract_entities(message: str) -> dict:
 
 class IntentRouter:
     def __init__(
-        self, llm: LLMClient, settings: Settings, embed_router: EmbeddingRouter | None = None
+        self, llm: LLMClient, settings: Settings, embed_router: EmbeddingRouter | None = None,
+        skills=None,
     ):
         self._llm = llm
         self._settings = settings
         self._embed = embed_router
+        self._skills = skills
+
+    def _skill_candidates(self) -> list[tuple[str, str]]:
+        if self._skills is None:
+            return []
+        return [(m.name, m.description) for m in self._skills.routable()]
 
     async def route(
         self,
@@ -88,6 +109,15 @@ class IntentRouter:
                     logger.info(
                         "[ROUTE] embedding → %s score=%.2f", result.intent, result.score
                     )
+                    if result.intent.startswith("skill:"):
+                        return RouteDecision(
+                            intent="skill",
+                            skill_id=result.intent.split(":", 1)[1],
+                            confidence=round(result.score, 3),
+                            entities=entities,
+                            reason=f"嵌入语义路由 (score={result.score:.2f})",
+                            route_method="embedding",
+                        )
                     return RouteDecision(
                         intent=result.intent,
                         confidence=round(result.score, 3),
@@ -109,11 +139,21 @@ class IntentRouter:
         if self._llm.available:
             try:
                 decision = await self._llm.classify(
-                    CLASSIFY_SYSTEM, self._build_input(message, history, current_engine), RouteDecision
+                    _classify_system(self._skill_candidates()),
+                    self._build_input(message, history, current_engine), RouteDecision
                 )
                 decision.route_method = "llm"
                 for k, v in entities.items():  # 正则实体兜底合并
                     decision.entities.setdefault(k, v)
+                if decision.intent == "skill" and self._skills is not None:
+                    routable_names = {m.name for m in self._skills.routable()}
+                    if decision.skill_id not in routable_names:
+                        decision = RouteDecision(
+                            intent="ambiguous", confidence=0.0,
+                            entities=decision.entities,
+                            reason=f"LLM 选择了不存在的技能 {decision.skill_id}",
+                            route_method="llm",
+                        )
                 logger.info(
                     "[ROUTE] llm → %s conf=%.2f reason=%s",
                     decision.intent, decision.confidence, decision.reason,

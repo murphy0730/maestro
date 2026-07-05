@@ -190,8 +190,8 @@ def build_platform(
     )
 
     # 统一入口
-    embed_router = EmbeddingRouter(llm, load_examples())
-    router = IntentRouter(llm, settings, embed_router)
+    embed_router = EmbeddingRouter(llm, load_examples(), skills=skill_store)
+    router = IntentRouter(llm, settings, embed_router, skills=skill_store)
     orchestrator = Orchestrator(
         router, planning_engine, scheduling_engine, query_engine, memory, audit, gate, settings,
         skill_engine=skill_engine,

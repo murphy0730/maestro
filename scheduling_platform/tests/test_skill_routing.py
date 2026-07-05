@@ -121,6 +121,7 @@ async def test_bootstrap_wires_skill_engine(tmp_path, settings):
 # ── EmbeddingRouter 技能向量 + version 拉式失效 (Task 3.5, 分叉 A1) ──────
 
 from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter  # noqa: E402
+from scheduling_platform.orchestrator.router import IntentRouter  # noqa: E402
 
 EMBED_EXAMPLES = {
     "planning": ["重新排产", "优化排程"],
@@ -151,3 +152,48 @@ async def test_embedding_skill_version_invalidation(tmp_path):
     _seed_skill(store, when=("出产能报告",))
     r2 = await er.classify("出产能报告")  # 导入后 version 变 → 重嵌 → 命中 skill
     assert r2.intent == "skill:capacity-report"
+
+
+# ── IntentRouter 技能路由 + 校验 (Task 3.6, 分叉 B1) ─────────────────────
+
+
+def _router(llm, store, settings):
+    embed = EmbeddingRouter(llm, EMBED_EXAMPLES, skills=store) if llm.embed_available else None
+    return IntentRouter(llm, settings, embed, skills=store)
+
+
+async def test_llm_routes_to_existing_skill(tmp_path, settings):
+    store = SkillStore(tmp_path / "skills")
+    _seed_skill(store)
+    llm = FakeLLM(
+        classify_map={
+            RouteDecision: RouteDecision(
+                intent="skill", skill_id="capacity-report", confidence=0.9, reason="LLM",
+            ),
+        },
+        embed=False,
+    )
+    d = await _router(llm, store, settings).route("弄一下产能")
+    assert d.intent == "skill" and d.skill_id == "capacity-report"
+    assert d.route_method == "llm"
+
+
+async def test_llm_skill_nonexistent_degrades_ambiguous(tmp_path, settings):
+    store = SkillStore(tmp_path / "skills")  # 空
+    llm = FakeLLM(
+        classify_map={
+            RouteDecision: RouteDecision(intent="skill", skill_id="ghost", confidence=0.9),
+        },
+        embed=False,
+    )
+    d = await _router(llm, store, settings).route("弄一下")
+    assert d.intent == "ambiguous"
+    assert "不存在的技能" in d.reason
+
+
+async def test_embedding_routes_to_skill(tmp_path, settings):
+    store = SkillStore(tmp_path / "skills")
+    _seed_skill(store)
+    d = await _router(FakeLLM(embed=True), store, settings).route("出一份产能报告")
+    assert d.intent == "skill" and d.skill_id == "capacity-report"
+    assert d.route_method == "embedding"
