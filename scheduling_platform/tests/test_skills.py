@@ -220,6 +220,18 @@ def test_store_read_attachment_traversal(tmp_path):
         s.read_attachment("cap", "../../etc/passwd")
 
 
+def test_store_read_attachment_sibling_prefix_traversal(tmp_path):
+    """同前缀兄弟目录穿越: skill 'cap' + '../caption/secret'。
+    旧的 str.startswith 检查会因 'caption' 以 'cap' 开头而放行;is_relative_to 正确拦截。"""
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap"), "正文", {})
+    sibling = tmp_path / "caption"
+    sibling.mkdir()
+    (sibling / "secret").write_bytes(b"x")
+    with pytest.raises(SkillValidationError):
+        s.read_attachment("cap", "../caption/secret")
+
+
 def test_store_routable_and_examples(tmp_path):
     s = SkillStore(tmp_path)
     s.save(_meta("aa", disable_model_invocation=False, when_to_use=["出报告"]), "b", {})

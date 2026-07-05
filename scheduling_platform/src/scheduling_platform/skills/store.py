@@ -71,7 +71,7 @@ class SkillStore:
     def read_attachment(self, name: str, rel_path: str, max_bytes: int = 65536) -> dict:
         d = self._skill_dir(name)
         target = (d / rel_path).resolve()
-        if not str(target).startswith(str(d.resolve())):
+        if not target.is_relative_to(d.resolve()):
             raise SkillValidationError(f"路径越界: {rel_path}")
         if not target.is_file():
             raise SkillValidationError(f"附属文件不存在: {rel_path}")
