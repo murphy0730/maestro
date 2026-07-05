@@ -51,11 +51,12 @@ from scheduling_platform.foundation.tools.builtin import (
     FollowupStore,
     register_builtin_tools,
 )
-from scheduling_platform.foundation.tools.registry import ToolRegistry
+from scheduling_platform.foundation.tools.registry import Precondition, ToolRegistry
 from scheduling_platform.foundation.vectorstore import VectorStore
 from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter, load_examples
 from scheduling_platform.orchestrator.orchestrator import Orchestrator
 from scheduling_platform.orchestrator.router import IntentRouter
+from scheduling_platform.skills.store import SkillStore
 
 
 @dataclass
@@ -78,6 +79,8 @@ class Platform:
     orchestrator: Orchestrator
     bus: EventBus
     patrol: PatrolScheduler
+    skill_store: SkillStore
+    named_preconditions: dict[str, Precondition]
 
 
 def build_platform(
@@ -116,6 +119,35 @@ def build_platform(
     register_builtin_tools(tools, adapter, gate, kitting, llm, followups)
     tools.attach_precondition("dispatch_work_order", make_dispatch_precondition(kitting, adapter))
     tools.attach_precondition("send_expedite_message", make_expedite_precondition(kitting, followups))
+
+    # 命名前置断言表 (供技能包 frontmatter `tool_preconditions` 按名引用):
+    # 普通字典，不建 Registry 类。键即断言名，与 preconditions.py 的工厂一一对应。
+    named_preconditions: dict[str, Precondition] = {
+        "dispatch_ready": make_dispatch_precondition(kitting, adapter),
+        "expedite_valid": make_expedite_precondition(kitting, followups),
+    }
+
+    # 技能包仓库 + read_skill_file 工具 (kind="read"，不进 SCHEDULING_TOOLS/QUERY_READONLY_TOOLS
+    # 白名单，仅在技能执行体内被显式调用时才有意义)。
+    skill_store = SkillStore(settings.skills_dir)
+
+    async def _read_skill_file(skill_name: str, path: str) -> dict:
+        return skill_store.read_attachment(skill_name, path)
+
+    tools.register(
+        name="read_skill_file",
+        description="读取当前技能包的附属文件(参考资料/模板)。仅在技能执行体内有意义。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "skill_name": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "required": ["skill_name", "path"],
+        },
+        handler=_read_skill_file,
+        kind="read",
+    )
 
     # 调度引擎 (ReAct 智能体)
     agent = AgentLoop(
@@ -181,4 +213,6 @@ def build_platform(
         orchestrator=orchestrator,
         bus=bus,
         patrol=patrol,
+        skill_store=skill_store,
+        named_preconditions=named_preconditions,
     )

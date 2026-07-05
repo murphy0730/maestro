@@ -239,3 +239,20 @@ def test_store_routable_and_examples(tmp_path):
     routable = [m.name for m in s.routable()]
     assert routable == ["aa"]
     assert s.routing_examples() == {"skill:aa": ["出报告"]}
+
+
+# --- Task 2.1: bootstrap 装配 SkillStore / read_skill_file / named_preconditions ---
+
+from scheduling_platform.bootstrap import build_platform
+from scheduling_platform.config import Settings
+
+
+def test_bootstrap_wires_skill_store_and_tool(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = Settings(llm_api_key="", audit_log_file=None,
+                 sessions_dir=tmp_path / "sessions", skills_dir=tmp_path / "skills")
+    p = build_platform(settings=s)
+    assert p.skill_store is not None
+    assert "read_skill_file" in p.tools.names()
+    assert "dispatch_ready" in p.named_preconditions
+    assert "expedite_valid" in p.named_preconditions

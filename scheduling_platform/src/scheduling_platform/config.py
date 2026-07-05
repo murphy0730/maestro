@@ -61,3 +61,5 @@ class Settings(BaseSettings):
     sessions_dir: Path = Field(
         default_factory=lambda: project_root() / "data" / "sessions"
     )
+    # 技能包落盘目录 (SkillStore 索引 + 各技能包 SKILL.md 与附属文件，运行时数据，不入 git)
+    skills_dir: Path = Field(default_factory=lambda: project_root() / "data" / "skills")
