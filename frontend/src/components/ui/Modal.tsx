@@ -6,9 +6,17 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** Tailwind width class for the dialog shell. Defaults to a compact 420px. */
+  widthClassName?: string;
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  widthClassName = 'w-[420px]',
+}: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -25,7 +33,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       onClick={onClose}
     >
       <div
-        className="w-[420px] max-w-[90vw] rounded-xl border border-border-default bg-surface-1 shadow-popover"
+        className={`${widthClassName} max-w-[90vw] rounded-xl border border-border-default bg-surface-1 shadow-popover`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border-default px-4 py-3">
