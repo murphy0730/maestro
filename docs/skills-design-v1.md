@@ -1,7 +1,7 @@
 # Skill 技能模块设计 v1
 
 > 状态:设计定稿,未实现。参考 Claude Code Skills 体系("Prompt 即能力"),结合本平台"一个平台 / 三个引擎 / 一个入口"架构裁剪。
-> 关联文档:`../api-contract/api-contract-v2.md`(实现后追加端点小节)、`../platform/scheduling-platform-design-v3.md`。
+> 关联文档:`api-contract-v2.md`(实现后追加端点小节)、`scheduling-platform-design-v3.md`。
 
 ## 1. 背景与目标
 
@@ -238,7 +238,7 @@ src/features/orchestrator/skills/SkillImportModal.tsx    # 导入弹窗（拖拽
 
 ## 5. 契约扩展
 
-`docs/api-contract/api-contract-v2.md` 直接追加(活契约,本次全为增量、无破坏性修改,不开 v3):
+`docs/api-contract-v2.md` 直接追加(活契约,本次全为增量、无破坏性修改,不开 v3):
 
 1. 端点总览表加 `GET /skills` / `POST /skills/import` / `DELETE /skills/{name}` 三行。
 2. §1:`/chat` 与 `/chat/stream` 请求体新增可选 `skill_id`;`route` 帧 `intent` 枚举加 `"skill"`、payload 加 `skill_id`。

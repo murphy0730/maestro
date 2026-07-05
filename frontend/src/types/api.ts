@@ -1,5 +1,5 @@
 /**
- * Backend API contract types — generated from docs/api-contract/api-contract.md (v0.1).
+ * Backend API contract types — generated from docs/api-contract.md (v0.1).
  *
  * These mirror the FastAPI / Pydantic schemas EXACTLY: snake_case fields and
  * the contract's literal enum values (e.g. `requires_confirmation`, not the

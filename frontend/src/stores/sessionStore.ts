@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-/** Backend SessionMeta shape (docs/api-contract/api-contract-v2.md §5). */
+/** Backend SessionMeta shape (docs/api-contract-v2.md §5). */
 export interface SessionInfo {
   session_id: string;
   title: string;

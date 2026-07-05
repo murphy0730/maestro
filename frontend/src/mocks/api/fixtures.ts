@@ -1,5 +1,5 @@
 /**
- * Mock API responses, shaped EXACTLY to docs/api-contract/api-contract.md (snake_case,
+ * Mock API responses, shaped EXACTLY to docs/api-contract.md (snake_case,
  * contract enums). Consumed only by the MSW handlers. The demo narrative
  * (B 线 / WO-4830 急单) matches the UI mocks for a coherent dev experience.
  */

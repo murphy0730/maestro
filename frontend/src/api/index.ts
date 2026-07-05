@@ -1,5 +1,5 @@
 /**
- * API layer — backend contract client (see docs/api-contract/api-contract.md).
+ * API layer — backend contract client (see docs/api-contract.md).
  * Plain request fns, TanStack Query hooks, and SSE streaming hooks.
  */
 export {

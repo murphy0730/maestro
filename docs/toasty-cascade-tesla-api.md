@@ -1,4 +1,4 @@
-# API 契约文档审查 — `docs/api-contract/api-contract.md`
+# API 契约文档审查 — `docs/api-contract.md`
 
 > 目标：审查前后端 API 契约文档的问题。
 > 方法：通读契约 + 对照实际后端代码（`scheduling_platform/src/scheduling_platform/`）落地情况。
@@ -165,7 +165,7 @@ GanttData 的 task.type 含 `downtime|shortage`，但这俩是调度层概念（
 
 ## 五、需修改的关键文件（若后续修订契约）
 
-- `/Users/zhouwentao/Desktop/manufacturing-agent/docs/api-contract/api-contract.md` — 契约文档本身（修订对象）
+- `/Users/zhouwentao/Desktop/manufacturing-agent/docs/api-contract.md` — 契约文档本身（修订对象）
 - `/Users/zhouwentao/Desktop/manufacturing-agent/scheduling_platform/src/scheduling_platform/main.py` — 实际端点真相源（对照）
 - `/Users/zhouwentao/Desktop/manufacturing-agent/scheduling_platform/src/scheduling_platform/orchestrator/schemas.py` — RouteDecision/ChatResponse 真相源（对照）
 - `/Users/zhouwentao/Desktop/manufacturing-agent/scheduling_platform/src/scheduling_platform/domain/models.py` — PlanningResult/Assignment/PendingAction 真相源（对照）
