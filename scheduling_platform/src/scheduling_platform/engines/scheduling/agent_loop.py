@@ -38,7 +38,7 @@ from scheduling_platform.engines.scheduling.schemas import AgentResult, AgentSte
 from scheduling_platform.foundation.audit import AuditLog
 from scheduling_platform.foundation.authz import PendingActionStore
 from scheduling_platform.foundation.llm import AgentTurn, LLMClient, LLMError
-from scheduling_platform.foundation.tools.registry import ToolRegistry
+from scheduling_platform.foundation.tools.registry import Precondition, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ class AgentLoop:
         system_prompt: str,
         allowed_tools: list[str],
         max_steps: int,
+        extra_preconditions: dict[str, list[Precondition]] | None = None,
     ):
         self._llm = llm
         self._tools = tools
@@ -91,6 +92,7 @@ class AgentLoop:
         self._system = system_prompt
         self._allowed = list(allowed_tools)
         self._max_steps = max_steps
+        self._extra = extra_preconditions
 
     @property
     def available(self) -> bool:
@@ -219,6 +221,19 @@ class AgentLoop:
                     result={"reason": result.reason},
                 )
                 return {"blocked": f"前置断言未通过: {result.reason}"}, True
+
+        # 护栏 4b: 技能级追加断言 (只叠加, 不替换)
+        if self._extra is not None:
+            for pre in self._extra.get(name, []):
+                result = await pre(args)
+                if not result.ok:
+                    self._audit.record(
+                        actor="scheduling_agent",
+                        action=f"skill_precondition_blocked:{name}",
+                        params=args,
+                        result={"reason": result.reason},
+                    )
+                    return {"blocked": f"技能前置断言未通过: {result.reason}"}, True
 
         try:
             return await self._tools.execute(name, args), False
