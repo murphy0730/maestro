@@ -86,6 +86,15 @@ async def test_persists_across_reopen_without_reembedding(tmp_path):
     assert hits and hits[0].document.text == "persist 内容"
 
 
+async def test_large_document_exceeds_chroma_batch(tmp_path):
+    """大文档 (>Chroma 单次 add 上限 5461) 需分批入库，不得抛错。"""
+    store = ChromaVectorStore(_FakeEmbedder(), tmp_path)
+    texts = [f"chunk {i} 内容" for i in range(6000)]
+    n = await store.add_documents("big", texts)
+    assert n == 6000
+    assert store.chunk_count("big") == 6000
+
+
 async def test_unavailable_embedder_reports_unavailable(tmp_path):
     store = ChromaVectorStore(_FakeEmbedder(available=False), tmp_path)
     assert store.available is False

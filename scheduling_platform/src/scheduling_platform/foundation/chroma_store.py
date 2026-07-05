@@ -22,6 +22,9 @@ from scheduling_platform.foundation.vectorstore import Document, ScoredDocument
 logger = logging.getLogger(__name__)
 
 _COLLECTION = "knowledge"
+# 单次 add 分批上限: 既避开 Chroma 的 max batch (SQLite 变量数, 约 5461)，
+# 也把单次 embedding 请求的输入条数压在常见服务端上限内。
+_ADD_BATCH = 1000
 
 
 def _chunk_id(doc_id: str, text: str) -> str:
@@ -53,6 +56,10 @@ class ChromaVectorStore:
         self._col = self._client.get_or_create_collection(
             _COLLECTION, metadata={"hnsw:space": "cosine"}, embedding_function=None
         )
+        try:
+            self._batch = min(_ADD_BATCH, self._client.get_max_batch_size())
+        except Exception:  # noqa: BLE001 — 拿不到上限时退回保守值
+            self._batch = _ADD_BATCH
         logger.info("[CHROMA] 持久化向量库就绪: %s (已有 %d 片段)", persist_dir, self._col.count())
 
     @property
@@ -84,14 +91,16 @@ class ChromaVectorStore:
 
         existing = set(self._ids_of(doc_id))
         to_add = [cid for cid in wanted if cid not in existing]
-        if to_add:
-            add_texts = [wanted[cid][0] for cid in to_add]
-            vectors = await self._embedder.embed(add_texts)
+        # 分批: 单次 add 超过 Chroma max batch 会抛错，大文档必须切片
+        for i in range(0, len(to_add), self._batch):
+            slice_ids = to_add[i:i + self._batch]
+            slice_texts = [wanted[cid][0] for cid in slice_ids]
+            vectors = await self._embedder.embed(slice_texts)
             self._col.add(
-                ids=to_add,
+                ids=slice_ids,
                 embeddings=vectors,
-                documents=add_texts,
-                metadatas=[wanted[cid][1] for cid in to_add],
+                documents=slice_texts,
+                metadatas=[wanted[cid][1] for cid in slice_ids],
             )
         stale = list(existing - wanted.keys())
         if stale:
