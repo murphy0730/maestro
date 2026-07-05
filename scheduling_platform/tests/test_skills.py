@@ -168,3 +168,62 @@ def test_validate_allowed_tools_precond_unknown_assertion():
     with pytest.raises(SkillValidationError):
         validate_allowed_tools(fm, registered={"dispatch_work_order"},
                                default=[], named={"dispatch_ready"})
+
+
+# --- Task 1.3: store.py ---
+
+from scheduling_platform.skills.store import SkillStore
+
+
+def _meta(name="cap", **kw):
+    return SkillMeta(name=name, description="x", added_at="2026-07-05T00:00:00Z", **kw)
+
+
+def test_store_save_get_list(tmp_path):
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap"), "正文", {})
+    assert s.get("cap").name == "cap"
+    assert s.get_body("cap") == "正文"
+    assert [m.name for m in s.list_all()] == ["cap"]
+    assert s.version == 1
+
+
+def test_store_save_duplicate(tmp_path):
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap"), "正文", {})
+    with pytest.raises(KeyError):
+        s.save(_meta("cap"), "正文2", {})
+
+
+def test_store_persist_reload(tmp_path):
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap", file_count=1), "正文", {"docs/r.md": b"# r"})
+    s2 = SkillStore(tmp_path)  # 重启重载
+    assert s2.get("cap").file_count == 1
+    assert s2.get_body("cap") == "正文"
+    assert s2.read_attachment("cap", "docs/r.md") == {"path": "docs/r.md", "bytes": b"# r"}
+
+
+def test_store_delete(tmp_path):
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap"), "正文", {})
+    assert s.delete("cap") is True
+    assert s.get("cap") is None
+    assert s.delete("cap") is False
+    assert s.version == 2
+
+
+def test_store_read_attachment_traversal(tmp_path):
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap"), "正文", {})
+    with pytest.raises(SkillValidationError):
+        s.read_attachment("cap", "../../etc/passwd")
+
+
+def test_store_routable_and_examples(tmp_path):
+    s = SkillStore(tmp_path)
+    s.save(_meta("aa", disable_model_invocation=False, when_to_use=["出报告"]), "b", {})
+    s.save(_meta("bb", disable_model_invocation=True, when_to_use=["x"]), "b", {})
+    routable = [m.name for m in s.routable()]
+    assert routable == ["aa"]
+    assert s.routing_examples() == {"skill:aa": ["出报告"]}
