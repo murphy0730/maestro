@@ -116,3 +116,38 @@ async def test_bootstrap_wires_skill_engine(tmp_path, settings):
     # 技能不存在 → 友好回复(不抛)
     r = await p.skill_engine.handle("nope", "msg", "s1")
     assert "不存在" in r.reply
+
+
+# ── EmbeddingRouter 技能向量 + version 拉式失效 (Task 3.5, 分叉 A1) ──────
+
+from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter  # noqa: E402
+
+EMBED_EXAMPLES = {
+    "planning": ["重新排产", "优化排程"],
+    "scheduling": ["把任务令下发了", "催一下缺料"],
+    "query": ["查库存还有多少"],
+}
+
+
+def _seed_skill(store, name="capacity-report", when=("给我出一份今天的产能报告",)):
+    store.save(SkillMeta(name=name, description="产能日报", when_to_use=list(when),
+                        added_at="t", file_count=0, bytes=0), "正文", {})
+
+
+async def test_embedding_classifies_skill(tmp_path):
+    store = SkillStore(tmp_path / "skills")
+    _seed_skill(store)
+    er = EmbeddingRouter(FakeLLM(embed=True), EMBED_EXAMPLES, skills=store)
+    result = await er.classify("出一份产能报告")
+    assert result.intent == "skill:capacity-report"
+    assert result.score >= 0.5
+
+
+async def test_embedding_skill_version_invalidation(tmp_path):
+    store = SkillStore(tmp_path / "skills")
+    er = EmbeddingRouter(FakeLLM(embed=True), EMBED_EXAMPLES, skills=store)
+    r1 = await er.classify("重新排产")  # 无技能 → planning
+    assert r1.intent == "planning"
+    _seed_skill(store, when=("出产能报告",))
+    r2 = await er.classify("出产能报告")  # 导入后 version 变 → 重嵌 → 命中 skill
+    assert r2.intent == "skill:capacity-report"

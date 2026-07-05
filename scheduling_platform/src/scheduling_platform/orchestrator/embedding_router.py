@@ -47,25 +47,45 @@ class EmbedResult:
 
 
 class EmbeddingRouter:
-    def __init__(self, llm: LLMClient, examples: dict[str, list[str]] | None = None):
+    def __init__(self, llm: LLMClient, examples: dict[str, list[str]] | None = None,
+                 skills=None):
         self._llm = llm
         self._examples = examples or {}
         self._vectors: dict[str, list[list[float]]] | None = None
+        self._skills = skills
+        self._skill_version: int | None = None
 
     @property
     def available(self) -> bool:
         return self._llm.embed_available and bool(self._examples)
 
     async def _ensure_vectors(self) -> None:
-        if self._vectors is not None:
+        if self._vectors is None:
+            flat = [(intent, s) for intent, sents in self._examples.items() for s in sents]
+            vecs = await self._llm.embed([s for _, s in flat])
+            store: dict[str, list[list[float]]] = {}
+            for (intent, _), v in zip(flat, vecs):
+                store.setdefault(intent, []).append(v)
+            self._vectors = store
+            logger.info("[EMBED] 种子例句已向量化: %s", {k: len(v) for k, v in store.items()})
+        # 技能向量按 store.version 拉式失效: 每次 classify 都比对 version,
+        # 变了就丢弃旧 skill: 键重嵌 (skills=None 时为 no-op)。
+        await self._ensure_skill_vectors()
+
+    async def _ensure_skill_vectors(self) -> None:
+        assert self._vectors is not None
+        if self._skills is None or self._skill_version == self._skills.version:
             return
-        flat = [(intent, s) for intent, sents in self._examples.items() for s in sents]
-        vecs = await self._llm.embed([s for _, s in flat])
-        store: dict[str, list[list[float]]] = {}
-        for (intent, _), v in zip(flat, vecs):
-            store.setdefault(intent, []).append(v)
-        self._vectors = store
-        logger.info("[EMBED] 种子例句已向量化: %s", {k: len(v) for k, v in store.items()})
+        for k in [k for k in self._vectors if k.startswith("skill:")]:
+            del self._vectors[k]
+        examples = self._skills.routing_examples()
+        if examples:
+            flat = [(intent, s) for intent, sents in examples.items() for s in sents]
+            vecs = await self._llm.embed([s for _, s in flat])
+            for (intent, _), v in zip(flat, vecs):
+                self._vectors.setdefault(intent, []).append(v)
+        self._skill_version = self._skills.version
+        logger.info("[EMBED] 技能例句已向量化 (version=%d)", self._skill_version)
 
     async def classify(self, message: str) -> EmbedResult:
         """对用户输入做语义路由。失败时抛 LLMError (由调用方降级到 LLM 层)。"""
