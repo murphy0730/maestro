@@ -1,7 +1,16 @@
 import type { ApiErrorBody, ApiErrorResponse } from '@/types';
 
 /** API base URL + version prefix. Same-origin by default so MSW can intercept. */
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+function resolveApiBase(): string {
+  // 打包后 Electron 经 URL 查询参数 bp 注入动态端口 (?bp=<port>)；
+  // dev (Vite 代理) 与浏览器回落到 VITE_API_BASE_URL / /api/v1。
+  if (typeof window !== 'undefined') {
+    const bp = new URLSearchParams(window.location.search).get('bp');
+    if (bp) return `http://127.0.0.1:${bp}`;
+  }
+  return import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+}
+export const API_BASE = resolveApiBase();
 
 /** Thrown for any non-2xx response; carries the contract's structured error. */
 export class ApiError extends Error {
