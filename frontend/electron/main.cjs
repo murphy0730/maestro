@@ -83,6 +83,7 @@ async function startBackend() {
   const child = spawn(backendBinary(), backendArgs(), {
     env: buildBackendEnv(port),
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true, // Windows: hide the console-subsystem backend window (console=True exe)
   });
   child.stdout.pipe(logStream);
   child.stderr.pipe(logStream);
@@ -92,7 +93,7 @@ async function startBackend() {
     }
   });
   backend = { child, port };
-  await waitForHealth(port, 15000);
+  await waitForHealth(port, 60000);
   return backend;
 }
 

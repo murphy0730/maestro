@@ -1,5 +1,6 @@
 {
   "name": "cadence-frontend",
+  "productName": "Maestro",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -67,12 +68,26 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "extraResources": [
+      { "from": "../maestro/dist/backend", "to": "backend", "filter": ["**/*"] }
+    ],
     "mac": {
-      "target": "dmg",
-      "category": "public.app-category.productivity"
+      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
-      "target": "nsis"
+      "target": ["nsis"],
+      "signingHashAlgorithms": ["sha256"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "uninstallDisplayName": "Maestro"
     },
     "linux": {
       "target": "AppImage",
