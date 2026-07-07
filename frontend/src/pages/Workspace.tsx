@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessageData, ComposerMode, ComposerRoute, SkillMeta } from '@/types';
+import type { ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Layout } from '@/components/layout/Layout';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
@@ -12,6 +12,7 @@ import { useConversationStore, useThemeStore } from '@/stores';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSessions, useCreateSession, useRenameSession, useDeleteSession, useSkills } from '@/api';
 import { getSessionMessages } from '@/api/sessions';
+import { storedToThread } from '@/features/orchestrator/history';
 import type { ConversationSummary } from '@/mocks/session';
 import type { RouteEngine } from '@/types';
 
@@ -103,28 +104,6 @@ export function Workspace() {
     prevStreamingRef.current = isStreaming;
   }, [isStreaming, refetchSessions]);
 
-  /** 把后端 StoredMessage 列表转为前端 ChatMessageData */
-  const storedToThread = useCallback(
-    (stored: Awaited<ReturnType<typeof getSessionMessages>>): ChatMessageData[] => {
-      const initial: ChatMessageData = {
-        id: 'sys-welcome',
-        kind: 'system',
-        text: '新会话 · 在下方描述排产 / 调度 / 查询需求开始',
-      };
-      if (stored.length === 0) return [initial];
-      return [
-        initial,
-        ...stored.map((m, i) => ({
-          id: `hist-${i}`,
-          kind: m.role === 'user' ? ('user' as const) : ('agent' as const),
-          text: m.content,
-          time: m.ts ? new Date(m.ts).toLocaleTimeString('en-GB').slice(0, 5) : undefined,
-        })),
-      ];
-    },
-    [],
-  );
-
   /** 加载会话消息并重置线程 */
   const loadSession = useCallback(
     async (sessionId: string) => {
@@ -138,7 +117,7 @@ export function Workspace() {
         setIsLoading(false);
       }
     },
-    [resetThread, storedToThread],
+    [resetThread],
   );
 
   // 会话列表首次加载完成后初始化：选最近会话，无则自动新建。

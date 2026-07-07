@@ -5,6 +5,7 @@ export interface StoredMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   ts: string;
+  kind?: 'normal' | 'system';
 }
 
 export const listSessions = () => apiGet<SessionInfo[]>('/sessions');
