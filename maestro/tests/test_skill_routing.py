@@ -67,21 +67,21 @@ def _seed(store, name="cap", body="你是产能技能。", **kw):
 
 async def test_skill_engine_not_found(tmp_path):
     e = _engine(tmp_path, FakeLLM(chat_script=["x"]))
-    r = await e.handle("nope", "msg", "s1")
+    r = await e.handle(["nope"], "msg", "s1")
     assert "不存在" in r.reply
 
 
 async def test_skill_engine_llm_unavailable(tmp_path):
     e = _engine(tmp_path, FakeLLM())  # available=False
     _seed(e._store, "cap")
-    r = await e.handle("cap", "msg", "s1")
+    r = await e.handle(["cap"], "msg", "s1")
     assert "LLM 未配置" in r.reply
 
 
 async def test_skill_engine_executes(tmp_path):
     e = _engine(tmp_path, FakeLLM(chat_script=["产能结论"]))
     _seed(e._store, "cap")
-    r = await e.handle("cap", "msg", "s1")
+    r = await e.handle(["cap"], "msg", "s1")
     assert r.reply == "产能结论"
 
 
@@ -90,7 +90,7 @@ async def test_skill_engine_precondition_blocks(tmp_path):
                 named={"my_assert": _blocking})
     _seed(e._store, "cap", allowed_tools=["query_orders"],
           tool_preconditions={"query_orders": ["my_assert"]})
-    r = await e.handle("cap", "msg", "s1")
+    r = await e.handle(["cap"], "msg", "s1")
     assert r.data["steps"][0]["blocked"] is True
     assert "技能前置断言未通过" in r.data["steps"][0]["observation"]["blocked"]
 
@@ -100,7 +100,7 @@ async def test_skill_engine_dir_removed_friendly(tmp_path):
     e = _engine(tmp_path, FakeLLM(chat_script=["x"]))
     _seed(e._store, "cap")
     shutil.rmtree(tmp_path / "skills" / "cap")
-    r = await e.handle("cap", "msg", "s1")
+    r = await e.handle(["cap"], "msg", "s1")
     assert "不存在" in r.reply
 
 
@@ -108,10 +108,36 @@ async def test_skill_engine_user_invocable_enforced(tmp_path):
     """user_invocable=False: 前端强制指定被拒，路由命中仍可执行。"""
     e = _engine(tmp_path, FakeLLM(chat_script=["结论"]))
     _seed(e._store, "cap", user_invocable=False)
-    r = await e.handle("cap", "msg", "s1")  # 默认 source="user" (forced)
+    r = await e.handle(["cap"], "msg", "s1")  # 默认 source="user" (forced)
     assert "不支持手动指定" in r.reply
-    r2 = await e.handle("cap", "msg", "s1", source="route")
+    r2 = await e.handle(["cap"], "msg", "s1", source="route")
     assert r2.reply == "结论"
+
+
+async def test_skill_engine_multi_not_found(tmp_path):
+    e = _engine(tmp_path, FakeLLM(chat_script=["x"]))
+    _seed(e._store, "aa", allowed_tools=[])
+    r = await e.handle(["aa", "missing"], "msg", "s1")
+    assert "不存在" in r.reply
+
+
+async def test_skill_engine_multi_user_invocable_blocks_offender(tmp_path):
+    e = _engine(tmp_path, FakeLLM(chat_script=["结论"]))
+    _seed(e._store, "aa", allowed_tools=[])
+    _seed(e._store, "bb", allowed_tools=[], user_invocable=False, display_name="仅路由技能")
+    r = await e.handle(["aa", "bb"], "msg", "s1")  # source=user
+    assert "仅路由技能" in r.reply and "不支持手动指定" in r.reply
+
+
+async def test_skill_engine_multi_unions_allowed_tools(tmp_path):
+    # aa 无工具、bb 有 query_orders；合并后 query_orders 可用（不被白名单拒绝）
+    e = _engine(tmp_path, FakeLLM(chat_script=[[("query_orders", {})], "结论"]))
+    _seed(e._store, "aa", allowed_tools=[])
+    _seed(e._store, "bb", allowed_tools=["query_orders"])
+    r = await e.handle(["aa", "bb"], "msg", "s1")
+    assert r.reply == "结论"
+    assert r.data["steps"][0]["blocked"] is False
+    assert r.data["skill_ids"] == ["aa", "bb"]
 
 
 # ── RouteDecision skill intent (Task 3.4) ──────────────────────────────
@@ -135,7 +161,7 @@ async def test_bootstrap_wires_skill_engine(tmp_path, settings):
                                          audit_log_file=None, skills_dir=tmp_path / "skills"))
     assert p.skill_engine is not None
     # 技能不存在 → 友好回复(不抛)
-    r = await p.skill_engine.handle("nope", "msg", "s1")
+    r = await p.skill_engine.handle(["nope"], "msg", "s1")
     assert "不存在" in r.reply
 
 

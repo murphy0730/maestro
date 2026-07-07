@@ -49,39 +49,62 @@ class SkillEngine:
 
     async def handle(
         self,
-        skill_id: str,
+        skill_ids: list[str],
         message: str,
         session_id: str,
         history: list[dict] | None = None,
         on_progress: ProgressFn | None = None,
         source: Literal["user", "route"] = "user",
     ) -> EngineResponse:
-        """source: 触发来源。"user" = 前端强制指定 (受 user_invocable 约束)；
-        "route" = 路由命中 (routable() 已按 disable_model_invocation 过滤)。"""
-        meta = self._store.get(skill_id)
-        if meta is None:
-            return EngineResponse(reply=f"技能 {skill_id} 不存在或已被删除")
-        if source == "user" and not meta.user_invocable:
-            return EngineResponse(
-                reply=f"技能 {meta.effective_display_name} 不支持手动指定，仅由系统自动路由调用"
-            )
+        """source: 触发来源。"user"=前端强制指定（每个技能都受 user_invocable 约束）；
+        "route"=路由命中。多技能：合并 allowed_tools/tool_preconditions/正文，单次 AgentLoop。"""
+        if not skill_ids:
+            return EngineResponse(reply="未指定技能")
+        metas = []
+        for sid in skill_ids:
+            meta = self._store.get(sid)
+            if meta is None:
+                return EngineResponse(reply=f"技能 {sid} 不存在或已被删除")
+            metas.append(meta)
+        if source == "user":
+            blocked = [m.effective_display_name for m in metas if not m.user_invocable]
+            if blocked:
+                return EngineResponse(
+                    reply=f"技能 {'、'.join(blocked)} 不支持手动指定，仅由系统自动路由调用"
+                )
         if not self._llm.available:
             return EngineResponse(reply="LLM 未配置，技能暂不可用")
-        allowed = list(meta.allowed_tools or [])
-        if meta.file_count > 0:
+
+        allowed: list[str] = []
+        for m in metas:
+            for t in (m.allowed_tools or []):
+                if t not in allowed:
+                    allowed.append(t)
+        if any(m.file_count > 0 for m in metas) and "read_skill_file" not in allowed:
             allowed.append("read_skill_file")
-        extra = {
-            tool: [self._named[n] for n in names]
-            for tool, names in meta.tool_preconditions.items()
-        }
-        try:  # 与删除并发的竞态: 索引/目录已被移除 → 与"不存在"同口径收口
-            body = self._store.get_body(skill_id)
-        except (KeyError, FileNotFoundError):
-            return EngineResponse(reply=f"技能 {skill_id} 不存在或已被删除")
+
+        extra: dict[str, list[Precondition]] = {}
+        for m in metas:
+            for tool, names in m.tool_preconditions.items():
+                bucket = extra.setdefault(tool, [])
+                for n in names:
+                    p = self._named[n]
+                    if p not in bucket:
+                        bucket.append(p)
+
+        bodies: list[str] = []
+        for sid, m in zip(skill_ids, metas):
+            try:  # 与删除并发的竞态: 与"不存在"同口径收口
+                body = self._store.get_body(sid)
+            except (KeyError, FileNotFoundError):
+                return EngineResponse(reply=f"技能 {sid} 不存在或已被删除")
+            bodies.append(f"## 技能: {m.effective_display_name}\n\n{body}")
+        combined = SKILL_PREAMBLE + "\n\n---\n\n".join(bodies)
+
         try:
             result = await AgentLoop(
                 self._llm, self._tools, self._pending, self._audit,
-                SKILL_PREAMBLE + body, allowed, self._settings.react_max_steps,
+                combined, allowed, self._settings.react_max_steps,
                 observation_max_bytes=self._settings.react_observation_max_bytes,
                 extra_preconditions=extra or None,
             ).run(message, history=history, on_progress=on_progress)
@@ -92,6 +115,7 @@ class SkillEngine:
             data={
                 "steps": [s.model_dump(mode="json") for s in result.steps],
                 "stop_reason": result.stop_reason,
+                "skill_ids": list(skill_ids),
             },
             pending_actions=result.pending_actions,
         )
