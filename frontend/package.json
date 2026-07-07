@@ -11,7 +11,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "electron:dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
-    "electron:preview": "vite build --mode electron && electron .",
+    "electron:preview": "vite build --mode electron && MAESTRO_SIDECAR=1 electron .",
     "electron:build": "vite build --mode electron && electron-builder",
     "test": "vitest run"
   },
