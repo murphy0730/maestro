@@ -1,0 +1,124 @@
+# Plan 2: build & release desktop installers.
+# Triggered on tags (v*) or workflow_dispatch. Produces:
+#   - Maestro-<ver>-arm64.dmg      (macOS, arm64, signed + notarized)
+#   - Maestro-Setup-<ver>.exe      (Windows, x64, NSIS, signed, install-dir picker)
+#
+# Required secrets (repo Settings → Secrets and variables → Actions):
+#   macOS:  APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID,
+#           MAC_CERT_P12 (base64 of the Developer ID Application .p12),
+#           MAC_CERT_PASSWORD
+#   Windows: WIN_CSC_LINK (base64 of the OV .pfx), WIN_CSC_KEY_PASSWORD
+# Without secrets the sign/notarize steps fail — for a local UNSIGNED build
+# (no certs), run `npm run electron:build` in frontend/ directly instead of CI.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-mac-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Install backend deps
+        working-directory: maestro
+        run: uv venv --python 3.12 && uv pip install -e ".[dev,packaging]"
+
+      - name: Freeze backend (PyInstaller)
+        working-directory: maestro
+        run: uv run python -m PyInstaller maestro_backend.spec --noconfirm
+
+      - name: Smoke (frozen backend boots to /health + /chat)
+        run: ./scripts/smoke_backend.sh
+
+      - name: Import Developer ID cert + deep-sign frozen backend
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          echo "$MAC_CERT_P12" | base64 -d > /tmp/cert.p12
+          security create-keychain -p build build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -s build.keychain
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          # electron-builder signs the Electron shell but NOT extraResources —
+          # deep-sign the PyInstaller bundle (MaestroBackend + _internal/*.dylib) first.
+          codesign --deep --force --options runtime \
+            --entitlements frontend/build/entitlements.mac.plist \
+            --sign "$IDENTITY" maestro/dist/backend
+          codesign --verify --deep --strict maestro/dist/backend
+
+      - name: Build mac DMG (sign + notarize)
+        working-directory: frontend
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: npx electron-builder --mac --arm64 -c.mac.notarize.teamId="$APPLE_TEAM_ID"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-arm64
+          path: frontend/release/*.dmg
+
+  build-win-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Install backend deps
+        working-directory: maestro
+        run: uv venv --python 3.12 && uv pip install -e ".[dev,packaging]"
+
+      - name: Freeze backend (PyInstaller)
+        working-directory: maestro
+        run: uv run python -m PyInstaller maestro_backend.spec --noconfirm
+
+      - name: Smoke (frozen backend boots to /health + /chat)
+        run: pwsh ./scripts/smoke_backend.ps1
+
+      - name: Build Windows NSIS installer (sign with OV cert)
+        working-directory: frontend
+        env:
+          # electron-builder signs the NSIS exe when CSC_LINK is set.
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        # NSIS config (oneClick:false / perMachine / allowToChangeInstallationDirectory)
+        # lives in package.json build.nsis — the user picks the install directory.
+        run: npx electron-builder --win --x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-x64
+          path: frontend/release/*.exe
+
+  release:
+    needs: [build-mac-arm64, build-win-x64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/mac-arm64/*.dmg
+            artifacts/win-x64/*.exe
+          generate_release_notes: true
