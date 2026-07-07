@@ -1,4 +1,5 @@
 import io
+import shutil
 import zipfile
 
 import pytest
@@ -211,6 +212,21 @@ def test_store_delete(tmp_path):
     assert s.get("cap") is None
     assert s.delete("cap") is False
     assert s.version == 2
+
+
+def test_store_get_body_unknown_raises_keyerror(tmp_path):
+    s = SkillStore(tmp_path)
+    with pytest.raises(KeyError):
+        s.get_body("nope")
+
+
+def test_store_get_body_dir_removed_raises(tmp_path):
+    """索引在、目录被外部移除 (删除竞态) → FileNotFoundError，由 SkillEngine 收口。"""
+    s = SkillStore(tmp_path)
+    s.save(_meta("cap"), "正文", {})
+    shutil.rmtree(tmp_path / "cap")
+    with pytest.raises(FileNotFoundError):
+        s.get_body("cap")
 
 
 def test_store_read_attachment_traversal(tmp_path):

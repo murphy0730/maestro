@@ -24,6 +24,7 @@
   3. 工具白名单                  —— 只允许白名单内工具。
   4. 写操作前置断言 precondition —— 写操作执行前过代码硬规则 (授权由工具自身 ActionGate 兜底)。
   5. LLM 抖动重试                —— chat_turn 瞬时失败重试，仍失败则收口为 ERROR。
+  6. 观察截断 observation_max_bytes —— 单条工具观察回喂前限长，防大结果打爆上下文。
 
 待确认动作通过 PendingActionStore 运行前后快照差集收集 (不与工具返回耦合)。
 """
@@ -67,7 +68,8 @@ class _RunState:
 
     messages: list[dict]
     steps: list[AgentStep] = field(default_factory=list)
-    seen: dict[tuple[str, str], int] = field(default_factory=dict)  # (工具, 规范化参数) → 次数
+    # (工具, 规范化参数) → 次数。读类计数在每次成功写操作后清零 (状态已变，重读正当)
+    seen: dict[tuple[str, str], int] = field(default_factory=dict)
     status: AgentStatus = AgentStatus.RUNNING
     answer: str = ""
     nudges: int = 0
@@ -83,6 +85,7 @@ class AgentLoop:
         system_prompt: str,
         allowed_tools: list[str],
         max_steps: int,
+        observation_max_bytes: int = 8192,
         extra_preconditions: dict[str, list[Precondition]] | None = None,
     ):
         self._llm = llm
@@ -92,6 +95,7 @@ class AgentLoop:
         self._system = system_prompt
         self._allowed = list(allowed_tools)
         self._max_steps = max_steps
+        self._obs_max = observation_max_bytes
         self._extra = extra_preconditions
 
     @property
@@ -172,26 +176,27 @@ class AgentLoop:
             st.messages.append({"role": "user", "content": _NUDGE})
             return
 
-        # TOOL_CALLS: 逐个过护栏执行，观察回喂
+        # TOOL_CALLS: 逐个过护栏执行，观察回喂 (超限观察截断后回喂与留痕)
         st.messages.append(turn.assistant_message)
+        # 思考文本随 progress 流下发 (前端思考过程展示；不下发则思考对用户是黑盒)
+        thought = (turn.text or "").strip()
+        if thought:
+            await emit_progress(on_progress, thought)
         for call in turn.tool_calls:
             await emit_progress(on_progress, f"调用工具 {call.name}")
             observation, blocked = await self._handle_call(call.name, call.arguments, st)
+            content, stored = self._serialize_observation(observation)
             st.steps.append(
                 AgentStep(
                     thought=turn.text,
                     tool=call.name,
                     arguments=call.arguments,
-                    observation=observation,
+                    observation=stored,
                     blocked=blocked,
                 )
             )
             st.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": json.dumps(observation, ensure_ascii=False, default=str),
-                }
+                {"role": "tool", "tool_call_id": call.id, "content": content}
             )
 
     async def _handle_call(
@@ -236,10 +241,37 @@ class AgentLoop:
                     return {"blocked": f"技能前置断言未通过: {result.reason}"}, True
 
         try:
-            return await self._tools.execute(name, args), False
+            result = await self._tools.execute(name, args)
         except Exception as e:  # noqa: BLE001 — 工具失败回喂给模型，不中断循环
             logger.warning("[AGENT] 工具 %s 执行失败: %s", name, e)
             return {"error": str(e)}, False
+        if tool.kind == "write":
+            # 写操作改变了世界状态，此前的读观察已过期 → 清读类计数放行重读；
+            # 写类计数保留 (同参写操作仍防重，如重复催同一物料)。
+            st.seen = {
+                k: c for k, c in st.seen.items()
+                if self._tools.get(k[0]).kind == "write"
+            }
+        return result, False
+
+    def _serialize_observation(self, observation: object) -> tuple[str, object]:
+        """序列化观察用于回喂。返回 (回喂 LLM 的字符串, 存入 AgentStep 的对象)。
+
+        超过 observation_max_bytes 时两者统一用截断版 —— steps 会经 SSE 全量推给
+        前端，放行原始大对象等于把上下文问题转移到 SSE 载荷。
+        """
+        raw = json.dumps(observation, ensure_ascii=False, default=str)
+        raw_bytes = raw.encode("utf-8")
+        if len(raw_bytes) <= self._obs_max:
+            return raw, observation
+        preview = raw_bytes[: self._obs_max].decode("utf-8", errors="ignore")
+        truncated = {
+            "truncated": True,
+            "original_bytes": len(raw_bytes),
+            "preview": preview,
+            "hint": "结果过大已截断。请用更精确的参数缩小查询范围。",
+        }
+        return json.dumps(truncated, ensure_ascii=False), truncated
 
     # ── 卡死软检测 (对应 OpenHands StuckDetector 的高性价比子集) ──
 

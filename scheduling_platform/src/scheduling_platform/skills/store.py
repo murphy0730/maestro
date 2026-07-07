@@ -22,10 +22,12 @@ class SkillStore:
             self._index = [SkillMeta(**m) for m in data]
 
     def _save_index(self) -> None:
-        self._index_path.write_text(
+        tmp = self._index_path.with_suffix(".json.tmp")
+        tmp.write_text(
             json.dumps([m.model_dump() for m in self._index], ensure_ascii=False, indent=2),
             "utf-8",
         )
+        tmp.replace(self._index_path)
         self.version += 1
 
     def list_all(self) -> list[SkillMeta]:
@@ -40,7 +42,10 @@ class SkillStore:
         return self._base / name
 
     def get_body(self, name: str) -> str:
-        return (self._skill_dir(name) / "SKILL.md").read_text("utf-8")
+        with self._lock:
+            if not any(m.name == name for m in self._index):
+                raise KeyError(name)
+            return (self._skill_dir(name) / "SKILL.md").read_text("utf-8")
 
     def save(self, meta: SkillMeta, body: str, attachments: dict[str, bytes]) -> None:
         with self._lock:
@@ -69,14 +74,15 @@ class SkillStore:
             return True
 
     def read_attachment(self, name: str, rel_path: str, max_bytes: int = 65536) -> dict:
-        d = self._skill_dir(name)
-        target = (d / rel_path).resolve()
-        if not target.is_relative_to(d.resolve()):
-            raise SkillValidationError(f"路径越界: {rel_path}")
-        if not target.is_file():
-            raise SkillValidationError(f"附属文件不存在: {rel_path}")
-        content = target.read_bytes()[:max_bytes]
-        return {"path": rel_path, "bytes": content}
+        with self._lock:
+            d = self._skill_dir(name)
+            target = (d / rel_path).resolve()
+            if not target.is_relative_to(d.resolve()):
+                raise SkillValidationError(f"路径越界: {rel_path}")
+            if not target.is_file():
+                raise SkillValidationError(f"附属文件不存在: {rel_path}")
+            content = target.read_bytes()[:max_bytes]
+            return {"path": rel_path, "bytes": content}
 
     def routable(self) -> list[SkillMeta]:
         with self._lock:

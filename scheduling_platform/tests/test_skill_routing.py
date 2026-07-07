@@ -1,5 +1,7 @@
 """技能级追加断言测试: AgentLoop.extra_preconditions 只叠加不替换内置护栏。"""
 
+import shutil
+
 from conftest import FakeLLM
 from scheduling_platform.config import Settings
 from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
@@ -91,6 +93,25 @@ async def test_skill_engine_precondition_blocks(tmp_path):
     r = await e.handle("cap", "msg", "s1")
     assert r.data["steps"][0]["blocked"] is True
     assert "技能前置断言未通过" in r.data["steps"][0]["observation"]["blocked"]
+
+
+async def test_skill_engine_dir_removed_friendly(tmp_path):
+    """删除竞态: 索引在但目录已被移除 → 友好回复而非未捕获异常。"""
+    e = _engine(tmp_path, FakeLLM(chat_script=["x"]))
+    _seed(e._store, "cap")
+    shutil.rmtree(tmp_path / "skills" / "cap")
+    r = await e.handle("cap", "msg", "s1")
+    assert "不存在" in r.reply
+
+
+async def test_skill_engine_user_invocable_enforced(tmp_path):
+    """user_invocable=False: 前端强制指定被拒，路由命中仍可执行。"""
+    e = _engine(tmp_path, FakeLLM(chat_script=["结论"]))
+    _seed(e._store, "cap", user_invocable=False)
+    r = await e.handle("cap", "msg", "s1")  # 默认 source="user" (forced)
+    assert "不支持手动指定" in r.reply
+    r2 = await e.handle("cap", "msg", "s1", source="route")
+    assert r2.reply == "结论"
 
 
 # ── RouteDecision skill intent (Task 3.4) ──────────────────────────────
@@ -224,6 +245,25 @@ async def test_orchestrator_forced_skill(tmp_path):
     assert resp.route.intent == "skill"
     assert resp.route.skill_id == "capacity-report"
     assert resp.route.route_method == "forced"
+
+
+async def test_orchestrator_forced_skill_user_invocable_false(tmp_path):
+    """前端强制指定 user_invocable=False 的技能 → 拒绝 (route_method=forced → source=user)。"""
+    s = Settings(
+        llm_api_key="",
+        mock_data_dir=_MOCK_DATA,
+        audit_log_file=None,
+        sessions_dir=tmp_path / "sessions",
+        skills_dir=tmp_path / "skills",
+    )
+    p = build_platform(settings=s, llm=FakeLLM(chat_script=["产能结论"]))
+    p.skill_store.save(
+        SkillMeta(name="capacity-report", description="产能日报", user_invocable=False,
+                  added_at="t", file_count=0, bytes=0),
+        "正文", {},
+    )
+    resp = await p.orchestrator.handle("s1", "出产能报告", skill_id="capacity-report")
+    assert "不支持手动指定" in resp.reply
 
 
 def test_contract_route_emits_skill_id():

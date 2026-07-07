@@ -55,6 +55,7 @@ export function useOrchestrator(sessionId: string) {
         reason: c.route?.reason,
         text: c.text || undefined,
         handoff: !!c.context,
+        thinking: c.progressLog.length > 0 ? c.progressLog : undefined,
         pendingActions: c.actions.length > 0 ? c.actions : undefined,
       });
       if (engine) activateEngine(engine);
@@ -187,9 +188,10 @@ export function useOrchestrator(sessionId: string) {
       reason: chat.route?.reason,
       text: chat.text || undefined,
       progress: chat.progress ?? undefined,
+      thinking: chat.progressLog.length > 0 ? chat.progressLog : undefined,
       streaming: true,
     };
-  }, [chat.phase, chat.route, chat.text, chat.progress]);
+  }, [chat.phase, chat.route, chat.text, chat.progress, chat.progressLog]);
 
   return {
     send,

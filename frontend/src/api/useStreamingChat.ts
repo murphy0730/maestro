@@ -26,6 +26,8 @@ export interface StreamingChatState {
   context: ChatContextEvent | null;
   /** Latest execution progress line (from real-time `progress` events). */
   progress: string | null;
+  /** All progress/thinking lines of this turn, in arrival order. */
+  progressLog: string[];
   /** Write actions awaiting human confirmation (from the `actions` event). */
   actions: PendingActionPayload[];
   /** Final message id from the `done` event. */
@@ -40,6 +42,7 @@ const INITIAL: StreamingChatState = {
   clarify: null,
   context: null,
   progress: null,
+  progressLog: [],
   actions: [],
   messageId: null,
   error: null,
@@ -85,7 +88,11 @@ export function useStreamingChat(sessionId: string) {
             setState((s) => ({ ...s, context: evt.data }));
             break;
           case 'progress':
-            setState((s) => ({ ...s, progress: evt.data.text }));
+            setState((s) => ({
+              ...s,
+              progress: evt.data.text,
+              progressLog: [...s.progressLog, evt.data.text],
+            }));
             break;
           case 'actions':
             setState((s) => ({ ...s, actions: evt.data.actions }));

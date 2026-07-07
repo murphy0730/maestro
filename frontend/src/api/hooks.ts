@@ -238,8 +238,8 @@ export function useSkills() {
 /** Import a skill bundle file; onProgress drives the progress bar. */
 export function useImportSkill() {
   const qc = useQueryClient();
-  return useMutation<SkillMeta, Error, File>({
-    mutationFn: (file) => importSkill(file),
+  return useMutation<SkillMeta, Error, { file: File; opts?: UploadOptions }>({
+    mutationFn: ({ file, opts }) => importSkill(file, opts?.onProgress),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.skills.list() }),
   });
 }

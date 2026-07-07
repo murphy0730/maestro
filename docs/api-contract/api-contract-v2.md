@@ -172,7 +172,7 @@ GET    /sessions/{id}/messages       → StoredMessage[]
 
 ```
 GET    /skills                       → { "skills": [SkillMeta…] }
-POST   /skills/import                → 201, { "skill": SkillMeta }   # multipart，见下
+POST   /skills/import                → 201, SkillMeta   # multipart，见下
 DELETE /skills/{name}                → { "deleted": true, "name": "…" }；404 不存在
 ```
 

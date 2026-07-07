@@ -63,6 +63,8 @@ export interface AgentMessage extends BaseMessage {
   streaming?: boolean;
   /** Latest execution progress line (streaming turns only). */
   progress?: string;
+  /** Full thinking/progress trace for this turn (rendered as a collapsible log). */
+  thinking?: string[];
   /** Write actions awaiting human confirmation (rendered as confirm cards). */
   pendingActions?: PendingActionPayload[];
 }

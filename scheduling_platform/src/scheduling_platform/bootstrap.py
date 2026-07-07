@@ -52,6 +52,8 @@ from scheduling_platform.foundation.tools.builtin import (
     register_builtin_tools,
 )
 from scheduling_platform.foundation.tools.registry import Precondition, ToolRegistry
+from scheduling_platform.tools import initialize_tools as initialize_framework_tools
+from scheduling_platform.tools.bridge import register_framework_tools
 from scheduling_platform.foundation.vectorstore import VectorStore
 from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter, load_examples
 from scheduling_platform.orchestrator.orchestrator import Orchestrator
@@ -122,6 +124,12 @@ def build_platform(
     tools.attach_precondition("dispatch_work_order", make_dispatch_precondition(kitting, adapter))
     tools.attach_precondition("send_expedite_message", make_expedite_precondition(kitting, followups))
 
+    # 新工具框架 (tools/) 桥接: 通用工具 (glob/todo_write/tool_search/web_fetch 等) 注册进
+    # 共享工具库，技能 allowed_tools 可按名引用；requires_confirm 工具在桥内被框架权限门
+    # 拦截 → 经 gate 生成 PendingAction (随 actions 事件下发前台确认卡片)。
+    initialize_framework_tools()
+    register_framework_tools(tools, gate=gate)
+
     # 命名前置断言表 (供技能包 frontmatter `tool_preconditions` 按名引用):
     # 普通字典，不建 Registry 类。键即断言名，与 preconditions.py 的工厂一一对应。
     named_preconditions: dict[str, Precondition] = {
@@ -158,7 +166,9 @@ def build_platform(
 
     # 调度引擎 (ReAct 智能体)
     agent = AgentLoop(
-        llm, tools, pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS, settings.react_max_steps
+        llm, tools, pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS,
+        settings.react_max_steps,
+        observation_max_bytes=settings.react_observation_max_bytes,
     )
     scheduling_engine = SchedulingEngine(agent, kitting, audit)
 

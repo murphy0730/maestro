@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from scheduling_platform.engines.base import EngineResponse, ProgressFn
 from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
 from scheduling_platform.foundation.audit import AuditLog
@@ -52,10 +54,17 @@ class SkillEngine:
         session_id: str,
         history: list[dict] | None = None,
         on_progress: ProgressFn | None = None,
+        source: Literal["user", "route"] = "user",
     ) -> EngineResponse:
+        """source: 触发来源。"user" = 前端强制指定 (受 user_invocable 约束)；
+        "route" = 路由命中 (routable() 已按 disable_model_invocation 过滤)。"""
         meta = self._store.get(skill_id)
         if meta is None:
             return EngineResponse(reply=f"技能 {skill_id} 不存在或已被删除")
+        if source == "user" and not meta.user_invocable:
+            return EngineResponse(
+                reply=f"技能 {meta.effective_display_name} 不支持手动指定，仅由系统自动路由调用"
+            )
         if not self._llm.available:
             return EngineResponse(reply="LLM 未配置，技能暂不可用")
         allowed = list(meta.allowed_tools or [])
@@ -65,11 +74,15 @@ class SkillEngine:
             tool: [self._named[n] for n in names]
             for tool, names in meta.tool_preconditions.items()
         }
-        body = self._store.get_body(skill_id)
+        try:  # 与删除并发的竞态: 索引/目录已被移除 → 与"不存在"同口径收口
+            body = self._store.get_body(skill_id)
+        except (KeyError, FileNotFoundError):
+            return EngineResponse(reply=f"技能 {skill_id} 不存在或已被删除")
         try:
             result = await AgentLoop(
                 self._llm, self._tools, self._pending, self._audit,
                 SKILL_PREAMBLE + body, allowed, self._settings.react_max_steps,
+                observation_max_bytes=self._settings.react_observation_max_bytes,
                 extra_preconditions=extra or None,
             ).run(message, history=history, on_progress=on_progress)
         except LLMError:

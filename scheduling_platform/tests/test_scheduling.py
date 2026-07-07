@@ -185,6 +185,92 @@ async def test_engine_degraded_without_llm(adapter, audit, gate, settings):
     assert not resp.pending_actions
 
 
+# ── 循环护栏: 观察截断 / 重复调用「写后重置」 ────────────────
+
+
+def _mini_registry() -> ToolRegistry:
+    """最小工具集: 一读一写 (无前置断言)，聚焦循环自身护栏。"""
+
+    async def read_a():
+        return {"status": "ok"}
+
+    async def write_w():
+        return {"written": True}
+
+    tools = ToolRegistry()
+    tools.register("read_a", "读状态", {"type": "object", "properties": {}}, read_a, kind="read")
+    tools.register("write_w", "写操作", {"type": "object", "properties": {}}, write_w, kind="write")
+    return tools
+
+
+def _mini_loop(llm, tools, gate, audit, obs_max: int = 8192) -> AgentLoop:
+    return AgentLoop(
+        llm, tools, gate.pending, audit, "", ["read_a", "write_w", "big_query"], 8,
+        observation_max_bytes=obs_max,
+    )
+
+
+async def test_agent_observation_truncated(audit, gate):
+    """超限观察: AgentStep 留截断版 (truncated/original_bytes)，回喂 LLM 的内容有界。"""
+    tools = _mini_registry()
+
+    async def big():
+        return {"data": "x" * 100_000}
+
+    tools.register("big_query", "大结果", {"type": "object", "properties": {}}, big, kind="read")
+    llm = FakeLLM(chat_script=[[("big_query", {})], "结论"])
+    captured: list = []
+    orig = llm.chat_turn
+
+    async def spy(system, messages, tools=None):
+        captured.append([dict(m) for m in messages])
+        return await orig(system, messages, tools=tools)
+
+    llm.chat_turn = spy  # type: ignore[method-assign]
+    result = await _mini_loop(llm, tools, gate, audit, obs_max=1024).run("查")
+
+    step = result.steps[0]
+    assert step.observation["truncated"] is True
+    assert step.observation["original_bytes"] > 1024
+    # 第二次 LLM 调用看到的 tool 消息被截断 (原始 100KB → 预览 + 包装)
+    tool_msg = next(m for m in captured[-1] if m["role"] == "tool")
+    assert len(tool_msg["content"].encode("utf-8")) < 4096
+    assert result.answer == "结论"
+
+
+async def test_agent_small_observation_untouched(audit, gate):
+    """未超限观察原样保留 (截断护栏零行为变更)。"""
+    llm = FakeLLM(chat_script=[[("read_a", {})], "结论"])
+    result = await _mini_loop(llm, _mini_registry(), gate, audit).run("查")
+    assert result.steps[0].observation == {"status": "ok"}
+
+
+async def test_agent_reread_after_write_not_blocked(audit, gate):
+    """读 A → 写 W (成功) → 再读 A: 写改变了状态，重读不被当绕圈拦截。"""
+    llm = FakeLLM(
+        chat_script=[[("read_a", {})], [("write_w", {})], [("read_a", {})], "结论"]
+    )
+    result = await _mini_loop(llm, _mini_registry(), gate, audit).run("t")
+    assert [s.blocked for s in result.steps] == [False, False, False]
+    assert result.answer == "结论"
+
+
+async def test_agent_duplicate_read_without_write_blocked(audit, gate):
+    """无写介入的同参重读仍被拦 (防绕圈行为保持)。"""
+    llm = FakeLLM(chat_script=[[("read_a", {})], [("read_a", {})], "结论"])
+    result = await _mini_loop(llm, _mini_registry(), gate, audit).run("t")
+    assert result.steps[0].blocked is False
+    assert result.steps[1].blocked is True
+
+
+async def test_agent_duplicate_write_still_blocked(audit, gate):
+    """同参写操作重复仍防重 (写类计数不随写成功清零)。"""
+    llm = FakeLLM(chat_script=[[("write_w", {})], [("write_w", {})], "结论"])
+    result = await _mini_loop(llm, _mini_registry(), gate, audit).run("t")
+    assert result.steps[0].blocked is False
+    assert result.steps[1].blocked is True
+
+
 async def test_agent_progress_reporting(adapter, audit, gate, settings):
     """on_progress 在思考/工具步实时上报 (SSE progress 帧数据源)。"""
     llm = FakeLLM(chat_script=[[("check_kitting", {"wo_ids": ["WO-104"]})], "WO-104 已齐套。"])

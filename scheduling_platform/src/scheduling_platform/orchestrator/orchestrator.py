@@ -193,10 +193,12 @@ class Orchestrator:
                 on_progress=on_progress,
             )
         if decision.intent == "skill":
-            # 技能不拥有 Context Panel，不调 set_engine；历史去掉末条作上下文
+            # 技能不拥有 Context Panel，不调 set_engine；历史去掉末条作上下文。
+            # 前端强制指定 (forced) 受 user_invocable 约束，路由命中不受。
             return await self._skills.handle(
                 decision.skill_id, message, session_id,
                 history=state.history[:-1], on_progress=on_progress,
+                source="user" if decision.route_method == "forced" else "route",
             )
         # query: 历史已含本轮用户消息，去掉末条作为上下文
         return await self._query.handle(message, state.history[:-1], on_progress=on_progress)

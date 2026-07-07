@@ -24,7 +24,7 @@ export function SkillImportModal({ open, onClose, onImported }: Props) {
     }
     setFraction(0);
     try {
-      const meta = await mutateAsync(file);
+      const meta = await mutateAsync({ file, opts: { onProgress: setFraction } });
       onImported(meta);
       onClose();
     } catch {

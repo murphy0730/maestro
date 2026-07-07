@@ -6,6 +6,7 @@ import { ChatMessage } from './ChatMessage';
 import { RouteBadge } from './RouteBadge';
 import { ClarificationCard } from './ClarificationCard';
 import { PendingActionsCard } from './PendingActionsCard';
+import { ThinkingProcess } from './ThinkingProcess';
 import { Markdown } from '@/components/ui/Markdown';
 
 /**
@@ -84,6 +85,9 @@ export function Thread({
                   />
                 </div>
               )}
+              {m.thinking && m.thinking.length > 0 && (
+                <ThinkingProcess lines={m.thinking} streaming={m.streaming} />
+              )}
               {m.text && (
                 <div className="text-body leading-relaxed">
                   <Markdown>{m.text}</Markdown>
@@ -92,7 +96,7 @@ export function Thread({
                   )}
                 </div>
               )}
-              {m.streaming && !m.text && (
+              {m.streaming && !m.text && !(m.thinking && m.thinking.length > 0) && (
                 <p className="m-0 flex items-center gap-2 leading-relaxed text-text-tertiary">
                   <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-accent" />
                   {m.progress ?? '正在分析意图…'}
