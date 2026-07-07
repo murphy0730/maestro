@@ -6,6 +6,7 @@
       <sourceFolder url="file://$MODULE_DIR$/scheduling_platform/src/scheduling_platform" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/scheduling_platform/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/maestro/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.14 (manufacturing-agent)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -13,7 +13,7 @@
 > 8. 求解器工程要求（§6.6）：强制 `time_limit`、拖期建为**软约束**、不可行原因由 **solve 前数据预检**给出（CP-SAT 的 INFEASIBLE 不附带原因，"求解器返回不可行原因"的说法不成立）。
 > 9. 路由层定位调整（§5）：**LLM 结构化分类为主路径，嵌入路由为可选加速层**（`EMBED_MODEL` 未配置则跳过）；query/scheduling 边界改为**按「是否有副作用」划分**——一切只读查询归 query。
 > 10. 审计与遥测分流（§4.6）：业务审计（audit）与 ReAct 步级思考日志（trace）分为两条流。
-> 11. 文档瑕疵修正：源码路径为 `src/scheduling_platform/`（`platform` 是 stdlib 名，禁用）；目录树 `query/` 缩进修正；Mock 事件由「随机产生」改为**脚本化场景**保证测试可复现。
+> 11. 文档瑕疵修正：源码路径为 `src/maestro/`（`platform` 是 stdlib 名，禁用）；目录树 `query/` 缩进修正；Mock 事件由「随机产生」改为**脚本化场景**保证测试可复现。
 
 ---
 
@@ -129,12 +129,12 @@
 ## 3. 目录结构
 
 ```
-scheduling_platform/
+maestro/
 ├── pyproject.toml
 ├── .env.example
 ├── README.md
 ├── src/
-│   └── scheduling_platform/        # 注意: 包名不能叫 platform(stdlib 名, 会遮蔽依赖导入)
+│   └── maestro/        # 注意: 包名不能叫 platform(stdlib 名, 会遮蔽依赖导入)
 │       ├── __init__.py
 │       ├── main.py                  # FastAPI 应用入口
 │       ├── cli.py                   # 命令行交互入口
@@ -679,7 +679,7 @@ query 请求
 
 ## 13. 给 Claude Code 的实现备注
 
-- 包路径为 `src/scheduling_platform/`，**禁止**命名为 `platform`（stdlib 名遮蔽依赖导入）。
+- 包路径为 `src/maestro/`，**禁止**命名为 `platform`（stdlib 名遮蔽依赖导入）。
 - 不硬编码 API key；`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` 走 `.env`（`.env.example` 给 DeepSeek 示例占位）；`EMBED_MODEL` 可选，未配置时嵌入路由层跳过。
 - 所有 LLM 调用带解析失败重试一次（错误回喂）；彻底失败时降级（分类失败→ambiguous 澄清；抽参失败→regex 兜底；解释失败→模板）。**降级模式下求解/齐套/催料/下发/事件/审计全部可用**，架构可离线验证。
 - 优先架构清晰、接口隔离、可运行；桩处用 `# TODO(v0.2)` / `# TODO(v0.3 策略重命名/supported_objectives 迁移)` / `# TODO(v0.4 工序级细排)` 标注。

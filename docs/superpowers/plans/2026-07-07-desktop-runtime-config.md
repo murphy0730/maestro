@@ -4,13 +4,13 @@
 
 **Goal:** Make the Electron shell launch and lifecycle-manage the Python backend as a self-contained desktop app, with an in-app multi-provider LLM/Embedding settings UI — fully testable locally via `electron:preview` (no PyInstaller, no certs).
 
-**Architecture:** Electron `main.cjs` spawns the backend as a child process (venv `python -m scheduling_platform.sidecar_entry` in preview, frozen `MaestroBackend` exe when packaged) on a dynamically-picked loopback port, polls `/health`, then loads the renderer with the port as a `?bp=` query param. The renderer's `API_BASE` reads `bp` and points at the backend. Runtime data is relocated to Electron `userData` via `MAESTRO_DATA_DIR`. Provider config (`providers.json`) is managed in the left-bottom settings menu; Electron resolves the active provider into flat `LLM_*`/`EMBED_*` process env at spawn (backend LLM/Embedding reading unchanged).
+**Architecture:** Electron `main.cjs` spawns the backend as a child process (venv `python -m maestro.sidecar_entry` in preview, frozen `MaestroBackend` exe when packaged) on a dynamically-picked loopback port, polls `/health`, then loads the renderer with the port as a `?bp=` query param. The renderer's `API_BASE` reads `bp` and points at the backend. Runtime data is relocated to Electron `userData` via `MAESTRO_DATA_DIR`. Provider config (`providers.json`) is managed in the left-bottom settings menu; Electron resolves the active provider into flat `LLM_*`/`EMBED_*` process env at spawn (backend LLM/Embedding reading unchanged).
 
 **Tech Stack:** Python 3.12, FastAPI, uvicorn, pydantic-settings; Electron 33, electron-builder 25, React 18, Vite, TypeScript, Tailwind, TanStack Query, Zustand; pytest, vitest (jsdom), node:test.
 
 ## Global Constraints
 
-- Python 3.12 (ortools needs 3.11–3.13, NOT 3.14). Package is `scheduling_platform`, not `platform`.
+- Python 3.12 (ortools needs 3.11–3.13, NOT 3.14). Package is `maestro`, not `platform`.
 - macOS arm64 only; Windows x64 only (Plan 2).
 - Backend binds `127.0.0.1` only; port via env `MAESTRO_BACKEND_PORT` (dynamic, picked by Electron).
 - Runtime data via env `MAESTRO_DATA_DIR` (= Electron `userData`); seed data (`mock_data_dir`, `knowledge_dir`) stays bundled at `project_root()`, not relocated.
@@ -22,10 +22,10 @@
 ## File Structure
 
 **Backend (Python):**
-- `scheduling_platform/src/scheduling_platform/config.py` — add `_runtime_data_root()`; repoint writable dirs (sessions/chroma/skills/knowledge_uploads/audit) to it. Seeds stay at `project_root()`.
-- `scheduling_platform/src/scheduling_platform/sidecar_entry.py` (new) — thin uvicorn launcher: reads `MAESTRO_BACKEND_PORT`, binds `127.0.0.1`, runs `app` from `main`. PyInstaller entrypoint (Plan 2).
-- `scheduling_platform/tests/test_config_data_dir.py` (new) — data-dir behavior.
-- `scheduling_platform/tests/test_sidecar_entry.py` (new) — `resolve_bind()`.
+- `maestro/src/maestro/config.py` — add `_runtime_data_root()`; repoint writable dirs (sessions/chroma/skills/knowledge_uploads/audit) to it. Seeds stay at `project_root()`.
+- `maestro/src/maestro/sidecar_entry.py` (new) — thin uvicorn launcher: reads `MAESTRO_BACKEND_PORT`, binds `127.0.0.1`, runs `app` from `main`. PyInstaller entrypoint (Plan 2).
+- `maestro/tests/test_config_data_dir.py` (new) — data-dir behavior.
+- `maestro/tests/test_sidecar_entry.py` (new) — `resolve_bind()`.
 
 **Frontend renderer (TS/React):**
 - `frontend/src/api/client.ts` — `API_BASE` resolves from `?bp=` query param, falls back to `VITE_API_BASE_URL`/`/api/v1`. Single source for HTTP (`client.ts`) + SSE (`streaming.ts`, imports `API_BASE`).
@@ -48,8 +48,8 @@
 ## Task 1: Backend — relocate writable data to `MAESTRO_DATA_DIR`
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/config.py`
-- Test: `scheduling_platform/tests/test_config_data_dir.py` (new)
+- Modify: `maestro/src/maestro/config.py`
+- Test: `maestro/tests/test_config_data_dir.py` (new)
 
 **Interfaces:**
 - Produces: `Settings.sessions_dir` / `chroma_dir` / `skills_dir` / `knowledge_upload_dir` / `audit_log_file` now honor `MAESTRO_DATA_DIR` env; `Settings.mock_data_dir` / `knowledge_dir` unchanged (bundled seeds). No signature changes — consumers (`bootstrap.py`) read these fields as before.
@@ -57,8 +57,8 @@
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# scheduling_platform/tests/test_config_data_dir.py
-from scheduling_platform.config import Settings, project_root
+# maestro/tests/test_config_data_dir.py
+from maestro.config import Settings, project_root
 
 
 def test_data_dir_defaults_to_project_data(monkeypatch):
@@ -88,7 +88,7 @@ def test_seed_dirs_not_relocated_by_env(monkeypatch, tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd scheduling_platform && pytest tests/test_config_data_dir.py -v`
+Run: `cd maestro && pytest tests/test_config_data_dir.py -v`
 Expected: FAIL — `s.sessions_dir` is still `project_root()/data/sessions` (passes by coincidence) but the env test fails (still points at project `data/`, not `tmp_path`). The seed test passes already.
 
 > Note: only the `honors_env` test truly fails before the change; the other two pin current behavior so the refactor doesn't silently break dev.
@@ -126,13 +126,13 @@ Replace the writable-path field defaults (leave `mock_data_dir` and `knowledge_d
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd scheduling_platform && pytest tests/test_config_data_dir.py -v`
+Run: `cd maestro && pytest tests/test_config_data_dir.py -v`
 Expected: PASS (3 tests). Also run `pytest -q` to confirm no regressions in the wider suite (consumers create their own dirs — `SessionStore.__init__` does `mkdir`, `AuditLog.__init__` does `file_path.parent.mkdir`).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/config.py scheduling_platform/tests/test_config_data_dir.py
+git add maestro/src/maestro/config.py maestro/tests/test_config_data_dir.py
 git commit -m "feat(config): writable data dirs honor MAESTRO_DATA_DIR (desktop userData)"
 ```
 
@@ -141,17 +141,17 @@ git commit -m "feat(config): writable data dirs honor MAESTRO_DATA_DIR (desktop 
 ## Task 2: Backend — `sidecar_entry.py` launcher
 
 **Files:**
-- Create: `scheduling_platform/src/scheduling_platform/sidecar_entry.py`
-- Test: `scheduling_platform/tests/test_sidecar_entry.py` (new)
+- Create: `maestro/src/maestro/sidecar_entry.py`
+- Test: `maestro/tests/test_sidecar_entry.py` (new)
 
 **Interfaces:**
-- Produces: `scheduling_platform.sidecar_entry.resolve_bind() -> tuple[str, int]` and `main()`. `main()` runs `uvicorn.run(app, host="127.0.0.1", port=<env>, workers=1, reload=False)` where `app` is `scheduling_platform.main.app`. Plan 2 freezes this module with PyInstaller.
+- Produces: `maestro.sidecar_entry.resolve_bind() -> tuple[str, int]` and `main()`. `main()` runs `uvicorn.run(app, host="127.0.0.1", port=<env>, workers=1, reload=False)` where `app` is `maestro.main.app`. Plan 2 freezes this module with PyInstaller.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# scheduling_platform/tests/test_sidecar_entry.py
-from scheduling_platform.sidecar_entry import resolve_bind
+# maestro/tests/test_sidecar_entry.py
+from maestro.sidecar_entry import resolve_bind
 
 
 def test_resolve_bind_defaults(monkeypatch):
@@ -166,13 +166,13 @@ def test_resolve_bind_reads_env(monkeypatch):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd scheduling_platform && pytest tests/test_sidecar_entry.py -v`
-Expected: FAIL — `ModuleNotFoundError: scheduling_platform.sidecar_entry`.
+Run: `cd maestro && pytest tests/test_sidecar_entry.py -v`
+Expected: FAIL — `ModuleNotFoundError: maestro.sidecar_entry`.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# scheduling_platform/src/scheduling_platform/sidecar_entry.py
+# maestro/src/maestro/sidecar_entry.py
 """Electron 侧车入口：被 main.cjs 作为子进程拉起，从 env 读端口绑定 loopback。
 
 打包后 (Plan 2) 由 PyInstaller 冻结为 MaestroBackend；本模块是其 entrypoint。
@@ -183,7 +183,7 @@ import os
 
 import uvicorn
 
-from scheduling_platform.main import app
+from maestro.main import app
 
 
 def resolve_bind() -> tuple[str, int]:
@@ -203,15 +203,15 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd scheduling_platform && pytest tests/test_sidecar_entry.py -v`
+Run: `cd maestro && pytest tests/test_sidecar_entry.py -v`
 Expected: PASS (2 tests).
 
 - [ ] **Step 5: Manual boot check**
 
 Run (one command, then probe, then kill):
 ```bash
-cd scheduling_platform && \
-MAESTRO_BACKEND_PORT=9123 .venv/bin/python -m scheduling_platform.sidecar_entry & \
+cd maestro && \
+MAESTRO_BACKEND_PORT=9123 .venv/bin/python -m maestro.sidecar_entry & \
 sleep 3 && curl -s http://127.0.0.1:9123/health && \
 kill %1
 ```
@@ -220,7 +220,7 @@ Expected: `{"status":"ok","llm_available":false}` (degraded, no key) then proces
 - [ ] **Step 6: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/sidecar_entry.py scheduling_platform/tests/test_sidecar_entry.py
+git add maestro/src/maestro/sidecar_entry.py maestro/tests/test_sidecar_entry.py
 git commit -m "feat(backend): sidecar_entry — uvicorn launcher for Electron spawn"
 ```
 
@@ -501,7 +501,7 @@ git commit -m "feat(electron): backend-config pure helpers (providers.json + env
 
 > Dev/preview/packaged detection:
 > - `app.isPackaged` → packaged (Plan 2): load `dist` + spawn frozen exe.
-> - `!app.isPackaged` && `process.env.MAESTRO_SIDECAR === '1'` → `electron:preview`: load `dist` + spawn venv python `-m scheduling_platform.sidecar_entry`.
+> - `!app.isPackaged` && `process.env.MAESTRO_SIDECAR === '1'` → `electron:preview`: load `dist` + spawn venv python `-m maestro.sidecar_entry`.
 > - `!app.isPackaged` && no `MAESTRO_SIDECAR` → `electron:dev`: load `DEV_URL`, no spawn (unchanged).
 
 - [ ] **Step 1: Replace `main.cjs` with the sidecar lifecycle**
@@ -545,12 +545,12 @@ function backendBinary() {
   }
   // preview: 仓库 venv 的 python 跑 sidecar_entry
   return process.platform === 'win32'
-    ? path.join(__dirname, '..', '..', 'scheduling_platform', '.venv', 'Scripts', 'python.exe')
-    : path.join(__dirname, '..', '..', 'scheduling_platform', '.venv', 'bin', 'python');
+    ? path.join(__dirname, '..', '..', 'maestro', '.venv', 'Scripts', 'python.exe')
+    : path.join(__dirname, '..', '..', 'maestro', '.venv', 'bin', 'python');
 }
 
 function backendArgs() {
-  return app.isPackaged ? [] : ['-m', 'scheduling_platform.sidecar_entry'];
+  return app.isPackaged ? [] : ['-m', 'maestro.sidecar_entry'];
 }
 
 function buildBackendEnv(port) {
@@ -739,7 +739,7 @@ to:
 
 - [ ] **Step 4: Manual end-to-end (this is the test for this task — main.cjs is Electron glue, not unit-testable)**
 
-Precondition: backend venv exists at `scheduling_platform/.venv` and `./restart.sh stop` (so port 8000 is free / no conflicting backend).
+Precondition: backend venv exists at `maestro/.venv` and `./restart.sh stop` (so port 8000 is free / no conflicting backend).
 ```bash
 cd frontend && npm run electron:preview
 ```
@@ -1225,7 +1225,7 @@ git commit -m "feat(sidebar): add LLM/Embedding providers menu item (Electron-ga
 
 **Files:**
 - Modify: `frontend/package.json` (add `test:electron`)
-- Modify: `scheduling_platform/README.md` (note the local desktop test path) — optional, only if a relevant section exists
+- Modify: `maestro/README.md` (note the local desktop test path) — optional, only if a relevant section exists
 
 **Interfaces:**
 - Produces: `npm run test:electron` runs the CJS unit tests; the Plan-1 acceptance checklist (G2/G3/G4/G5 local) is runnable via `npm run electron:preview`.
@@ -1241,7 +1241,7 @@ In `frontend/package.json` `scripts`, add:
 
 ```bash
 cd frontend && npm test && npm run test:electron
-cd ../scheduling_platform && pytest -q
+cd ../maestro && pytest -q
 ```
 Expected: all green (vitest + node:test + pytest). `npm run lint` should also pass — run `cd frontend && npm run lint` and fix any lint errors your changes introduced (unused imports, etc.).
 

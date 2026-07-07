@@ -2,7 +2,7 @@
 
 ## Overview
 
-`scheduling_platform/src/scheduling_platform/mcp/` 是平台的 MCP（Model Context Protocol）客户端实现，允许平台连接外部 MCP 服务器，发现并调用其提供的工具（tools）与资源（resources），从而在不修改平台代码的情况下扩展 Agent 能力。
+`maestro/src/maestro/mcp/` 是平台的 MCP（Model Context Protocol）客户端实现，允许平台连接外部 MCP 服务器，发现并调用其提供的工具（tools）与资源（resources），从而在不修改平台代码的情况下扩展 Agent 能力。
 
 - 协议：JSON-RPC 2.0，协议版本 `2024-11-05`，客户端标识 `manufacturing-agent/0.1.0`
 - 传输：当前仅实现 **stdio**（子进程 + 换行分隔 JSON）；SSE / WebSocket / HTTP 已定义枚举但未实现
@@ -203,8 +203,8 @@ mcp__{server_name}__{tool_name}
 ## 使用示例
 
 ```python
-from scheduling_platform.mcp import MCPServerConfig, MCPTransportType, initialize_mcp
-from scheduling_platform.tools import IntegratedToolManager
+from maestro.mcp import MCPServerConfig, MCPTransportType, initialize_mcp
+from maestro.tools import IntegratedToolManager
 
 # 1. 配置并连接 MCP 服务器（stdio）
 mcp = initialize_mcp()

@@ -20,14 +20,14 @@ env/
 
 # ── Runtime logs / generated output ──
 *.log
-scheduling_platform/logs/
+maestro/logs/
 logs/
 
 # ── Local runtime data (user conversations / uploaded knowledge, never commit) ──
-scheduling_platform/data/sessions/
-scheduling_platform/data/knowledge_uploads/
-scheduling_platform/data/chroma/
-scheduling_platform/data/skills/
+maestro/data/sessions/
+maestro/data/knowledge_uploads/
+maestro/data/chroma/
+maestro/data/skills/
 
 # ── OS / editor ──
 .DS_Store

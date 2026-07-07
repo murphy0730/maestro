@@ -87,7 +87,7 @@ tool_preconditions:
 ### 3.1 模块布局(新包 `skills/`,与三引擎平级)
 
 ```
-src/scheduling_platform/skills/
+src/maestro/skills/
 ├── __init__.py
 ├── schemas.py   # SkillValidationError；SkillFrontmatter(BaseModel + field_validator)；
 │                # SkillMeta(SkillFrontmatter) 追加 file_count / bytes / added_at

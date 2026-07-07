@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 包名是 `scheduling_platform`，不是 `platform`。
+- 包名是 `maestro`，不是 `platform`。
 - 后端测试全程 mock LLM，无网络；用 `conftest.FakeLLM`。
 - 前端颜色只用语义 token（`bg-planning`、`text-text-tertiary` 等），禁止裸 hex。
 - `npm run lint` 为 `--max-warnings 0`，不得留 warning。
@@ -22,7 +22,7 @@
 ## 文件结构
 
 **后端**
-- `scheduling_platform/src/scheduling_platform/foundation/session_store.py` — `StoredMessage.kind`、`append_message(kind=...)`
+- `maestro/src/maestro/foundation/session_store.py` — `StoredMessage.kind`、`append_message(kind=...)`
 - `.../foundation/memory.py` — `append(..., kind="normal")` 透传
 - `.../orchestrator/schemas.py` — `RouteDecision.skill_ids`
 - `.../skills/engine.py` — `SkillEngine.handle(skill_ids: list[str], ...)` + 合并逻辑
@@ -45,17 +45,17 @@
 ## Task 1: 后端消息 kind 字段（修复 Feature 3 数据层）
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/foundation/session_store.py`（`StoredMessage` ~26、`append_message` ~115）
-- Modify: `scheduling_platform/src/scheduling_platform/foundation/memory.py`（`append` ~45）
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py`（`confirm` 尾部 `_memory.append`）
-- Test: `scheduling_platform/tests/test_sessions.py`
+- Modify: `maestro/src/maestro/foundation/session_store.py`（`StoredMessage` ~26、`append_message` ~115）
+- Modify: `maestro/src/maestro/foundation/memory.py`（`append` ~45）
+- Modify: `maestro/src/maestro/orchestrator/orchestrator.py`（`confirm` 尾部 `_memory.append`）
+- Test: `maestro/tests/test_sessions.py`
 
 **Interfaces:**
 - Produces: `StoredMessage(role, content, ts, kind="normal")`；`SessionStore.append_message(session_id, role, content, kind="normal")`；`ConversationMemory.append(session_id, role, content, kind="normal")`。
 
 - [ ] **Step 1: 写失败测试**
 
-在 `scheduling_platform/tests/test_sessions.py` 末尾追加：
+在 `maestro/tests/test_sessions.py` 末尾追加：
 
 ```python
 def test_append_message_kind_default_and_system(tmp_path):
@@ -80,7 +80,7 @@ def test_memory_append_passes_kind(tmp_path):
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd scheduling_platform && pytest tests/test_sessions.py::test_append_message_kind_default_and_system -v`
+Run: `cd maestro && pytest tests/test_sessions.py::test_append_message_kind_default_and_system -v`
 Expected: FAIL（`StoredMessage` 无 `kind` / `append_message` 不接受 `kind`）
 
 - [ ] **Step 3: 实现**
@@ -134,21 +134,21 @@ class StoredMessage(BaseModel):
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd scheduling_platform && pytest tests/test_sessions.py -v`
+Run: `cd maestro && pytest tests/test_sessions.py -v`
 Expected: 全部 PASS
 
 - [ ] **Step 5: 回归**
 
-Run: `cd scheduling_platform && pytest -q`
+Run: `cd maestro && pytest -q`
 Expected: 全绿（`history` 字典仍只含 role/content，未受影响）
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/foundation/session_store.py \
-        scheduling_platform/src/scheduling_platform/foundation/memory.py \
-        scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py \
-        scheduling_platform/tests/test_sessions.py
+git add maestro/src/maestro/foundation/session_store.py \
+        maestro/src/maestro/foundation/memory.py \
+        maestro/src/maestro/orchestrator/orchestrator.py \
+        maestro/tests/test_sessions.py
 git commit -m "feat(session): StoredMessage.kind，确认结果落盘为 system 细行
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -534,8 +534,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Task 5: SkillEngine 多技能组合（Feature 2 后端核心）
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/skills/engine.py`（`handle` 签名 + 合并）
-- Modify: `scheduling_platform/tests/test_skill_routing.py`（更新既有 `handle` 调用 + 新增多技能用例）
+- Modify: `maestro/src/maestro/skills/engine.py`（`handle` 签名 + 合并）
+- Modify: `maestro/tests/test_skill_routing.py`（更新既有 `handle` 调用 + 新增多技能用例）
 
 **Interfaces:**
 - Produces: `SkillEngine.handle(skill_ids: list[str], message: str, session_id: str, history=None, on_progress=None, source="user") -> EngineResponse`。`EngineResponse.data` 含 `skill_ids: list[str]`。
@@ -577,7 +577,7 @@ async def test_skill_engine_multi_unions_allowed_tools(tmp_path):
 
 - [ ] **Step 3: 跑测试确认失败**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -k multi -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py -k multi -v`
 Expected: FAIL（`handle` 仍按单 `skill_id`，首参为 list 时 `store.get(list)` 报错/找不到）
 
 - [ ] **Step 4: 实现合并逻辑**
@@ -661,14 +661,14 @@ Expected: FAIL（`handle` 仍按单 `skill_id`，首参为 list 时 `store.get(l
 
 - [ ] **Step 5: 跑测试确认通过**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v`
 Expected: 全部 PASS（既有单技能用例以 `["cap"]` 形式通过，多技能新用例通过）
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/skills/engine.py \
-        scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/skills/engine.py \
+        maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): SkillEngine.handle 接受技能列表，合并工具/断言/正文单次运行
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -679,10 +679,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Task 6: orchestrator + main 的 skill_ids 贯通（Feature 2 后端接线）
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/schemas.py`（`RouteDecision.skill_ids`）
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py`（`handle`、skill 分支、`_dispatch`）
-- Modify: `scheduling_platform/src/scheduling_platform/main.py`（两个请求模型 + 两处 handle 调用）
-- Modify: `scheduling_platform/tests/test_skill_routing.py`（RouteDecision 字段用例）
+- Modify: `maestro/src/maestro/orchestrator/schemas.py`（`RouteDecision.skill_ids`）
+- Modify: `maestro/src/maestro/orchestrator/orchestrator.py`（`handle`、skill 分支、`_dispatch`）
+- Modify: `maestro/src/maestro/main.py`（两个请求模型 + 两处 handle 调用）
+- Modify: `maestro/tests/test_skill_routing.py`（RouteDecision 字段用例）
 - Docs: `docs/api-contract/api-contract-v2.md`
 
 **Interfaces:**
@@ -700,7 +700,7 @@ def test_routedecision_skill_ids_default_and_set():
     assert RouteDecision(intent="query", confidence=0.5).skill_ids == []
 ```
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py::test_routedecision_skill_ids_default_and_set -v` → FAIL。
+Run: `cd maestro && pytest tests/test_skill_routing.py::test_routedecision_skill_ids_default_and_set -v` → FAIL。
 
 `orchestrator/schemas.py` — `RouteDecision` 在 `skill_id` 下加：
 
@@ -775,8 +775,8 @@ skill 分支（原 `if skill_id is not None:`）整块替换：
 
 - [ ] **Step 5: 跑后端全量测试**
 
-Run: `cd scheduling_platform && pytest -q`
-Expected: 全绿。若有测试直接调用 `orchestrator.handle(..., skill_id=...)`，改为 `skill_ids=[...]`（grep 确认：`grep -rn "handle(.*skill_id" scheduling_platform/tests`）。
+Run: `cd maestro && pytest -q`
+Expected: 全绿。若有测试直接调用 `orchestrator.handle(..., skill_id=...)`，改为 `skill_ids=[...]`（grep 确认：`grep -rn "handle(.*skill_id" maestro/tests`）。
 
 - [ ] **Step 6: 更新 API 契约**
 
@@ -785,10 +785,10 @@ Expected: 全绿。若有测试直接调用 `orchestrator.handle(..., skill_id=.
 - [ ] **Step 7: 提交**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/orchestrator/schemas.py \
-        scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py \
-        scheduling_platform/src/scheduling_platform/main.py \
-        scheduling_platform/tests/test_skill_routing.py \
+git add maestro/src/maestro/orchestrator/schemas.py \
+        maestro/src/maestro/orchestrator/orchestrator.py \
+        maestro/src/maestro/main.py \
+        maestro/tests/test_skill_routing.py \
         docs/api-contract/api-contract-v2.md
 git commit -m "feat(orchestrator): skill_ids 贯通 handle/main，多技能直达 SkillEngine
 
@@ -1136,7 +1136,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## 收尾验证（全部 Task 后）
 
-- [ ] 后端：`cd scheduling_platform && pytest -q` 全绿
+- [ ] 后端：`cd maestro && pytest -q` 全绿
 - [ ] 前端：`cd frontend && npm run build && npm run lint && npm test` 全绿
 - [ ] 手动走查三条验收：设置二级菜单 + 默认引擎持久化生效；多技能芯片选择/删除/发送；执行含确认动作的会话后切走再回，回答不再拆成多个 Maestro 气泡、确认结果为 system 细行。
 

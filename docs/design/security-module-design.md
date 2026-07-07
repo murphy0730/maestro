@@ -67,7 +67,7 @@ security/
 主要的权限管理器类。
 
 ```python
-from scheduling_platform.security import (
+from maestro.security import (
     get_permission_manager,
     PermissionMode,
     PermissionRuleValue,
@@ -99,7 +99,7 @@ elif result.behavior == "deny":
 ### 权限规则 API
 
 ```python
-from scheduling_platform.security import (
+from maestro.security import (
     parse_permission_rule_value,
     check_rule_match,
 )
@@ -145,7 +145,7 @@ manager.add_additional_directory(
 ### 在工具执行时使用权限检查
 
 ```python
-from scheduling_platform.security import (
+from maestro.security import (
     get_permission_manager,
     ToolPermissionContext,
 )

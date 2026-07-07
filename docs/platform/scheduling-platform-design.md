@@ -85,7 +85,7 @@
 ## 3. 目录结构
 
 ```
-scheduling_platform/
+maestro/
 ├── pyproject.toml
 ├── .env.example
 ├── README.md

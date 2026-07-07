@@ -9,7 +9,7 @@
 ### 2.1 整体架构
 
 ```
-scheduling_platform/
+maestro/
 ├── tools/                    # 工具模块
 │   ├── __init__.py
 │   ├── base.py            # 工具基类和核心类型
@@ -2180,7 +2180,7 @@ async def read_mcp_resource(name: str, uri: str):
 ### 10.1 注册自定义工具
 
 ```python
-from scheduling_platform.tools import (
+from maestro.tools import (
     build_tool, 
     ToolDef, 
     ToolResult, 
@@ -2223,7 +2223,7 @@ registry.register(MyCustomTool)
 ### 10.2 配置 MCP 服务器
 
 ```python
-from scheduling_platform.mcp import (
+from maestro.mcp import (
     MCPServerConfig, 
     MCPTransportType,
     MCPManager

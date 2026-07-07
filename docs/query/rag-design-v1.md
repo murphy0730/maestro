@@ -69,7 +69,7 @@
 | Orchestrator | **不改**。路由边界仍按 v3「是否有副作用」划分，RAG 全部发生在 QueryEngine 内部 |
 | `VectorStore` | 保留 `add_texts / search` 接口，新增 `search(query, top_k, filters)` 的 filters 参数；内存实现之外新增 `PgVectorStore`（A5 不成立则 `ChromaStore`），在 `bootstrap.py` 换装配——与 `IntegrationAdapter` 换 Mock 同一模式 |
 | `KnowledgeRetriever` | 演进为 `HybridRetriever`：内部持有向量库 + BM25 索引 + 可选 reranker，对 QueryEngine 暴露的 `search_passages` 签名不变 |
-| 索引构建 | 从「首次检索惰性加载」改为**离线管线** `python -m scheduling_platform.ingest`（详见 §2.4）；惰性加载保留为 mock 知识的兜底 |
+| 索引构建 | 从「首次检索惰性加载」改为**离线管线** `python -m maestro.ingest`（详见 §2.4）；惰性加载保留为 mock 知识的兜底 |
 | 降级纪律 | 延续平台模式：`EMBED_MODEL` 未配 → 只走 BM25；`RERANK_MODEL` 未配 → 跳过 rerank；LLM 改写失败 → 用原始 query。**任何一层缺失系统仍可答** |
 | 审计 | 每次检索的 query/改写结果/各路召回数/rerank 分数/最终引用进 `TraceLog`（步级），用户对答案的纠正进 `AuditLog`——复用 §4.6 双流 |
 
@@ -126,7 +126,7 @@ class KnowledgeChunk(BaseModel):
 ### 2.4 索引管线（离线 CLI）
 
 ```
-python -m scheduling_platform.ingest --source docs/knowledge/ [--rebuild | --incremental]
+python -m maestro.ingest --source docs/knowledge/ [--rebuild | --incremental]
 ```
 
 - 增量：按文件内容 hash 判断变更，只重嵌入变更文档的 chunk。

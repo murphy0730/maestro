@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 后端包名 **`scheduling_platform`**(非 `platform`,会 shadow stdlib)。
+- 后端包名 **`maestro`**(非 `platform`,会 shadow stdlib)。
 - frontmatter 手写解析(`---` split + `yaml.safe_load`,pyyaml 已有);zip 用 stdlib `zipfile`;**零新增依赖**。
 - 正文 ≤32KB;zip 成员 ≤50;解压总大小 ≤10MB(对齐 `main.py:435` 的 `_MAX_UPLOAD_BYTES`)。
 - `name` 校验 `^[a-z][a-z0-9-]{1,31}$`,全局唯一(即 skill_id / 目录名 / URL 段)。
@@ -25,7 +25,7 @@
 
 ## File Structure
 
-### 后端新建(`scheduling_platform/src/scheduling_platform/skills/`)
+### 后端新建(`maestro/src/maestro/skills/`)
 - `__init__.py` — 包导出。
 - `schemas.py` — `SkillValidationError`、`SkillFrontmatter`(pydantic + field_validator)、`SkillMeta`(加 file_count/bytes/added_at)。纯数据,不依赖运行时(foundation/tools)。
 - `parser.py` — `parse_skill_md`、`extract_package`、`validate_allowed_tools`。
@@ -73,9 +73,9 @@
 ### Task 1.1: `skills/schemas.py` — frontmatter 数据模型
 
 **Files:**
-- Create: `scheduling_platform/src/scheduling_platform/skills/__init__.py`
-- Create: `scheduling_platform/src/scheduling_platform/skills/schemas.py`
-- Test: `scheduling_platform/tests/test_skills.py`
+- Create: `maestro/src/maestro/skills/__init__.py`
+- Create: `maestro/src/maestro/skills/schemas.py`
+- Test: `maestro/tests/test_skills.py`
 
 **Interfaces:**
 - Produces: `SkillValidationError(Exception)`、`SkillFrontmatter(BaseModel)`(字段见 v1 §2.2)、`SkillMeta(SkillFrontmatter)`(加 `file_count:int`、`bytes:int`、`added_at:str`)。
@@ -85,7 +85,7 @@
 ```python
 import pytest
 from datetime import datetime, timezone
-from scheduling_platform.skills.schemas import SkillFrontmatter, SkillMeta, SkillValidationError
+from maestro.skills.schemas import SkillFrontmatter, SkillMeta, SkillValidationError
 
 
 def _base(**kw):
@@ -137,14 +137,14 @@ def test_skillmeta_extra_fields():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
-Expected: FAIL with `ModuleNotFoundError: scheduling_platform.skills.schemas`
+Run: `cd maestro && pytest tests/test_skills.py -v`
+Expected: FAIL with `ModuleNotFoundError: maestro.skills.schemas`
 
 - [ ] **Step 3: Write minimal implementation** (`skills/__init__.py` 空,`skills/schemas.py`)
 
 ```python
 # skills/__init__.py
-from scheduling_platform.skills.schemas import SkillFrontmatter, SkillMeta, SkillValidationError
+from maestro.skills.schemas import SkillFrontmatter, SkillMeta, SkillValidationError
 
 __all__ = ["SkillFrontmatter", "SkillMeta", "SkillValidationError"]
 ```
@@ -239,13 +239,13 @@ class SkillMeta(SkillFrontmatter):
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skills.py -v`
 Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/skills/__init__.py scheduling_platform/src/scheduling_platform/skills/schemas.py scheduling_platform/tests/test_skills.py
+git add maestro/src/maestro/skills/__init__.py maestro/src/maestro/skills/schemas.py maestro/tests/test_skills.py
 git commit -m "feat(skills): frontmatter 数据模型 (SkillFrontmatter/SkillMeta/SkillValidationError)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -254,8 +254,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 1.2: `skills/parser.py` — frontmatter 解析 + zip 解包 + 工具/断言名校验
 
 **Files:**
-- Create: `scheduling_platform/src/scheduling_platform/skills/parser.py`
-- Test: `scheduling_platform/tests/test_skills.py`(追加)
+- Create: `maestro/src/maestro/skills/parser.py`
+- Test: `maestro/tests/test_skills.py`(追加)
 
 **Interfaces:**
 - Consumes: `SkillFrontmatter`、`SkillValidationError`(Task 1.1)。
@@ -268,10 +268,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ```python
 import io, zipfile
-from scheduling_platform.skills.parser import (
+from maestro.skills.parser import (
     parse_skill_md, extract_package, validate_allowed_tools,
 )
-from scheduling_platform.skills.schemas import SkillValidationError
+from maestro.skills.schemas import SkillValidationError
 
 
 def _md(fm: str, body: str = "正文") -> str:
@@ -385,7 +385,7 @@ def test_validate_allowed_tools_precond_unknown_assertion():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skills.py -v`
 Expected: FAIL with `ImportError: ...parser`
 
 - [ ] **Step 3: Write minimal implementation** (`skills/parser.py`)
@@ -397,7 +397,7 @@ import zipfile
 from pathlib import Path
 import yaml
 from pydantic import ValidationError
-from scheduling_platform.skills.schemas import SkillFrontmatter, SkillValidationError
+from maestro.skills.schemas import SkillFrontmatter, SkillValidationError
 
 _BODY_MAX = 32 * 1024
 _ZIP_MAX_MEMBERS = 50
@@ -511,13 +511,13 @@ def validate_allowed_tools(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skills.py -v`
 Expected: PASS (all parser + schema tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/skills/parser.py scheduling_platform/tests/test_skills.py
+git add maestro/src/maestro/skills/parser.py maestro/tests/test_skills.py
 git commit -m "feat(skills): frontmatter 解析 + zip 解包 + 工具/断言名校验
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -526,8 +526,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 1.3: `skills/store.py` — SkillStore(catalog + 落盘 + version)
 
 **Files:**
-- Create: `scheduling_platform/src/scheduling_platform/skills/store.py`
-- Test: `scheduling_platform/tests/test_skills.py`(追加)
+- Create: `maestro/src/maestro/skills/store.py`
+- Test: `maestro/tests/test_skills.py`(追加)
 
 **Interfaces:**
 - Consumes: `SkillMeta`、`SkillFrontmatter`(Task 1.1)。
@@ -544,8 +544,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ```python
 from pathlib import Path
-from scheduling_platform.skills.store import SkillStore
-from scheduling_platform.skills.schemas import SkillMeta
+from maestro.skills.store import SkillStore
+from maestro.skills.schemas import SkillMeta
 
 
 def _meta(name="cap", **kw):
@@ -605,7 +605,7 @@ def test_store_routable_and_examples(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skills.py -v`
 Expected: FAIL with `ImportError: ...store`
 
 - [ ] **Step 3: Write minimal implementation** (`skills/store.py`)
@@ -616,7 +616,7 @@ import json
 import shutil
 import threading
 from pathlib import Path
-from scheduling_platform.skills.schemas import SkillMeta, SkillValidationError
+from maestro.skills.schemas import SkillMeta, SkillValidationError
 
 
 class SkillStore:
@@ -703,13 +703,13 @@ class SkillStore:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skills.py -v`
 Expected: PASS (all Phase 1 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/skills/store.py scheduling_platform/tests/test_skills.py
+git add maestro/src/maestro/skills/store.py maestro/tests/test_skills.py
 git commit -m "feat(skills): SkillStore 持久化 + catalog + version + 路由数据供给
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -720,9 +720,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 2.1: `config.skills_dir` + bootstrap 装配 SkillStore / `read_skill_file` / `named_preconditions`
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/config.py`(加 `skills_dir`,照 `sessions_dir` 范式 `config.py:50-63`)
-- Modify: `scheduling_platform/src/scheduling_platform/bootstrap.py`(构造 store / 注册工具 / 构造 named_preconditions / `Platform` 加字段)
-- Test: `scheduling_platform/tests/test_skills.py`(追加 bootstrap 烟测)
+- Modify: `maestro/src/maestro/config.py`(加 `skills_dir`,照 `sessions_dir` 范式 `config.py:50-63`)
+- Modify: `maestro/src/maestro/bootstrap.py`(构造 store / 注册工具 / 构造 named_preconditions / `Platform` 加字段)
+- Test: `maestro/tests/test_skills.py`(追加 bootstrap 烟测)
 
 **Interfaces:**
 - Produces: `Platform.skill_store: SkillStore`、`Platform.named_preconditions: dict[str, Precondition]`;注册工具 `read_skill_file(skill_name: str, path: str) -> dict`(kind="read")。
@@ -730,8 +730,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing test** (追加;照 `test_router.py` 的 `build_platform` 范式)
 
 ```python
-from scheduling_platform.bootstrap import build_platform
-from scheduling_platform.config import Settings
+from maestro.bootstrap import build_platform
+from maestro.config import Settings
 
 
 def test_bootstrap_wires_skill_store_and_tool(tmp_path, monkeypatch):
@@ -747,7 +747,7 @@ def test_bootstrap_wires_skill_store_and_tool(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py::test_bootstrap_wires_skill_store_and_tool -v`
+Run: `cd maestro && pytest tests/test_skills.py::test_bootstrap_wires_skill_store_and_tool -v`
 Expected: FAIL — `Platform` 无 `skill_store` 属性 / `Settings` 无 `skills_dir`
 
 - [ ] **Step 3: Implement** — `config.py` 加字段(在 `sessions_dir` 附近):
@@ -757,7 +757,7 @@ skills_dir: Path = Field(default_factory=lambda: project_root() / "data" / "skil
 ```
 
 — `bootstrap.py`:
-1. 顶部 import:`from scheduling_platform.skills.store import SkillStore`、`from scheduling_platform.skills.schemas import SkillMeta`(如需)、`from scheduling_platform.engines.scheduling.preconditions import make_dispatch_precondition, make_expedite_precondition`。
+1. 顶部 import:`from maestro.skills.store import SkillStore`、`from maestro.skills.schemas import SkillMeta`(如需)、`from maestro.engines.scheduling.preconditions import make_dispatch_precondition, make_expedite_precondition`。
 2. 在 `kitting`、`followups`、`adapter` 构造**之后**(它们在 `tools` 构造之前),加:
 
 ```python
@@ -766,7 +766,7 @@ named_preconditions: dict[str, Precondition] = {
     "expedite_valid": make_expedite_precondition(kitting, followups),
 }
 ```
-(`Precondition` 从 `scheduling_platform.foundation.tools.registry import Precondition` 导入。)
+(`Precondition` 从 `maestro.foundation.tools.registry import Precondition` 导入。)
 
 3. 在 `tools = build_tool_registry(...)` / `register_builtin_tools(...)` **之后**(builtin 工具已注册),构造 store 并注册 `read_skill_file`:
 
@@ -802,13 +802,13 @@ named_preconditions: dict
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py::test_bootstrap_wires_skill_store_and_tool -v`
+Run: `cd maestro && pytest tests/test_skills.py::test_bootstrap_wires_skill_store_and_tool -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/config.py scheduling_platform/src/scheduling_platform/bootstrap.py scheduling_platform/tests/test_skills.py
+git add maestro/src/maestro/config.py maestro/src/maestro/bootstrap.py maestro/tests/test_skills.py
 git commit -m "feat(skills): config.skills_dir + bootstrap 装配 SkillStore/read_skill_file/named_preconditions
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -817,8 +817,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 2.2: 三个 HTTP 端点 + ChatRequest/ChatStreamRequest 加 `skill_id`
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/main.py`(照 `/knowledge` `main.py:457-467` 模式;`ChatRequest` `:54`、`ChatStreamRequest` `:64`)
-- Test: `scheduling_platform/tests/test_skills.py`(追加 TestClient 烟测)
+- Modify: `maestro/src/maestro/main.py`(照 `/knowledge` `main.py:457-467` 模式;`ChatRequest` `:54`、`ChatStreamRequest` `:64`)
+- Test: `maestro/tests/test_skills.py`(追加 TestClient 烟测)
 
 **Interfaces:**
 - Produces: `GET /skills`、`POST /skills/import`(201)、`DELETE /skills/{name}`;`ChatRequest.skill_id`、`ChatStreamRequest.skill_id`(本期仅加字段,透传到 orchestrator 在 Phase 3)。
@@ -827,7 +827,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ```python
 from fastapi.testclient import TestClient
-from scheduling_platform.main import app, _MAX_UPLOAD_BYTES
+from maestro.main import app, _MAX_UPLOAD_BYTES
 
 
 def _client(tmp_path, monkeypatch):
@@ -888,11 +888,11 @@ def test_skills_import_too_large_413(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v -k endpoint or 422 or 415 or 413 or 409`
+Run: `cd maestro && pytest tests/test_skills.py -v -k endpoint or 422 or 415 or 413 or 409`
 Expected: FAIL — 路由不存在(404)
 
 - [ ] **Step 3: Implement** — `main.py`:
-1. import:`from scheduling_platform.skills.parser import extract_package, validate_allowed_tools`、`from scheduling_platform.skills.schemas import SkillMeta, SkillValidationError`、`from scheduling_platform.foundation.tools.builtin import QUERY_READONLY_TOOLS`、`from datetime import datetime, timezone`。
+1. import:`from maestro.skills.parser import extract_package, validate_allowed_tools`、`from maestro.skills.schemas import SkillMeta, SkillValidationError`、`from maestro.foundation.tools.builtin import QUERY_READONLY_TOOLS`、`from datetime import datetime, timezone`。
 2. `ChatRequest`(`main.py:54`)加 `skill_id: str | None = None`;`ChatStreamRequest`(`main.py:64`)同样。
 3. 加端点(放 `/knowledge` 端点附近):
 
@@ -947,7 +947,7 @@ async def delete_skill(name: str):
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skills.py -v`
 Expected: PASS (全 Phase 1+2)
 
 - [ ] **Step 5: Manual smoke + commit**
@@ -955,7 +955,7 @@ Expected: PASS (全 Phase 1+2)
 ```bash
 # 启动后端,手动导入(可选,需 demo 文件,见 Task 5.1)
 # curl -F "file=@docs/skills/skills-design-v1.md" :8000/skills/import  # 仅作格式参考
-git add scheduling_platform/src/scheduling_platform/main.py scheduling_platform/tests/test_skills.py
+git add maestro/src/maestro/main.py maestro/tests/test_skills.py
 git commit -m "feat(skills): GET/POST/DELETE /skills 端点 + ChatRequest.skill_id 字段
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -966,8 +966,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.1: `AgentLoop.extra_preconditions` — 技能级追加断言
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/engines/scheduling/agent_loop.py`(`__init__` `:77-86` 加参数;`_handle_call` `:212-221` 之后插入)
-- Test: `scheduling_platform/tests/test_skill_routing.py`(新建)
+- Modify: `maestro/src/maestro/engines/scheduling/agent_loop.py`(`__init__` `:77-86` 加参数;`_handle_call` `:212-221` 之后插入)
+- Test: `maestro/tests/test_skill_routing.py`(新建)
 
 **Interfaces:**
 - Consumes: `Precondition`、`PreconditionResult`(`foundation/tools/registry.py`)。
@@ -977,10 +977,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ```python
 from conftest import FakeLLM
-from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
-from scheduling_platform.foundation.audit import AuditLog
-from scheduling_platform.foundation.authz import PendingActionStore
-from scheduling_platform.foundation.tools.registry import ToolRegistry, PreconditionResult
+from maestro.engines.scheduling.agent_loop import AgentLoop
+from maestro.foundation.audit import AuditLog
+from maestro.foundation.authz import PendingActionStore
+from maestro.foundation.tools.registry import ToolRegistry, PreconditionResult
 
 
 async def _blocking(args):
@@ -1015,11 +1015,11 @@ async def test_extra_preconditions_none_unchanged():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v`
 Expected: FAIL — `AgentLoop.__init__()` got unexpected keyword `extra_preconditions`
 
 - [ ] **Step 3: Implement** — `agent_loop.py`:
-1. `__init__` 签名末尾加:`extra_preconditions: dict[str, list[Precondition]] | None = None`;方法体加 `self._extra = extra_preconditions`。(导入 `Precondition` 从 `scheduling_platform.foundation.tools.registry`。)
+1. `__init__` 签名末尾加:`extra_preconditions: dict[str, list[Precondition]] | None = None`;方法体加 `self._extra = extra_preconditions`。(导入 `Precondition` 从 `maestro.foundation.tools.registry`。)
 2. `_handle_call` 中,在内置 precondition 块(`:212-221`,即 `if tool.kind == "write" and tool.precondition is not None: ...`)之后、`try: return await self._tools.execute(...)`(`:223`)之前,插入:
 
 ```python
@@ -1039,13 +1039,13 @@ Expected: FAIL — `AgentLoop.__init__()` got unexpected keyword `extra_precondi
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py tests/test_router.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py tests/test_router.py -v`
 Expected: PASS(新 2 个 + 既有 router 全绿,证 None 不影响现有路径)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/engines/scheduling/agent_loop.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/engines/scheduling/agent_loop.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): AgentLoop 加 extra_preconditions (技能级追加断言, 只叠加不替换)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1054,8 +1054,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.2: `skills/engine.py` — SkillEngine(组装 AgentLoop 执行技能)
 
 **Files:**
-- Create: `scheduling_platform/src/scheduling_platform/skills/engine.py`
-- Test: `scheduling_platform/tests/test_skill_routing.py`(追加)
+- Create: `maestro/src/maestro/skills/engine.py`
+- Test: `maestro/tests/test_skill_routing.py`(追加)
 
 **Interfaces:**
 - Consumes: `SkillStore`(Task 1.3)、`AgentLoop`(Task 3.1)、`EngineResponse`(`engines/base.py:30`)、`named_preconditions: dict[str, Precondition]`。
@@ -1064,10 +1064,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing tests** (追加到 `test_skill_routing.py`)
 
 ```python
-from scheduling_platform.skills.store import SkillStore
-from scheduling_platform.skills.schemas import SkillMeta
-from scheduling_platform.skills.engine import SkillEngine
-from scheduling_platform.config import Settings
+from maestro.skills.store import SkillStore
+from maestro.skills.schemas import SkillMeta
+from maestro.skills.engine import SkillEngine
+from maestro.config import Settings
 from pathlib import Path
 
 
@@ -1121,20 +1121,20 @@ async def test_skill_engine_precondition_blocks(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v -k skill_engine`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v -k skill_engine`
 Expected: FAIL — `ImportError: ...engine`
 
 - [ ] **Step 3: Write minimal implementation** (`skills/engine.py`)
 
 ```python
 from __future__ import annotations
-from scheduling_platform.engines.base import EngineResponse, ProgressFn
-from scheduling_platform.engines.scheduling.agent_loop import AgentLoop
-from scheduling_platform.foundation.audit import AuditLog
-from scheduling_platform.foundation.authz import PendingActionStore
-from scheduling_platform.foundation.llm import LLMClient, LLMError
-from scheduling_platform.foundation.tools.registry import ToolRegistry, Precondition
-from scheduling_platform.skills.store import SkillStore
+from maestro.engines.base import EngineResponse, ProgressFn
+from maestro.engines.scheduling.agent_loop import AgentLoop
+from maestro.foundation.audit import AuditLog
+from maestro.foundation.authz import PendingActionStore
+from maestro.foundation.llm import LLMClient, LLMError
+from maestro.foundation.tools.registry import ToolRegistry, Precondition
+from maestro.skills.store import SkillStore
 
 SKILL_PREAMBLE = (
     "你是技能执行体。严格按下方 SKILL.md 正文步骤推进，只用允许的工具查证/操作，"
@@ -1190,13 +1190,13 @@ class SkillEngine:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/skills/engine.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/skills/engine.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): SkillEngine 组装 AgentLoop 执行技能 (含 tool_preconditions 装配)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1205,9 +1205,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.3: bootstrap 装配 SkillEngine + Orchestrator(skill_engine) + Platform 字段
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/bootstrap.py`(构造 SkillEngine;wire EmbeddingRouter/IntentRouter/Orchestrator 加 `skills=store`/`skill_engine`;`Platform` 加 `skill_engine` 字段)
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py`(`__init__` 加 `skill_engine`;`_dispatch` 加 skill 分支)
-- Test: `scheduling_platform/tests/test_skill_routing.py`(追加)
+- Modify: `maestro/src/maestro/bootstrap.py`(构造 SkillEngine;wire EmbeddingRouter/IntentRouter/Orchestrator 加 `skills=store`/`skill_engine`;`Platform` 加 `skill_engine` 字段)
+- Modify: `maestro/src/maestro/orchestrator/orchestrator.py`(`__init__` 加 `skill_engine`;`_dispatch` 加 skill 分支)
+- Test: `maestro/tests/test_skill_routing.py`(追加)
 
 **Interfaces:**
 - Produces: `Platform.skill_engine: SkillEngine`;`Orchestrator.__init__(..., skill_engine)`;`_dispatch` skill 分支调 `self._skills.handle(skill_id, message, session_id, history=state.history[:-1], on_progress=on_progress)`。注:EmbeddingRouter/IntentRouter 的 `skills=store` 参数在 Task 3.5/3.6 落地,本任务先透传占位(构造时先不传 skills,确保不破坏;3.5/3.6 再加)。
@@ -1217,7 +1217,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing test** (追加)
 
 ```python
-from scheduling_platform.bootstrap import build_platform
+from maestro.bootstrap import build_platform
 
 
 async def test_bootstrap_wires_skill_engine(tmp_path, settings):
@@ -1231,12 +1231,12 @@ async def test_bootstrap_wires_skill_engine(tmp_path, settings):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py::test_bootstrap_wires_skill_engine -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py::test_bootstrap_wires_skill_engine -v`
 Expected: FAIL — `Platform` 无 `skill_engine`
 
 - [ ] **Step 3: Implement**
 - `bootstrap.py`:import `SkillEngine`;在 `skill_store` 构造后(Task 2.1)加 `skill_engine = SkillEngine(llm, tools, pending, audit, skill_store, settings, named_preconditions)`;构造 `Orchestrator(..., skill_engine=skill_engine)`;`Platform` dataclass 加 `skill_engine: SkillEngine` 并在返回时传入。
-- `orchestrator.py`:`__init__`(`:45-63`)加 `skill_engine: "SkillEngine"` 参数(为避免循环 import,用 `TYPE_CHECKING` 或直接 `Any`,局部 `from scheduling_platform.skills.engine import SkillEngine` 在 `if TYPE_CHECKING` 下);`self._skills = skill_engine`。
+- `orchestrator.py`:`__init__`(`:45-63`)加 `skill_engine: "SkillEngine"` 参数(为避免循环 import,用 `TYPE_CHECKING` 或直接 `Any`,局部 `from maestro.skills.engine import SkillEngine` 在 `if TYPE_CHECKING` 下);`self._skills = skill_engine`。
 - `_dispatch`(`:152-177`):在 query 分支之前加 skill 分支:
 
 ```python
@@ -1250,13 +1250,13 @@ Expected: FAIL — `Platform` 无 `skill_engine`
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py tests/test_router.py tests/test_skills.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py tests/test_router.py tests/test_skills.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/bootstrap.py scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/bootstrap.py maestro/src/maestro/orchestrator/orchestrator.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): bootstrap 装配 SkillEngine + Orchestrator _dispatch skill 分支
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1265,8 +1265,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.4: `RouteDecision` 加 `"skill"` intent + `skill_id` 字段
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/schemas.py`(`:17-23`)
-- Test: `scheduling_platform/tests/test_skill_routing.py`(追加)
+- Modify: `maestro/src/maestro/orchestrator/schemas.py`(`:17-23`)
+- Test: `maestro/tests/test_skill_routing.py`(追加)
 
 **Interfaces:**
 - Produces: `RouteDecision.intent` 加 `"skill"`;`RouteDecision.skill_id: str | None = None`。`llm.classify` 注入 `model_json_schema()` → LLM 自动可填,`classify` 本身零改动。
@@ -1274,7 +1274,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing test** (追加)
 
 ```python
-from scheduling_platform.orchestrator.schemas import RouteDecision
+from maestro.orchestrator.schemas import RouteDecision
 
 
 def test_routedecision_skill_fields():
@@ -1287,20 +1287,20 @@ def test_routedecision_skill_fields():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py::test_routedecision_skill_fields -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py::test_routedecision_skill_fields -v`
 Expected: FAIL — `"skill"` 非合法 intent / 无 `skill_id`
 
 - [ ] **Step 3: Implement** — `schemas.py`:`intent` Literal 加 `"skill"`;新增字段 `skill_id: str | None = None`(放 `reason` 之后或 `steps` 之前,位置不限,有默认值即向后兼容)。
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py tests/test_router.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py tests/test_router.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/orchestrator/schemas.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/orchestrator/schemas.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): RouteDecision 加 skill intent + skill_id 字段
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1309,9 +1309,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.5: `EmbeddingRouter` — 技能向量 + version 拉式失效(分叉 A1)
 
 **Files:**
-- Modify: `scheduling_platform/tests/conftest.py`(`_EMBED_VOCAB` 补技能判别词)
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/embedding_router.py`(`__init__` 加 `skills`;`_ensure_vectors` 末尾调 `_ensure_skill_vectors`;新增 `_ensure_skill_vectors`)
-- Test: `scheduling_platform/tests/test_skill_routing.py`(追加)
+- Modify: `maestro/tests/conftest.py`(`_EMBED_VOCAB` 补技能判别词)
+- Modify: `maestro/src/maestro/orchestrator/embedding_router.py`(`__init__` 加 `skills`;`_ensure_vectors` 末尾调 `_ensure_skill_vectors`;新增 `_ensure_skill_vectors`)
+- Test: `maestro/tests/test_skill_routing.py`(追加)
 
 **Interfaces:**
 - Produces: `EmbeddingRouter(llm, examples=None, skills: SkillStore | None = None)`;`classify` 返回的 `EmbedResult.intent` 可能是 `"skill:{name}"`(由 `_vectors` 含 skill 键自然产出);按 `store.version` 失效重嵌。
@@ -1319,7 +1319,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing tests** (追加;`EXAMPLES` 局部定义)
 
 ```python
-from scheduling_platform.orchestrator.embedding_router import EmbeddingRouter
+from maestro.orchestrator.embedding_router import EmbeddingRouter
 
 EXAMPLES = {
     "planning": ["重新排产", "优化排程"],
@@ -1354,7 +1354,7 @@ async def test_embedding_skill_version_invalidation(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v -k embedding`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v -k embedding`
 Expected: FAIL — `EmbeddingRouter()` 不接受 `skills` / "产能" 不在 vocab 不命中
 
 - [ ] **Step 3: Implement**
@@ -1399,13 +1399,13 @@ Expected: FAIL — `EmbeddingRouter()` 不接受 `skills` / "产能" 不在 voca
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py tests/test_router.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py tests/test_router.py -v`
 Expected: PASS(技能向量 + 既有 embedding 测试不回归)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/tests/conftest.py scheduling_platform/src/scheduling_platform/orchestrator/embedding_router.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/tests/conftest.py maestro/src/maestro/orchestrator/embedding_router.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): EmbeddingRouter 吃技能 when_to_use 向量 + version 拉式失效 (分叉 A1)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1414,9 +1414,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.6: `_classify_system` 候选拼接 + `IntentRouter` 技能路由与校验(分叉 B1)
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/router.py`(`CLASSIFY_SYSTEM` → 保留为常量 + 新增 `_classify_system` 构造函数;`IntentRouter.__init__` 加 `skills`;`route()` embedding 分支拆 skill 前缀、LLM 分支校验 skill_id)
-- Modify: `scheduling_platform/src/scheduling_platform/bootstrap.py`(构造处补 `skills=skill_store`)
-- Test: `scheduling_platform/tests/test_skill_routing.py`(追加)
+- Modify: `maestro/src/maestro/orchestrator/router.py`(`CLASSIFY_SYSTEM` → 保留为常量 + 新增 `_classify_system` 构造函数;`IntentRouter.__init__` 加 `skills`;`route()` embedding 分支拆 skill 前缀、LLM 分支校验 skill_id)
+- Modify: `maestro/src/maestro/bootstrap.py`(构造处补 `skills=skill_store`)
+- Test: `maestro/tests/test_skill_routing.py`(追加)
 
 **Interfaces:**
 - Produces: `IntentRouter(llm, settings, embed_router=None, skills: SkillStore | None = None)`;`_classify_system(skill_candidates: list[tuple[str,str]]) -> str`(无技能时逐字节等于 `CLASSIFY_SYSTEM`);embedding 命中 `skill:{name}` → `RouteDecision(intent="skill", skill_id=name)`;LLM 返回 `intent="skill"` 但 `skill_id` ∉ routable → 降 `ambiguous`。
@@ -1424,7 +1424,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing tests** (追加)
 
 ```python
-from scheduling_platform.orchestrator.router import IntentRouter
+from maestro.orchestrator.router import IntentRouter
 
 
 def _router(llm, store, settings):
@@ -1464,7 +1464,7 @@ async def test_embedding_routes_to_skill(tmp_path, settings):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v -k llm_routes or llm_skill_nonexistent or embedding_routes_to_skill`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v -k llm_routes or llm_skill_nonexistent or embedding_routes_to_skill`
 Expected: FAIL — `IntentRouter()` 不接受 `skills` / skill 前缀未拆
 
 - [ ] **Step 3: Implement** — `router.py`:
@@ -1524,13 +1524,13 @@ def _classify_system(skill_candidates: list[tuple[str, str]]) -> str:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py tests/test_router.py -v`
+Run: `cd maestro && pytest tests/test_skill_routing.py tests/test_router.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scheduling_platform/src/scheduling_platform/orchestrator/router.py scheduling_platform/src/scheduling_platform/bootstrap.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/orchestrator/router.py maestro/src/maestro/bootstrap.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): _classify_system 候选拼接 + IntentRouter skill 路由/校验 (分叉 B1)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1539,9 +1539,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3.7: Orchestrator forced/dispatch/record + `_contract_route` + chat 透传
 
 **Files:**
-- Modify: `scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py`(`handle` 加 `skill_id` + forced 分支;`_gate_and_dispatch` 门控加 `"skill"`;`_record_route` 加 `skill_id`)
-- Modify: `scheduling_platform/src/scheduling_platform/main.py`(`_contract_route` `:131-141` 加 `skill_id`;`/chat` `:94-96`、`/chat/stream` `:216-221` 透传)
-- Test: `scheduling_platform/tests/test_skill_routing.py`(追加)
+- Modify: `maestro/src/maestro/orchestrator/orchestrator.py`(`handle` 加 `skill_id` + forced 分支;`_gate_and_dispatch` 门控加 `"skill"`;`_record_route` 加 `skill_id`)
+- Modify: `maestro/src/maestro/main.py`(`_contract_route` `:131-141` 加 `skill_id`;`/chat` `:94-96`、`/chat/stream` `:216-221` 透传)
+- Test: `maestro/tests/test_skill_routing.py`(追加)
 
 **Interfaces:**
 - Produces: `Orchestrator.handle(..., skill_id: str | None = None)`;forced skill → `RouteDecision(intent="skill", skill_id=…, route_method="forced", confidence=1.0)`;SSE `route` 帧 payload 加 `skill_id`(非技能为 null)。
@@ -1549,7 +1549,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing tests** (追加)
 
 ```python
-from scheduling_platform.main import app, _contract_route
+from maestro.main import app, _contract_route
 from fastapi.testclient import TestClient
 
 
@@ -1590,7 +1590,7 @@ async def test_chat_endpoint_threads_skill_id(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd scheduling_platform && pytest tests/test_skill_routing.py -v -k forced_skill or contract_route or chat_endpoint`
+Run: `cd maestro && pytest tests/test_skill_routing.py -v -k forced_skill or contract_route or chat_endpoint`
 Expected: FAIL — `handle()` 不接受 `skill_id` / `_contract_route` 无 `skill_id`
 
 - [ ] **Step 3: Implement**
@@ -1617,14 +1617,14 @@ Expected: FAIL — `handle()` 不接受 `skill_id` / `_contract_route` 无 `skil
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd scheduling_platform && pytest -v`
+Run: `cd maestro && pytest -v`
 Expected: PASS(全后端测试不回归)
 
 - [ ] **Step 5: Manual smoke + commit**
 
 ```bash
 # 可选端到端(需后端在跑):导入 demo 技能 → 发送带 skill_id 的 /chat/stream → 观察 route 帧 intent:"skill"
-git add scheduling_platform/src/scheduling_platform/orchestrator/orchestrator.py scheduling_platform/src/scheduling_platform/main.py scheduling_platform/tests/test_skill_routing.py
+git add maestro/src/maestro/orchestrator/orchestrator.py maestro/src/maestro/main.py maestro/tests/test_skill_routing.py
 git commit -m "feat(skills): Orchestrator forced/dispatch/record + _contract_route skill_id + chat 透传
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"

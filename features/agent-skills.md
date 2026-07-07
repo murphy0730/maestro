@@ -350,7 +350,7 @@ allowed_tools: [query_orders, query_work_orders]
 
 ## 目录结构（已导入）
 
-技能导入后存储在 `scheduling_platform/data/skills/`：
+技能导入后存储在 `maestro/data/skills/`：
 
 ```
 data/skills/

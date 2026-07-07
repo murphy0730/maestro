@@ -36,12 +36,12 @@ function backendBinary() {
   }
   // preview: 仓库 venv 的 python 跑 sidecar_entry
   return process.platform === 'win32'
-    ? path.join(__dirname, '..', '..', 'scheduling_platform', '.venv', 'Scripts', 'python.exe')
-    : path.join(__dirname, '..', '..', 'scheduling_platform', '.venv', 'bin', 'python');
+    ? path.join(__dirname, '..', '..', 'maestro', '.venv', 'Scripts', 'python.exe')
+    : path.join(__dirname, '..', '..', 'maestro', '.venv', 'bin', 'python');
 }
 
 function backendArgs() {
-  return app.isPackaged ? [] : ['-m', 'scheduling_platform.sidecar_entry'];
+  return app.isPackaged ? [] : ['-m', 'maestro.sidecar_entry'];
 }
 
 function buildBackendEnv(port) {

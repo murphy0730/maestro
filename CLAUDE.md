@@ -6,21 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two independently-run apps that talk over an HTTP/SSE contract:
 
-- `scheduling_platform/` — Python 3.12 FastAPI backend ("一个平台 / 三个引擎 / 一个入口"). Source under `src/scheduling_platform/`. Source of truth for behavior; see its `README.md`.
+- `maestro/` — Python 3.12 FastAPI backend ("一个平台 / 三个引擎 / 一个入口"). Source under `src/maestro/`. Source of truth for behavior; see its `README.md`.
 - `frontend/` — React 18 + Vite + TypeScript + Tailwind SPA (internal name "Cadence"/"Maestro"), with an optional Electron shell (`frontend/electron/`). Talks to the backend contract in `docs/api-contract/api-contract-v2.md` (v2 supersedes `api-contract/api-contract.md` and marks not-yet-implemented endpoints); MSW mocks available for offline demo.
 
-The package is `scheduling_platform`, **not** `platform` — `platform` is a stdlib name that shadows dependency imports. Design docs say `src/platform/`; the real path is `src/scheduling_platform/`.
+The package is `maestro`, **not** `platform` — `platform` is a stdlib name that shadows dependency imports. Design docs say `src/platform/`; the real path is `src/maestro/`.
 
 ## Commands
 
-### Backend (`scheduling_platform/`)
+### Backend (`maestro/`)
 ```bash
 uv venv --python 3.12 && source .venv/bin/activate   # ortools needs 3.11–3.13, NOT 3.14
 uv pip install -e ".[dev]"                            # or: python3.12 -m venv .venv && pip install -e ".[dev]"
 cp .env.example .env                                  # fill LLM_API_KEY (DeepSeek default); runs without it (degraded mode)
 
-uvicorn scheduling_platform.main:app --reload         # HTTP API on :8000
-python -m scheduling_platform.cli                     # interactive CLI (best first experience)
+uvicorn maestro.main:app --reload         # HTTP API on :8000
+python -m maestro.cli                     # interactive CLI (best first experience)
 
 pytest                                                # all LLM calls mocked, no network
 pytest tests/test_planning.py::test_strategy_plugin_registration   # single test
@@ -75,5 +75,5 @@ With no API key: routing falls back to clarification, param extraction to regex,
 ## Conventions specific to this repo
 
 - The four engine "routes" (planning/scheduling/query + uncertain) carry consistent color identities across backend logs and frontend tokens; keep new UI on the existing `ROUTE_META` tokens.
-- `scheduling_platform/.env` is gitignored and holds real credentials — never commit it. `.env.example` is the template; `frontend/.env.development` holds non-secret dev defaults and is committed.
+- `maestro/.env` is gitignored and holds real credentials — never commit it. `.env.example` is the template; `frontend/.env.development` holds non-secret dev defaults and is committed.
 - Items marked `TODO(v0.2)` in the backend are intentionally deferred (session-sticky routing, composite task decomposition, expediting timeout escalation, etc.) — don't implement them unless asked.

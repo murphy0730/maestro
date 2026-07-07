@@ -1,7 +1,7 @@
 # API 契约文档审查 — `docs/api-contract/api-contract.md`
 
 > 目标：审查前后端 API 契约文档的问题。
-> 方法：通读契约 + 对照实际后端代码（`scheduling_platform/src/scheduling_platform/`）落地情况。
+> 方法：通读契约 + 对照实际后端代码（`maestro/src/maestro/`）落地情况。
 > 结论：**契约与实现存在系统性、大面积不一致**。契约描述的是一个"REST 化、流式 SSE、有 SolveRun 状态机、带 RAG"的成熟形态；当前实现是"单入口对话式 + 事件驱动 + 内存态"的 v0.1 原型。**契约声明的 10 个端点，0 个路径完全匹配**。此外契约自身还有内部矛盾与不可落地之处。
 
 ---
@@ -166,9 +166,9 @@ GanttData 的 task.type 含 `downtime|shortage`，但这俩是调度层概念（
 ## 五、需修改的关键文件（若后续修订契约）
 
 - `/Users/zhouwentao/Desktop/manufacturing-agent/docs/api-contract/api-contract.md` — 契约文档本身（修订对象）
-- `/Users/zhouwentao/Desktop/manufacturing-agent/scheduling_platform/src/scheduling_platform/main.py` — 实际端点真相源（对照）
-- `/Users/zhouwentao/Desktop/manufacturing-agent/scheduling_platform/src/scheduling_platform/orchestrator/schemas.py` — RouteDecision/ChatResponse 真相源（对照）
-- `/Users/zhouwentao/Desktop/manufacturing-agent/scheduling_platform/src/scheduling_platform/domain/models.py` — PlanningResult/Assignment/PendingAction 真相源（对照）
+- `/Users/zhouwentao/Desktop/manufacturing-agent/maestro/src/maestro/main.py` — 实际端点真相源（对照）
+- `/Users/zhouwentao/Desktop/manufacturing-agent/maestro/src/maestro/orchestrator/schemas.py` — RouteDecision/ChatResponse 真相源（对照）
+- `/Users/zhouwentao/Desktop/manufacturing-agent/maestro/src/maestro/domain/models.py` — PlanningResult/Assignment/PendingAction 真相源（对照）
 
 ---
 

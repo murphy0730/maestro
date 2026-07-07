@@ -363,7 +363,7 @@ export interface AuditTimelineResponse {
 
 /**
  * 技能包元数据 — 镜像后端 `SkillMeta`(继承 SkillFrontmatter)。
- * 字段对齐 `scheduling_platform/skills/schemas.py`。
+ * 字段对齐 `maestro/skills/schemas.py`。
  */
 export interface SkillMeta {
   name: string;

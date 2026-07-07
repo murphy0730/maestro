@@ -1,7 +1,7 @@
 # 前台设置项 / 多技能选择 / 会话回读气泡拆分修复 — 设计
 
 日期：2026-07-07
-范围：`frontend/`（三块）+ `scheduling_platform/`（仅 Feature 2 多技能组合、Feature 3 消息 kind）
+范围：`frontend/`（三块）+ `maestro/`（仅 Feature 2 多技能组合、Feature 3 消息 kind）
 
 三个相互独立的改动，合并为一份 spec，因为都落在 orchestrator 对话 UI 这条线上：
 
@@ -92,7 +92,7 @@
 
 ### 修复方案（后端 kind 字段，已选定）
 
-- `StoredMessage`（`scheduling_platform/.../foundation/session_store.py:26`）新增 `kind: str = "normal"`。
+- `StoredMessage`（`maestro/.../foundation/session_store.py:26`）新增 `kind: str = "normal"`。
 - `SessionStore.append_message` 与 `ConversationMemory.append` 增加可选 `kind: str = "normal"` 参数，透传落盘。
 - `orchestrator.confirm()` 的结果 append 传 `kind="system"`。其余 `append` 不传（默认 `"normal"`）。
 - `GET /sessions/{id}/messages` 返回体每条带上 `kind`（`StoredMessage` 序列化即含）。

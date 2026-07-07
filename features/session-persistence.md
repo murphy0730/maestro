@@ -1,10 +1,10 @@
 # Session Persistence — 会话持久化
 
-## Overview
+## 概述
 
 本项目的会话持久化模块提供跨进程重启的对话记忆能力，将会话元数据与消息历史写入本地文件系统。采用两层架构：内存缓存层 (`ConversationMemory`) 提供低延迟读写，文件持久层 (`SessionStore`) 确保数据不丢失。
 
-## Directory Structure
+## 目录结构
 
 ```
 data/sessions/
@@ -13,7 +13,7 @@ data/sessions/
 └── ...
 ```
 
-## Data Models
+## 数据模型
 
 ### SessionMeta — 会话元数据
 
@@ -47,7 +47,7 @@ class SessionState(BaseModel):
 
 **注意**：`context` 字段不持久化，包含 `pending_clarification`、`last_planning_result` 等仅在当前进程生命周期内有效的数据。
 
-## Core Components
+## 核心组件
 
 ### SessionStore — 文件持久层
 
@@ -88,7 +88,7 @@ class ConversationMemory:
 
 **冷启动加载**：首次访问 `session_id` 时，自动从 `SessionStore` 回载历史消息与引擎状态，实现"重启不失忆"。
 
-## File Format
+## 文件格式
 
 ### index.json — 会话索引
 
@@ -122,7 +122,7 @@ class ConversationMemory:
 ]
 ```
 
-## API Endpoints
+## API 接口
 
 完整契约见 `docs/api-contract/api-contract-v2.md` §5。
 
@@ -211,7 +211,7 @@ GET /sessions/{session_id}/messages
 ]
 ```
 
-## Frontend Integration
+## 前端集成
 
 ### API Client (`frontend/src/api/sessions.ts`)
 
@@ -240,7 +240,7 @@ interface SessionStoreState {
 }
 ```
 
-## Automatic Title Generation
+## 自动标题生成
 
 首轮用户消息发送后，系统会并行调用 LLM 生成一个语义化的短标题（最多 12 汉字）：
 
@@ -256,9 +256,9 @@ _TITLE_SYSTEM = """
 
 **竞态避免**：标题生成在 `chat/stream` 端点中与编排任务并行执行，但在任何 SSE 帧流出之前完成落库，确保前端刷新不会读到旧标题。
 
-## Flow: Full Session Lifecycle
+## 流程：完整会话生命周期
 
-### 1. Cold Start (Process Restart)
+### 1. 冷启动（进程重启）
 
 ```
 用户访问前端 → 调用 GET /sessions
@@ -274,7 +274,7 @@ ConversationMemory.get(session_id)
 用户看到历史消息，无缝续谈
 ```
 
-### 2. New Message
+### 2. 新消息
 
 ```
 用户发送消息 → POST /chat/stream
@@ -293,7 +293,7 @@ SessionStore.append_message(session_id, "assistant", reply)
 (首轮时并行) LLM 生成标题 → update_title()
 ```
 
-### 3. Session Switch
+### 3. 会话切换
 
 ```
 用户在侧边栏点击会话 → setActiveSessionId(session_id)
@@ -305,9 +305,9 @@ SessionStore.append_message(session_id, "assistant", reply)
 (可选) 调用 GET /audit/timeline?session_id=... 展示决策时间线
 ```
 
-## Thread Safety
+## 线程安全
 
-### SessionStore Locks
+### SessionStore 锁
 
 ```python
 class SessionStore:
@@ -320,7 +320,7 @@ class SessionStore:
 - `append_message()` 的读-改-写循环
 - `delete()` 的元数据与文件删除
 
-### Async Use
+### 异步使用
 
 FastAPI 端点中通过 `asyncio.to_thread` 调用同步方法：
 
@@ -331,9 +331,9 @@ async def list_sessions():
     return [s.model_dump() for s in sessions]
 ```
 
-## Design Decisions
+## 设计决策
 
-### Why Files, Not SQLite?
+### 为什么使用文件而不是 SQLite？
 
 参考 `docs/session-memory/session_memory_design_v2.md` 是 v0.2 的未来规划（装配式上下文、压缩、Artifact 存储等），当前 v0.1 采用简单文件存储的原因：
 - 单用户部署，无并发写入冲突
@@ -341,20 +341,20 @@ async def list_sessions():
 - 零依赖：无需引入 SQLAlchemy/asyncpg
 - 渐进式：v0.2 可无缝迁移到 SQLite 而不改变 API 契约
 
-### Why Separate index.json?
+### 为什么使用单独的 index.json？
 
 - 会话列表加载快：只需读一个小文件，无需扫描所有 `{session_id}.json`
 - 排序一致性：索引按 `updated_at` 倒序排列，前端无需二次排序
 - 原子性：`_save_index()` 采用临时文件替换，避免崩溃导致索引损坏
 
-### Append-Only Message Files
+### 仅追加的消息文件
 
 消息文件只追加不修改，天然支持：
 - 历史可追溯
 - 崩溃恢复：追加到一半失败时，下次启动仍能读到有效前缀
 - 未来对接事件溯源架构
 
-## Future: v0.2 Roadmap
+## 未来：v0.2 路线图
 
 当前实现是 v0.1 基础版，预留以下 v0.2 扩展点（见 `session_memory_design_v2.md`）：
 
@@ -369,7 +369,7 @@ async def list_sessions():
 
 **API Stability Guarantee**：v0.2 的 HTTP API 将保持向后兼容，仅新增端点或字段，不删除或改变现有契约形状。
 
-## Integration Points
+## 集成点
 
 ### Bootstrap (`bootstrap.py`)
 

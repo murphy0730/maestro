@@ -1,6 +1,6 @@
 # API 契约 v2（2026-07-03）
 
-> 取代 `api-contract.md`（v1）。v2 以**后端实际实现**（`scheduling_platform/main.py`）为唯一事实源：
+> 取代 `api-contract.md`（v1）。v2 以**后端实际实现**（`maestro/main.py`）为唯一事实源：
 > 补齐 v1 缺失的会话/确认/事件端点，明确标注 v1 中**尚未实现**的端点。
 > 通用约定（错误结构、时间格式、`/api/v1` 前缀经 Vite 代理）与核心类型
 > （RouteDecision / KnowledgeDoc / SSE 基本帧）沿用 v1，不再重复，下文只写增量与差异。

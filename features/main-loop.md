@@ -1,10 +1,10 @@
 # Main Loop — 主循环与编排器
 
-## Overview
+## 概述
 
 本项目的核心是**三层意图路由** + **三引擎范式**：用户输入 → 嵌入语义路由/LLM分类 → 派发至对应引擎 → 执行固定工作流/ReAct智能体/RAG问答 → 输出结果。编排器 (`Orchestrator`) 作为统一入口，协调整个流程，提供进度反馈、审计记录、会话记忆等横切关注点。
 
-## Architecture: 三引擎三范式
+## 架构：三引擎三范式
 
 | 引擎 | 范式 | 用途 |
 |------|------|------|
@@ -13,7 +13,7 @@
 | **Query Engine** | RAG + LLM | 订单/库存/任务令状态查询，知识库问答 |
 | **Skill Engine** | ReAct (动态系统提示词) | 自定义技能包执行 |
 
-## Composition Root: bootstrap.py
+## 组装根：bootstrap.py
 
 `build_platform()` 是唯一的组装根，负责实例化并连接所有组件：
 
@@ -45,7 +45,7 @@
 └───────────────────────────────────────────┘
 ```
 
-## Flow 1: Normal Chat (正常对话主循环)
+## 流程一：正常对话主循环
 
 ```
 用户输入
@@ -124,9 +124,9 @@
  EngineResponse → ChatResponse → SSE流式输出
 ```
 
-## Flow 2: Intent Routing (三层意图路由)
+## 流程二：三层意图路由
 
-### Layer 1: EmbeddingRouter (嵌入语义路由)
+### 第一层：EmbeddingRouter（嵌入语义路由）
 
 把用户输入向量化，与各意图的种子例句 (`routing_examples.yaml`) 做余弦相似度匹配：
 
@@ -155,7 +155,7 @@ class EmbeddingRouter:
 
 **技能向量动态失效**：技能导入/删除时 `SkillStore.version` 自增，`EmbeddingRouter` 检测到版本变化后重嵌技能例句。
 
-### Layer 2: IntentRouter (LLM 结构化分类)
+### 第二层：IntentRouter（LLM 结构化分类）
 
 嵌入路由低置信/不可用时，调用 LLM 做结构化分类：
 
@@ -176,7 +176,7 @@ class IntentRouter:
         return decision
 ```
 
-### Layer 3: Clarification (澄清)
+### 第三层：澄清
 
 置信度低于 `route_confidence_threshold` (默认 0.7) 或 `intent=ambiguous` 时：
 
@@ -191,7 +191,7 @@ class IntentRouter:
 - **选项式** (≤4字符)：直接按所选路由原请求 (`_route_clarified`)
 - **开放式**：合并上下文，回到第2层 LLM 分类 (跳过嵌入)
 
-## Flow 3: Scheduling AgentLoop (ReAct 智能体循环)
+## 流程三：调度引擎 AgentLoop（ReAct 智能体循环）
 
 调度引擎的核心是通用 ReAct 循环，骨架参考 OpenHands：
 
@@ -342,7 +342,7 @@ def _is_stuck(st):
     return False
 ```
 
-## Flow 4: Progress Streaming (进度流式反馈)
+## 流程四：进度流式反馈
 
 编排流程中通过 `ProgressFn` 回调实时推送进度到前端 SSE：
 
@@ -362,7 +362,7 @@ async def handle(..., on_progress=None):
 3. `_progress_frames()` 生成器实时推送
 4. `_sse_from_response()` 把响应流式拆分为 `route` → `token*` → `actions?` → `done`
 
-## Flow 5: Event-Driven Wakeup (事件唤醒)
+## 流程五：事件驱动唤醒
 
 除了用户对话，调度引擎还可被系统事件唤醒：
 
@@ -385,7 +385,7 @@ async def handle(..., on_progress=None):
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Audit Trail (审计追踪)
+## 审计追踪
 
 所有路由决策、工具调用、授权操作都被记录到 `AuditLog`：
 
@@ -397,7 +397,7 @@ async def handle(..., on_progress=None):
 | `skill_precondition_blocked:{name}` | 技能前置断言拦截 |
 | `authz:pending` / `authz:approved` / `authz:rejected` | 授权状态变更 |
 
-## Resuming Clarification (澄清回选)
+## 澄清回选
 
 前端 `/chat/clarify` 端点调用 `Orchestrator.resume_clarification()`：
 
@@ -405,7 +405,7 @@ async def handle(..., on_progress=None):
 2. 按用户选择的引擎 (`route_to`) 直接路由原请求
 3. 不再经过嵌入/LLM 层
 
-## Confirming Actions (动作确认)
+## 动作确认
 
 前端 `/chat/confirm` 端点调用 `Orchestrator.confirm()`：
 
@@ -413,7 +413,7 @@ async def handle(..., on_progress=None):
 2. 写操作只有通过授权才真正执行
 3. 结果追加到会话记忆
 
-## Key Integration Points (集成要点)
+## 集成要点
 
 ### bootstrap.py 组装要点
 
@@ -477,7 +477,7 @@ async def chat_stream(req):
         yield frame
 ```
 
-## Configuration (配置项)
+## 配置项
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
@@ -488,7 +488,7 @@ async def chat_stream(req):
 | `rag_top_k` | 5 | RAG 检索 top-k |
 | `vector_backend` | "memory" | 向量库后端 ("memory"/"chroma") |
 
-## Design Principles (设计原则)
+## 设计原则
 
 1. **LLM 不进主循环**：只在语义节点 (意图理解、结果解释、摘要生成) 插入
 2. **确定性优先**：路由、护栏、工具执行优先走代码逻辑，LLM 仅做补充

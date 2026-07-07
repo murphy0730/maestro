@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 重启前后端开发服务。
-#   后端: scheduling_platform/.venv 里的 uvicorn，:8000
+#   后端: maestro/.venv 里的 uvicorn，:8000
 #   前端: frontend 的 Vite dev server，:5173
 # 日志写到项目根 logs/ 下，进程放后台运行。
 #
@@ -34,8 +34,8 @@ kill_port() {
 start_backend() {
   kill_port "$BACKEND_PORT" "后端"
   echo "启动后端 → http://localhost:$BACKEND_PORT (日志: logs/backend.log)"
-  cd "$ROOT/scheduling_platform"
-  nohup .venv/bin/uvicorn scheduling_platform.main:app --reload --port "$BACKEND_PORT" \
+  cd "$ROOT/maestro"
+  nohup .venv/bin/uvicorn maestro.main:app --reload --port "$BACKEND_PORT" \
     > "$LOG_DIR/backend.log" 2>&1 &
   cd "$ROOT"
 }
