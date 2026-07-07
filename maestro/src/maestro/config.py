@@ -4,6 +4,7 @@
 """
 
 import os
+import sys
 from pathlib import Path
 
 from pydantic import Field
@@ -11,7 +12,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def project_root() -> Path:
-    """返回项目根目录 (maestro/，即 src 的上一级)。"""
+    """项目根目录。打包冻结后 (PyInstaller) 返回 sys._MEIPASS，使种子数据
+    (data/mock、随包 yaml) 路径解析到冻结包内已收录的位置。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
     return Path(__file__).resolve().parents[2]
 
 

@@ -42,6 +42,18 @@ hiddenimports += [
     "uvicorn.lifespan.on",
 ]
 
+# Bundled seed/mock data (read at startup via project_root() == sys._MEIPASS when frozen).
+# data/mock is outside the package → bundle explicitly, mirroring structure.
+import os
+for _dp, _dirs, _fns in os.walk("data/mock"):
+    for _fn in _fns:
+        datas.append((os.path.join(_dp, _fn), os.path.relpath(_dp, ".")))
+# Package data files (yaml/json next to modules; loaded via Path(__file__).with_name).
+for _dp, _dirs, _fns in os.walk("src/maestro"):
+    for _fn in _fns:
+        if _fn.endswith((".yaml", ".yml", ".json")):
+            datas.append((os.path.join(_dp, _fn), os.path.relpath(_dp, "src")))
+
 a = Analysis(
     ["src/maestro/sidecar_entry.py"],
     pathex=["src"],
@@ -66,7 +78,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,  # --windowed: no terminal window (Electron captures stdio)
+    console=True,  # --windowed: no terminal window (Electron captures stdio)
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
