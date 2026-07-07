@@ -255,5 +255,5 @@ class Orchestrator:
             reply = f"已执行: {action.description} — {result.detail}"
         else:
             reply = f"执行失败: {action.description} — {result.detail if result else '未知错误'}"
-        self._memory.append(session_id, "assistant", reply)
+        self._memory.append(session_id, "assistant", reply, kind="system")
         return ChatResponse(reply=reply, pending_actions=[action])

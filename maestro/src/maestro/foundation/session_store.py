@@ -27,6 +27,7 @@ class StoredMessage(BaseModel):
     role: str   # "user" | "assistant" | "system"
     content: str
     ts: str
+    kind: str = "normal"   # "normal" | "system"（system=动作确认结果等细行）
 
 
 class SessionStore:
@@ -112,13 +113,13 @@ class SessionStore:
             self._sessions[session_id].updated_at = self._now()
             self._save_index()
 
-    def append_message(self, session_id: str, role: str, content: str) -> None:
+    def append_message(self, session_id: str, role: str, content: str, kind: str = "normal") -> None:
         with self._lock:
             msg_file = self._msg_file(session_id)
             messages = (
                 json.loads(msg_file.read_text(encoding="utf-8")) if msg_file.exists() else []
             )
-            msg = StoredMessage(role=role, content=content, ts=self._now())
+            msg = StoredMessage(role=role, content=content, ts=self._now(), kind=kind)
             messages.append(msg.model_dump())
             msg_file.write_text(
                 json.dumps(messages, ensure_ascii=False, indent=2), encoding="utf-8"

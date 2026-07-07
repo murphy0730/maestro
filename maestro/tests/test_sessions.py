@@ -55,3 +55,21 @@ def test_delete_removes_meta_and_messages(tmp_path):
     assert store.get(meta.session_id) is None
     assert store.get_messages(meta.session_id) == []
     assert store.delete(meta.session_id) is False
+
+
+def test_append_message_kind_default_and_system(tmp_path):
+    store = SessionStore(tmp_path)
+    meta = store.create()
+    store.append_message(meta.session_id, "assistant", "主回答")
+    store.append_message(meta.session_id, "assistant", "已执行: 派工 — ok", kind="system")
+    msgs = store.get_messages(meta.session_id)  # list[dict]
+    assert msgs[0]["kind"] == "normal"
+    assert msgs[1]["kind"] == "system"
+
+
+def test_memory_append_passes_kind(tmp_path):
+    store = SessionStore(tmp_path)
+    meta = store.create()
+    mem = ConversationMemory(store)
+    mem.append(meta.session_id, "assistant", "确认结果", kind="system")
+    assert store.get_messages(meta.session_id)[0]["kind"] == "system"
