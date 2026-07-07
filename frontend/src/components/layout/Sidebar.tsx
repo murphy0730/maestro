@@ -5,7 +5,10 @@ import {
   Settings,
   Sun,
   Moon,
+  Sparkles,
   Check,
+  ChevronRight,
+  ChevronLeft,
   MoreVertical,
   Pencil,
   Trash2,
@@ -13,10 +16,18 @@ import {
   PanelLeftClose,
 } from 'lucide-react';
 import type { ConversationSummary } from '@/mocks/session';
-import type { Theme } from '@/stores';
+import type { Theme, DefaultEngine } from '@/stores';
 import { ROUTE_META } from '@/lib/routes';
 import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
 import { SettingsModal } from '@/features/orchestrator/settings/SettingsModal';
+
+// 本地引擎选项常量（避免跨 layer 依赖 Composer）
+const ENGINE_OPTS: { value: DefaultEngine; label: string; dot: string }[] = [
+  { value: 'auto', label: '自动', dot: 'bg-accent' },
+  { value: 'planning', label: '排产', dot: 'bg-planning' },
+  { value: 'scheduling', label: '调度', dot: 'bg-scheduling' },
+  { value: 'query', label: '查询', dot: 'bg-query' },
+];
 
 /**
  * Sidebar — the left rail: brand mark, a "new conversation" action, the
@@ -37,6 +48,8 @@ interface SidebarProps {
   onCollapse: () => void;
   theme: Theme;
   onSetTheme: (theme: Theme) => void;
+  defaultEngine: DefaultEngine;
+  onSetDefaultEngine: (engine: DefaultEngine) => void;
 }
 
 export function Sidebar({
@@ -52,8 +65,11 @@ export function Sidebar({
   onCollapse,
   theme,
   onSetTheme,
+  defaultEngine,
+  onSetDefaultEngine,
 }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState<'root' | 'appearance' | 'engine'>('root');
   const [providersOpen, setProvidersOpen] = useState(false);
   // 仅桌面应用 (Electron) 显示供应商配置入口；浏览器 dev 不适用。
   const isElectron =
@@ -80,6 +96,7 @@ export function Sidebar({
     const onClick = (e: MouseEvent) => {
       if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
         setSettingsOpen(false);
+        setSettingsView('root');
       }
     };
     document.addEventListener('mousedown', onClick);
@@ -261,7 +278,10 @@ export function Sidebar({
         <div ref={settingsRef} className="relative flex-none">
           <button
             title="设置"
-            onClick={() => setSettingsOpen((v) => !v)}
+            onClick={() => {
+              setSettingsOpen((v) => !v);
+              setSettingsView('root');
+            }}
             className={`grid h-[30px] w-[30px] place-items-center rounded-sm transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary ${
               settingsOpen ? 'bg-border-subtle text-text-secondary' : 'text-text-tertiary'
             }`}
@@ -269,39 +289,99 @@ export function Sidebar({
             <Settings size={16} />
           </button>
           {settingsOpen && (
-            <Popover className="absolute bottom-[38px] right-0 w-[168px]">
-              <PopoverLabel>外观</PopoverLabel>
-              {[
-                { value: 'light' as const, label: '浅色', Icon: Sun },
-                { value: 'dark' as const, label: '深色', Icon: Moon },
-              ].map(({ value, label, Icon }) => (
-                <PopoverItem
-                  key={value}
-                  icon={<Icon size={15} />}
-                  trailing={
-                    theme === value ? (
-                      <Check size={14} className="flex-none text-accent-fg" />
-                    ) : undefined
-                  }
-                  onClick={() => {
-                    onSetTheme(value);
-                    setSettingsOpen(false);
-                  }}
-                >
-                  {label}
-                </PopoverItem>
-              ))}
-              {isElectron && (
+            <Popover className="absolute bottom-[38px] right-0 w-[200px]">
+              {settingsView === 'root' && (
                 <>
-                  <PopoverLabel>模型</PopoverLabel>
+                  <PopoverLabel>设置</PopoverLabel>
                   <PopoverItem
-                    onClick={() => {
-                      setSettingsOpen(false);
-                      setProvidersOpen(true);
-                    }}
+                    icon={<Sun size={15} />}
+                    trailing={<ChevronRight size={14} className="flex-none text-text-tertiary" />}
+                    onClick={() => setSettingsView('appearance')}
                   >
-                    LLM / Embedding 供应商…
+                    外观
                   </PopoverItem>
+                  <PopoverItem
+                    icon={<Sparkles size={15} />}
+                    trailing={<ChevronRight size={14} className="flex-none text-text-tertiary" />}
+                    onClick={() => setSettingsView('engine')}
+                  >
+                    默认引擎
+                  </PopoverItem>
+                  {isElectron && (
+                    <>
+                      <PopoverLabel>模型</PopoverLabel>
+                      <PopoverItem
+                        onClick={() => {
+                          setSettingsOpen(false);
+                          setSettingsView('root');
+                          setProvidersOpen(true);
+                        }}
+                      >
+                        LLM / Embedding 供应商…
+                      </PopoverItem>
+                    </>
+                  )}
+                </>
+              )}
+
+              {settingsView === 'appearance' && (
+                <>
+                  <PopoverItem
+                    icon={<ChevronLeft size={14} />}
+                    onClick={() => setSettingsView('root')}
+                  >
+                    外观
+                  </PopoverItem>
+                  {[
+                    { value: 'light' as const, label: '浅色', Icon: Sun },
+                    { value: 'dark' as const, label: '深色', Icon: Moon },
+                  ].map(({ value, label, Icon }) => (
+                    <PopoverItem
+                      key={value}
+                      icon={<Icon size={15} />}
+                      trailing={
+                        theme === value ? (
+                          <Check size={14} className="flex-none text-accent-fg" />
+                        ) : undefined
+                      }
+                      onClick={() => {
+                        onSetTheme(value);
+                        setSettingsOpen(false);
+                        setSettingsView('root');
+                      }}
+                    >
+                      {label}
+                    </PopoverItem>
+                  ))}
+                </>
+              )}
+
+              {settingsView === 'engine' && (
+                <>
+                  <PopoverItem
+                    icon={<ChevronLeft size={14} />}
+                    onClick={() => setSettingsView('root')}
+                  >
+                    默认引擎
+                  </PopoverItem>
+                  {ENGINE_OPTS.map(({ value, label, dot }) => (
+                    <PopoverItem
+                      key={value}
+                      icon={<span className={`h-[7px] w-[7px] rounded-full ${dot}`} />}
+                      trailing={
+                        defaultEngine === value ? (
+                          <Check size={14} className="flex-none text-accent-fg" />
+                        ) : undefined
+                      }
+                      onClick={() => {
+                        onSetDefaultEngine(value);
+                        setSettingsOpen(false);
+                        setSettingsView('root');
+                      }}
+                    >
+                      {label}
+                    </PopoverItem>
+                  ))}
                 </>
               )}
             </Popover>

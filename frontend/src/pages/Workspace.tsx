@@ -8,7 +8,7 @@ import { Thread } from '@/features/orchestrator/Thread';
 import { Composer } from '@/features/orchestrator/Composer';
 import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModal';
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
-import { useConversationStore, useThemeStore } from '@/stores';
+import { useConversationStore, useThemeStore, useDefaultEngineStore } from '@/stores';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSessions, useCreateSession, useRenameSession, useDeleteSession, useSkills } from '@/api';
 import { getSessionMessages } from '@/api/sessions';
@@ -47,6 +47,9 @@ export function Workspace() {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
+  const defaultEngine = useDefaultEngineStore((s) => s.defaultEngine);
+  const setDefaultEngine = useDefaultEngineStore((s) => s.setDefaultEngine);
+
   // 稳定的 fallback session ID（后端连接前短暂使用）
   const fallbackIdRef = useRef(crypto.randomUUID().replace(/-/g, ''));
   const currentSessionId = activeSessionId ?? fallbackIdRef.current;
@@ -57,7 +60,7 @@ export function Workspace() {
   const skillsQuery = useSkills();
   const skills = skillsQuery.data?.skills ?? [];
 
-  const [route, setRoute] = useState<ComposerRoute>('auto');
+  const [route, setRoute] = useState<ComposerRoute>(defaultEngine);
   const [skill, setSkill] = useState<SkillMeta | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -269,6 +272,8 @@ export function Workspace() {
             onCollapse={() => setSidebarCollapsed(true)}
             theme={theme}
             onSetTheme={setTheme}
+            defaultEngine={defaultEngine}
+            onSetDefaultEngine={setDefaultEngine}
           />
         )
       }

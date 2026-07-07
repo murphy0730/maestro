@@ -15,6 +15,8 @@ const baseProps = {
   onCollapse: () => {},
   theme: 'light' as const,
   onSetTheme: () => {},
+  defaultEngine: 'auto' as const,
+  onSetDefaultEngine: () => {},
 };
 
 function setElectron(on: boolean) {
