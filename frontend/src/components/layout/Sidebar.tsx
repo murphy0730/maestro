@@ -16,6 +16,7 @@ import type { ConversationSummary } from '@/mocks/session';
 import type { Theme } from '@/stores';
 import { ROUTE_META } from '@/lib/routes';
 import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
+import { SettingsModal } from '@/features/orchestrator/settings/SettingsModal';
 
 /**
  * Sidebar — the left rail: brand mark, a "new conversation" action, the
@@ -53,6 +54,12 @@ export function Sidebar({
   onSetTheme,
 }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [providersOpen, setProvidersOpen] = useState(false);
+  // 仅桌面应用 (Electron) 显示供应商配置入口；浏览器 dev 不适用。
+  const isElectron =
+    typeof window !== 'undefined' &&
+    (window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron ===
+      true;
   const settingsRef = useRef<HTMLDivElement>(null);
 
   // 会话行的操作菜单 / 内联重命名状态
@@ -284,10 +291,25 @@ export function Sidebar({
                   {label}
                 </PopoverItem>
               ))}
+              {isElectron && (
+                <>
+                  <PopoverLabel>模型</PopoverLabel>
+                  <PopoverItem
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      setProvidersOpen(true);
+                    }}
+                  >
+                    LLM / Embedding 供应商…
+                  </PopoverItem>
+                </>
+              )}
             </Popover>
           )}
         </div>
       </div>
+
+      {isElectron && <SettingsModal open={providersOpen} onClose={() => setProvidersOpen(false)} />}
     </aside>
   );
 }
