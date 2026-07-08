@@ -71,15 +71,16 @@ class Orchestrator:
         message: str,
         route: str = "auto",
         on_progress: ProgressFn | None = None,
-        skill_id: str | None = None,
+        skill_ids: list[str] | None = None,
     ) -> ChatResponse:
         state = self._memory.get(session_id)
 
-        # ── 前端选定技能 (skill_id≠None)：跳过路由，直接派发到 SkillEngine ──
-        if skill_id is not None:
+        # ── 前端选定技能 (skill_ids 非空)：跳过路由，直接派发到 SkillEngine ──
+        if skill_ids:
             decision = RouteDecision(
                 intent="skill",
-                skill_id=skill_id,
+                skill_id=skill_ids[0],
+                skill_ids=list(skill_ids),
                 confidence=1.0,
                 entities=extract_entities(message),
                 reason="前端选定技能",
@@ -196,7 +197,8 @@ class Orchestrator:
             # 技能不拥有 Context Panel，不调 set_engine；历史去掉末条作上下文。
             # 前端强制指定 (forced) 受 user_invocable 约束，路由命中不受。
             return await self._skills.handle(
-                decision.skill_id, message, session_id,
+                decision.skill_ids or ([decision.skill_id] if decision.skill_id else []),
+                message, session_id,
                 history=state.history[:-1], on_progress=on_progress,
                 source="user" if decision.route_method == "forced" else "route",
             )

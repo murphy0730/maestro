@@ -63,13 +63,16 @@ data: {
 
 前端渲染确认卡片，确认/拒绝走 `POST /chat/confirm`。
 
-**`skill_id` 透传（v2 新增）**：`/chat` 与 `/chat/stream` 请求体新增可选 `skill_id: str | null`
-（前端选定技能时透传，对应 `Orchestrator.handle(skill_id=…)` 的 forced 分支，跳过路由层）。
-缺省 `null` 时走原有三层路由，行为与 v1 逐字节一致。
+**技能透传（v2 新增）**：`/chat` 与 `/chat/stream` 请求体新增可选 `skill_ids: string[] | null`
+（前端多技能选择时透传；对应 `Orchestrator.handle(skill_ids=…)` 的 forced 分支，跳过路由层，
+后端把选中技能的 allowed_tools/前置断言/SKILL.md 正文合并为单次 AgentLoop 运行）。
+兼容保留单值 `skill_id: str | null`；二者都在时并入 `skill_ids`。缺省时走原有三层路由，
+行为与 v1 逐字节一致。
 
 ```jsonc
 // /chat、/chat/stream 请求体增量
-{ "session_id": "string", "message": "…", "current_engine": null, "skill_id": "capacity-report" }
+{ "session_id": "string", "message": "…", "current_engine": null,
+  "skill_ids": ["capacity-report", "line-changeover"] }
 ```
 
 **`route` 帧扩展（v2 新增）**：
@@ -154,7 +157,8 @@ GET    /sessions/{id}/messages       → StoredMessage[]
 { "session_id": "hex32", "title": "重排注塑订单", "engine": "planning|scheduling|query|null",
   "created_at": "ISO", "updated_at": "ISO", "message_count": 4 }
 // StoredMessage
-{ "role": "user|assistant|system", "content": "string", "ts": "ISO" }
+{ "role": "user|assistant|system", "content": "string", "ts": "ISO",
+  "kind": "normal|system" }   // v2 新增；kind=system 为动作确认结果，回读时渲染为居中细行；缺省 normal
 ```
 
 首轮对话结束前后端用 LLM 生成智能标题并落库（失败保留截断标题）。

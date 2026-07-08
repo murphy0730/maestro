@@ -60,8 +60,9 @@ class ChatRequest(BaseModel):
     message: str
     # 前端引擎选择: auto=自动路由；指定引擎则跳过路由直达 (支持"选定调度引擎"多轮对话)
     route: Literal["auto", "planning", "scheduling", "query"] = "auto"
-    # 技能包选择: Phase 3 透传到 orchestrator.handle；本字段仅声明，不影响路由
+    # 技能包选择: 透传到 orchestrator.handle。skill_ids 多技能；skill_id 兼容单值，二者都在时合并
     skill_id: str | None = None
+    skill_ids: list[str] | None = None
 
 
 EngineName = Literal["planning", "scheduling", "query"]
@@ -73,8 +74,9 @@ class ChatStreamRequest(BaseModel):
     session_id: str = "default"
     message: str
     current_engine: EngineName | None = None
-    # 技能包选择: Phase 3 透传到 orchestrator.handle；本字段仅声明，不影响路由
+    # 技能包选择: 透传到 orchestrator.handle。skill_ids 多技能；skill_id 兼容单值，二者都在时合并
     skill_id: str | None = None
+    skill_ids: list[str] | None = None
 
 
 class ClarifyStreamRequest(BaseModel):
@@ -100,7 +102,8 @@ class EventRequest(BaseModel):
 async def chat(req: ChatRequest):
     """统一对话入口。route 指定引擎时跳过意图路由，直达该引擎。"""
     response = await app.state.platform.orchestrator.handle(
-        req.session_id, req.message, route=req.route, skill_id=req.skill_id
+        req.session_id, req.message, route=req.route,
+        skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
     )
     return response.model_dump(mode="json")
 
@@ -227,7 +230,7 @@ async def chat_stream(req: ChatStreamRequest):
                 req.message,
                 route=req.current_engine or "auto",
                 on_progress=progress_q.put,
-                skill_id=req.skill_id,
+                skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
             )
         )
         try:

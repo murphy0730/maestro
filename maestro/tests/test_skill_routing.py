@@ -151,6 +151,12 @@ def test_routedecision_skill_fields():
     assert "skill_id" in schema["properties"]
 
 
+def test_routedecision_skill_ids_default_and_set():
+    d = RouteDecision(intent="skill", skill_ids=["aa", "bb"], confidence=1.0)
+    assert d.skill_ids == ["aa", "bb"]
+    assert RouteDecision(intent="query", confidence=0.5).skill_ids == []
+
+
 # ── bootstrap 装配 SkillEngine (Task 3.3) ──────────────────────────────
 
 from maestro.bootstrap import build_platform  # noqa: E402
@@ -266,7 +272,7 @@ async def test_orchestrator_forced_skill(tmp_path):
     )
     p = build_platform(settings=s, llm=FakeLLM(chat_script=["产能结论"]))
     _seed_skill(p.skill_store)
-    resp = await p.orchestrator.handle("s1", "出产能报告", skill_id="capacity-report")
+    resp = await p.orchestrator.handle("s1", "出产能报告", skill_ids=["capacity-report"])
     assert resp.reply == "产能结论"
     assert resp.route.intent == "skill"
     assert resp.route.skill_id == "capacity-report"
@@ -288,7 +294,7 @@ async def test_orchestrator_forced_skill_user_invocable_false(tmp_path):
                   added_at="t", file_count=0, bytes=0),
         "正文", {},
     )
-    resp = await p.orchestrator.handle("s1", "出产能报告", skill_id="capacity-report")
+    resp = await p.orchestrator.handle("s1", "出产能报告", skill_ids=["capacity-report"])
     assert "不支持手动指定" in resp.reply
 
 

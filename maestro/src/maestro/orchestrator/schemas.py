@@ -20,7 +20,8 @@ class RouteDecision(BaseModel):
     entities: dict = Field(default_factory=dict)  # 产线/订单/任务令等关键实体
     reason: str = ""  # 判定理由 (用于日志和解释)
     route_method: Literal["embedding", "llm", "clarified", "fallback", "forced"] = "llm"
-    skill_id: str | None = None  # 命中技能路由时的技能 ID (intent=skill 时填)
+    skill_id: str | None = None  # 兼容：单技能路由/首个技能 (intent=skill 时填)
+    skill_ids: list[str] = Field(default_factory=list)  # 前端多技能选择
     steps: list[RouteStep] | None = None  # TODO(v0.2): 复合任务
 
 
