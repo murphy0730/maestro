@@ -232,7 +232,7 @@ export function Workspace() {
 
   const composer = (
     <Composer
-      onSend={(text) => send(text, route === 'auto' ? null : route, skill?.name ?? null)}
+      onSend={(text) => send(text, route === 'auto' ? null : route, skill ? [skill.name] : [])}
       route={route}
       mode={mode}
       onRouteChange={handleRouteChange}

@@ -86,12 +86,12 @@ export function useOrchestrator(sessionId: string) {
 
   /** Send a user message; `currentEngine` carries session stickiness. */
   const send = useCallback(
-    (text: string, currentEngine: EngineType | null, skillId: string | null = null) => {
+    (text: string, currentEngine: EngineType | null, skillIds: string[] = []) => {
       turnIdRef.current = `a-${Date.now()}`;
       turnTimeRef.current = nowHM();
       pendingRef.current = true;
       addMessage({ id: `u-${Date.now()}`, kind: 'user', time: nowHM(), text });
-      chatRef.current.send(text, currentEngine, skillId);
+      chatRef.current.send(text, currentEngine, skillIds);
     },
     [addMessage],
   );

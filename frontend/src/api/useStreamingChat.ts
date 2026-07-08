@@ -138,11 +138,11 @@ export function useStreamingChat(sessionId: string) {
 
   /** Send a user message. `currentEngine` carries session stickiness. */
   const send = useCallback(
-    (message: string, currentEngine: EngineType | null = null, skillId: string | null = null) => {
+    (message: string, currentEngine: EngineType | null = null, skillIds: string[] = []) => {
       start(
         (signal) =>
           streamChat(
-            { session_id: sessionId, message, current_engine: currentEngine, skill_id: skillId },
+            { session_id: sessionId, message, current_engine: currentEngine, skill_ids: skillIds },
             signal,
           ),
         true,

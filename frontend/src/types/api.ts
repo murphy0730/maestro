@@ -67,6 +67,8 @@ export interface ChatStreamRequest {
   current_engine: EngineType | null;
   /** 技能包选择: 透传到 orchestrator；仅声明，不影响路由。 */
   skill_id?: string | null;
+  /** 多技能选择: 前端多选技能透传，后端合并为单次运行。 */
+  skill_ids?: string[];
 }
 
 /** Clarification option offered when intent = uncertain. */
