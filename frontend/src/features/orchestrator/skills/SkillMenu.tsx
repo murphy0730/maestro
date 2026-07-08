@@ -4,8 +4,9 @@ import type { SkillMeta } from '@/types/api';
 
 interface SkillMenuProps {
   skills: SkillMeta[];
-  skill: SkillMeta | null;
-  onSkillChange: (s: SkillMeta | null) => void;
+  selected: SkillMeta[];
+  onToggleSkill: (s: SkillMeta) => void;
+  onClear: () => void;
   onImportSkill: () => void;
   open: boolean;
   onToggle: () => void;
@@ -13,8 +14,9 @@ interface SkillMenuProps {
 
 export function SkillMenu({
   skills,
-  skill,
-  onSkillChange,
+  selected,
+  onToggleSkill,
+  onClear,
   onImportSkill,
   open,
   onToggle,
@@ -24,9 +26,10 @@ export function SkillMenu({
   const filtered = visible.filter((s) =>
     [s.name, s.display_name, s.description].join(' ').toLowerCase().includes(q.toLowerCase()),
   );
+  const isSel = (s: SkillMeta) => selected.some((x) => x.name === s.name);
 
   // Same chip shape as the route/mode selectors so the toolbar reads as one system.
-  const active = open || !!skill;
+  const active = open || selected.length > 0;
   const chip = `inline-flex h-8 cursor-pointer items-center gap-[6px] rounded-md border px-[9px] font-sans text-caption font-semibold text-text-secondary transition-colors duration-fast ease-out ${
     active ? 'border-accent-border bg-accent-bg' : 'border-border-default hover:bg-border-subtle'
   }`;
@@ -45,7 +48,9 @@ export function SkillMenu({
         className={chip}
       >
         <Sparkles size={13} className="text-accent" />
-        <span className="text-text-primary">{skill?.display_name ?? '技能'}</span>
+        <span className="text-text-primary">
+          {selected.length > 0 ? `技能 · ${selected.length}` : '技能'}
+        </span>
         <ChevronDown size={13} className="text-text-tertiary" />
       </button>
 
@@ -63,25 +68,27 @@ export function SkillMenu({
 
           <div className="max-h-[280px] overflow-auto px-1 py-1">
             <button
-              role="menuitemradio"
-              aria-checked={!skill}
-              onClick={() => onSkillChange(null)}
-              className={`${row} ${!skill ? 'bg-accent-bg' : 'hover:bg-border-subtle'}`}
+              type="button"
+              onClick={onClear}
+              disabled={selected.length === 0}
+              className={`${row} ${
+                selected.length === 0 ? 'opacity-50' : 'hover:bg-border-subtle'
+              }`}
             >
               <Ban size={14} className="flex-none text-text-tertiary" />
-              <span className="min-w-0 flex-1 text-body-sm text-text-secondary">不使用技能</span>
-              {!skill && <Check size={14} className="flex-none text-accent" />}
+              <span className="min-w-0 flex-1 text-body-sm text-text-secondary">清空已选</span>
             </button>
 
             {filtered.map((s) => {
-              const selected = skill?.name === s.name;
+              const selectedNow = isSel(s);
               return (
                 <button
+                  type="button"
                   key={s.name}
-                  role="menuitemradio"
-                  aria-checked={selected}
-                  onClick={() => onSkillChange(s)}
-                  className={`${row} ${selected ? 'bg-accent-bg' : 'hover:bg-border-subtle'}`}
+                  role="menuitemcheckbox"
+                  aria-checked={selectedNow}
+                  onClick={() => onToggleSkill(s)}
+                  className={`${row} ${selectedNow ? 'bg-accent-bg' : 'hover:bg-border-subtle'}`}
                 >
                   <Sparkles size={14} className="flex-none text-text-secondary" />
                   <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -90,7 +97,7 @@ export function SkillMenu({
                     </span>
                     <span className="truncate text-[11px] text-text-tertiary">{s.description}</span>
                   </span>
-                  {selected && <Check size={14} className="flex-none text-accent" />}
+                  {selectedNow && <Check size={14} className="flex-none text-accent" />}
                 </button>
               );
             })}
@@ -102,6 +109,7 @@ export function SkillMenu({
 
           <div className="border-t border-border-default px-1 py-1">
             <button
+              type="button"
               onClick={onImportSkill}
               className={`${row} text-text-secondary hover:bg-border-subtle`}
             >

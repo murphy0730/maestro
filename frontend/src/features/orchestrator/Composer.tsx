@@ -11,6 +11,8 @@ import {
   WandSparkles,
   ChevronDown,
   Check,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import type { ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Button } from '@/components/ui/Button';
@@ -34,9 +36,10 @@ interface ComposerProps {
   onStop?: () => void;
   /** Registered skill packages (drives the skills chip popover). */
   skills: SkillMeta[];
-  /** Currently selected skill, or null when none is active. */
-  skill: SkillMeta | null;
-  onSkillChange: (s: SkillMeta | null) => void;
+  /** Currently selected skills (multi-select). */
+  selectedSkills: SkillMeta[];
+  onToggleSkill: (s: SkillMeta) => void;
+  onClearSkills: () => void;
   /** Open the skill import modal (owned by Workspace). */
   onImportSkill: () => void;
 }
@@ -85,8 +88,9 @@ export function Composer({
   isStreaming = false,
   onStop,
   skills,
-  skill,
-  onSkillChange,
+  selectedSkills,
+  onToggleSkill,
+  onClearSkills,
   onImportSkill,
 }: ComposerProps) {
   const [draft, setDraft] = useState('');
@@ -138,6 +142,27 @@ export function Composer({
               : 'border-border-default shadow-elev-2'
           }`}
         >
+          {selectedSkills.length > 0 && (
+            <div className="flex flex-wrap items-center gap-[6px] px-[12px] pt-[10px]">
+              {selectedSkills.map((s) => (
+                <span
+                  key={s.name}
+                  className="inline-flex h-[26px] items-center gap-[6px] rounded-md border border-accent-border bg-accent-bg px-[8px] text-caption font-medium text-text-primary"
+                >
+                  <Sparkles size={12} className="text-accent" />
+                  {s.display_name ?? s.name}
+                  <button
+                    type="button"
+                    title="移除技能"
+                    onClick={() => onToggleSkill(s)}
+                    className="grid h-[16px] w-[16px] place-items-center rounded-sm text-text-tertiary hover:bg-border-subtle hover:text-text-secondary"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -253,8 +278,9 @@ export function Composer({
             {/* skill selector — click to open, pick a skill package */}
             <SkillMenu
               skills={skills}
-              skill={skill}
-              onSkillChange={onSkillChange}
+              selected={selectedSkills}
+              onToggleSkill={onToggleSkill}
+              onClear={onClearSkills}
               onImportSkill={onImportSkill}
               open={openMenu === 'skill'}
               onToggle={() => setOpenMenu(openMenu === 'skill' ? null : 'skill')}

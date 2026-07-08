@@ -7,8 +7,9 @@ afterEach(cleanup);
 
 const props = (overrides: Record<string, unknown> = {}) => ({
   skills: SKILLS,
-  skill: null,
-  onSkillChange: vi.fn(),
+  selected: [] as typeof SKILLS,
+  onToggleSkill: vi.fn(),
+  onClear: vi.fn(),
   onImportSkill: vi.fn(),
   open: true,
   onToggle: vi.fn(),
@@ -26,21 +27,19 @@ describe('SkillMenu', () => {
     expect(screen.getByText('换线检查清单')).toBeTruthy();
   });
 
-  it('selecting a skill calls onSkillChange', () => {
-    const onChange = vi.fn();
-    render(<SkillMenu {...props({ onSkillChange: onChange })} />);
+  it('点击技能触发 onToggleSkill（不关闭菜单）', () => {
+    const onToggleSkill = vi.fn();
+    render(<SkillMenu {...props({ onToggleSkill })} />);
     fireEvent.click(screen.getByText('产能日报'));
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'capacity-report' }),
-    );
+    expect(onToggleSkill).toHaveBeenCalledWith(expect.objectContaining({ name: 'capacity-report' }));
   });
 
-  it('clear and import entries', () => {
-    const onSkillChange = vi.fn();
+  it('清空与导入入口', () => {
+    const onClear = vi.fn();
     const onImportSkill = vi.fn();
-    render(<SkillMenu {...props({ onSkillChange, onImportSkill })} />);
-    fireEvent.click(screen.getByText('不使用技能'));
-    expect(onSkillChange).toHaveBeenCalledWith(null);
+    render(<SkillMenu {...props({ onClear, onImportSkill, selected: [SKILLS[0]] })} />);
+    fireEvent.click(screen.getByText(/清空/));
+    expect(onClear).toHaveBeenCalled();
     fireEvent.click(screen.getByText(/导入技能/));
     expect(onImportSkill).toHaveBeenCalled();
   });

@@ -61,7 +61,7 @@ export function Workspace() {
   const skills = skillsQuery.data?.skills ?? [];
 
   const [route, setRoute] = useState<ComposerRoute>(defaultEngine);
-  const [skill, setSkill] = useState<SkillMeta | null>(null);
+  const [selectedSkills, setSelectedSkills] = useState<SkillMeta[]>([]);
   const [importOpen, setImportOpen] = useState(false);
 
   /**
@@ -77,13 +77,16 @@ export function Workspace() {
     setRoute(next);
     if (next === 'query') activateEngine('query');
     else if (activeEngine === 'query') closeContextPanel();
-    if (next !== 'auto') setSkill(null);
+    if (next !== 'auto') setSelectedSkills([]);
   };
-  /** Selecting a skill forces the route back to auto (skill owns routing). */
-  const handleSkillChange = (s: SkillMeta | null) => {
-    setSkill(s);
-    if (s) setRoute('auto');
+  /** Toggling a skill forces the route back to auto (skills own routing). */
+  const handleToggleSkill = (s: SkillMeta) => {
+    setSelectedSkills((cur) =>
+      cur.some((x) => x.name === s.name) ? cur.filter((x) => x.name !== s.name) : [...cur, s],
+    );
+    setRoute('auto');
   };
+  const handleClearSkills = () => setSelectedSkills([]);
   const [mode, setMode] = useState<ComposerMode>('plan');
   const [clock, setClock] = useState('--:--:--');
   const [isLoading, setIsLoading] = useState(false);
@@ -232,7 +235,13 @@ export function Workspace() {
 
   const composer = (
     <Composer
-      onSend={(text) => send(text, route === 'auto' ? null : route, skill ? [skill.name] : [])}
+      onSend={(text) =>
+        send(
+          text,
+          route === 'auto' ? null : route,
+          selectedSkills.map((s) => s.name),
+        )
+      }
       route={route}
       mode={mode}
       onRouteChange={handleRouteChange}
@@ -240,8 +249,9 @@ export function Workspace() {
       isStreaming={isStreaming}
       onStop={stop}
       skills={skills}
-      skill={skill}
-      onSkillChange={handleSkillChange}
+      selectedSkills={selectedSkills}
+      onToggleSkill={handleToggleSkill}
+      onClearSkills={handleClearSkills}
       onImportSkill={() => setImportOpen(true)}
     />
   );
@@ -252,7 +262,7 @@ export function Workspace() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={(s) => {
-          setSkill(s);
+          setSelectedSkills((cur) => (cur.some((x) => x.name === s.name) ? cur : [...cur, s]));
           setImportOpen(false);
         }}
       />
