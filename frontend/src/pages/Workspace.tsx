@@ -10,7 +10,13 @@ import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModa
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
 import { useConversationStore, useThemeStore, useDefaultEngineStore } from '@/stores';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useSessions, useCreateSession, useRenameSession, useDeleteSession, useSkills } from '@/api';
+import {
+  useSessions,
+  useCreateSession,
+  useRenameSession,
+  useDeleteSession,
+  useSkills,
+} from '@/api';
 import { getSessionMessages } from '@/api/sessions';
 import { storedToThread } from '@/features/orchestrator/history';
 import type { ConversationSummary } from '@/mocks/session';
@@ -267,83 +273,83 @@ export function Workspace() {
         }}
       />
       <Layout
-      sidebar={
-        sidebarCollapsed ? null : (
-          <Sidebar
-            appName="Maestro"
-            user="周文涛"
-            role="排产调度员"
-            conversations={sidebarConversations}
-            activeId={activeSessionId ?? ''}
-            onSelect={handleSelectSession}
-            onNewConversation={handleNewConversation}
-            onRenameSession={handleRenameSession}
-            onDeleteSession={handleDeleteSession}
-            onCollapse={() => setSidebarCollapsed(true)}
-            theme={theme}
-            onSetTheme={setTheme}
-            defaultEngine={defaultEngine}
-            onSetDefaultEngine={setDefaultEngine}
-          />
-        )
-      }
-      topBar={
-        <TopBar
-          session={activeSession?.title ?? '新对话'}
-          engine={activeEngine}
-          clock={clock}
-          mesConnected
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={() => setSidebarCollapsed(false)}
-        />
-      }
-      conversation={
-        isEmptyThread ? (
-          /* 开屏形态：欢迎语 + 居中输入框；发出第一条消息后切回常规布局 */
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-12">
-            <div className="w-full max-w-[820px]">
-              <div className="mb-5 text-center">
-                <h1 className="text-h2 font-semibold tracking-tight text-text-primary">
-                  您好，我是 Maestro
-                </h1>
-                <p className="mt-2 text-body text-text-secondary">
-                  描述排产 / 调度 / 查询需求，或输入 / 使用斜杠命令
-                </p>
-              </div>
-              {isLoading && (
-                <div className="flex items-center justify-center pb-2 text-caption text-text-tertiary">
-                  加载历史消息中…
-                </div>
-              )}
-              {composer}
-            </div>
-          </div>
-        ) : (
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            <Thread
-              messages={thread}
-              author="周文涛"
-              onClarifySelect={selectClarification}
-              onActionConfirm={confirmPending}
+        sidebar={
+          sidebarCollapsed ? null : (
+            <Sidebar
+              appName="Maestro"
+              user="周文涛"
+              role="排产调度员"
+              conversations={sidebarConversations}
+              activeId={activeSessionId ?? ''}
+              onSelect={handleSelectSession}
+              onNewConversation={handleNewConversation}
+              onRenameSession={handleRenameSession}
+              onDeleteSession={handleDeleteSession}
+              onCollapse={() => setSidebarCollapsed(true)}
+              theme={theme}
+              onSetTheme={setTheme}
+              defaultEngine={defaultEngine}
+              onSetDefaultEngine={setDefaultEngine}
             />
-            {/* Composer floats over the thread so content scrolls under its glass */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0">
-              {isLoading && (
-                <div className="flex items-center justify-center py-2 text-caption text-text-tertiary">
-                  加载历史消息中…
+          )
+        }
+        topBar={
+          <TopBar
+            session={activeSession?.title ?? '新对话'}
+            engine={activeEngine}
+            clock={clock}
+            mesConnected
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={() => setSidebarCollapsed(false)}
+          />
+        }
+        conversation={
+          isEmptyThread ? (
+            /* 开屏形态：欢迎语 + 居中输入框；发出第一条消息后切回常规布局 */
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-12">
+              <div className="w-full max-w-[820px]">
+                <div className="mb-5 text-center">
+                  <h1 className="text-h2 font-semibold tracking-tight text-text-primary">
+                    您好，我是 Maestro
+                  </h1>
+                  <p className="mt-2 text-body text-text-secondary">
+                    描述排产 / 调度 / 查询需求，或输入 / 使用斜杠命令
+                  </p>
                 </div>
-              )}
-              {composer}
+                {isLoading && (
+                  <div className="flex items-center justify-center pb-2 text-caption text-text-tertiary">
+                    加载历史消息中…
+                  </div>
+                )}
+                {composer}
+              </div>
             </div>
-          </div>
-        )
-      }
-      panel={
-        panelOpen ? (
-          <ContextPanelHost engine={activeEngine} onClose={closeContextPanel} />
-        ) : undefined
-      }
-    />
+          ) : (
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <Thread
+                messages={thread}
+                author="周文涛"
+                onClarifySelect={selectClarification}
+                onActionConfirm={confirmPending}
+              />
+              {/* Composer floats over the thread so content scrolls under its glass */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0">
+                {isLoading && (
+                  <div className="flex items-center justify-center py-2 text-caption text-text-tertiary">
+                    加载历史消息中…
+                  </div>
+                )}
+                {composer}
+              </div>
+            </div>
+          )
+        }
+        panel={
+          panelOpen ? (
+            <ContextPanelHost engine={activeEngine} onClose={closeContextPanel} />
+          ) : undefined
+        }
+      />
     </>
   );
 }

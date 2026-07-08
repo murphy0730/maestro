@@ -8,7 +8,12 @@ import sys
 from pathlib import Path
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
 def project_root() -> Path:
@@ -21,15 +26,33 @@ def project_root() -> Path:
 
 def _runtime_data_root() -> Path:
     """运行时可写数据根目录。打包后由 Electron 经 MAESTRO_DATA_DIR 注入 (userData)；
-    未设置时回退到项目内 data/ (CLI/dev 不变)。种子数据 (mock/knowledge) 不走此处。"""
+    未设置时回退到 ~/.maestro (与项目目录解耦，重装/重新 clone 不丢数据)。
+    种子数据 (mock/knowledge) 不走此处。"""
     env = os.environ.get("MAESTRO_DATA_DIR")
-    return Path(env) if env else project_root() / "data"
+    return Path(env) if env else Path.home() / ".maestro"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """优先级: 显式环境变量 (含 Electron 注入的 LLM_*/EMBED_*) > <数据根>/settings.json
+        > .env > 字段默认值。settings.json 让 CLI/dev 把模型连接信息与 .env 解耦,
+        路径随 _runtime_data_root() (默认 ~/.maestro),缺失时该源返回空、不报错。"""
+        json_source = JsonConfigSettingsSource(
+            settings_cls, json_file=_runtime_data_root() / "settings.json"
+        )
+        return (init_settings, env_settings, json_source, dotenv_settings, file_secret_settings)
 
     # LLM (OpenAI 兼容接口)。api_key 只从环境变量 / .env 读取，绝不写在代码里。
     llm_base_url: str = "https://api.deepseek.com"

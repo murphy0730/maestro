@@ -1,11 +1,14 @@
+import json
+from pathlib import Path
+
 from maestro.config import Settings, project_root
 
 
-def test_data_dir_defaults_to_project_data(monkeypatch):
+def test_data_dir_defaults_to_home_maestro(monkeypatch):
     monkeypatch.delenv("MAESTRO_DATA_DIR", raising=False)
     s = Settings()
-    assert s.sessions_dir == project_root() / "data" / "sessions"
-    assert s.chroma_dir == project_root() / "data" / "chroma"
+    assert s.sessions_dir == Path.home() / ".maestro" / "sessions"
+    assert s.chroma_dir == Path.home() / ".maestro" / "chroma"
 
 
 def test_data_dir_honors_env(monkeypatch, tmp_path):
@@ -24,3 +27,26 @@ def test_seed_dirs_not_relocated_by_env(monkeypatch, tmp_path):
     # 种子数据随包发布，不走 userData
     assert s.mock_data_dir == project_root() / "data" / "mock"
     assert s.knowledge_dir == project_root() / "data" / "mock" / "knowledge"
+
+
+def test_settings_json_supplies_llm_config(monkeypatch, tmp_path):
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"llm_api_key": "sk-from-json", "llm_model": "model-json"}),
+        encoding="utf-8",
+    )
+    s = Settings()
+    assert s.llm_api_key == "sk-from-json"
+    assert s.llm_model == "model-json"
+
+
+def test_env_overrides_settings_json(monkeypatch, tmp_path):
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"llm_api_key": "sk-from-json"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("LLM_API_KEY", "sk-from-env")
+    s = Settings()
+    assert s.llm_api_key == "sk-from-env"

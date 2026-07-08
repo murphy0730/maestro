@@ -1,6 +1,7 @@
 """测试公共夹具。LLM 调用全部 mock 掉 (FakeLLM)，不发真实网络请求。"""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,19 @@ from maestro.foundation.integration.mock_adapter import MockAdapter
 from maestro.foundation.llm import AgentTurn, LLMError, ToolCall
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "mock"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_runtime_data(tmp_path_factory):
+    """把运行时数据根 (sessions/chroma/skills/…) 指向临时目录,避免测试写入真实
+    ~/.maestro；同时使 settings.json 源指向不存在的临时文件,不读真实用户模型配置。"""
+    prev = os.environ.get("MAESTRO_DATA_DIR")
+    os.environ["MAESTRO_DATA_DIR"] = str(tmp_path_factory.mktemp("maestro_runtime"))
+    yield
+    if prev is None:
+        os.environ.pop("MAESTRO_DATA_DIR", None)
+    else:
+        os.environ["MAESTRO_DATA_DIR"] = prev
 
 
 # 确定性假嵌入的判别词表: 子串命中即该维度为 1，使余弦相似度对测试语句有意义。

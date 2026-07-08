@@ -32,3 +32,7 @@ maestro/data/skills/
 # ── OS / editor ──
 .DS_Store
 .idea/
+
+# PyInstaller freeze artifacts (Plan 2)
+maestro/dist/
+maestro/build/
