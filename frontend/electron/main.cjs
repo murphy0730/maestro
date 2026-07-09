@@ -50,9 +50,12 @@ function buildBackendEnv(port) {
     MAESTRO_BACKEND_PORT: String(port),
     MAESTRO_DATA_DIR: userDataDir(),
   };
-  // 把「当前生效」供应商解析为扁平 LLM_*/EMBED_* (后端零改动)
+  // 把「当前生效」供应商解析为扁平 LLM_*/EMBED_* (兼容旧 providers.json)
   const cfg = bc.readProviders(userDataDir());
   Object.assign(env, bc.resolveActiveEnv(cfg));
+  // settings.json 优先: 设置弹框经 PUT /models 写入的单一数据源，与弹框展示联动。
+  const settingsEnv = bc.resolveActiveEnvFromSettings(userDataDir());
+  if (settingsEnv) Object.assign(env, settingsEnv);
   return env;
 }
 

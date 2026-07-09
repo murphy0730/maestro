@@ -9,7 +9,10 @@ import {
   Check,
   ChevronRight,
   ChevronLeft,
+  Palette,
   MoreVertical,
+  Cpu,
+  UserRoundCog,
   Pencil,
   Trash2,
   X,
@@ -20,6 +23,7 @@ import type { Theme, DefaultEngine } from '@/stores';
 import { ROUTE_META } from '@/lib/routes';
 import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
 import { SettingsModal } from '@/features/orchestrator/settings/SettingsModal';
+import { PersonalizationModal } from '@/features/orchestrator/settings/PersonalizationModal';
 
 // 本地引擎选项常量（避免跨 layer 依赖 Composer）
 const ENGINE_OPTS: { value: DefaultEngine; label: string; dot: string }[] = [
@@ -69,13 +73,9 @@ export function Sidebar({
   onSetDefaultEngine,
 }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsView, setSettingsView] = useState<'root' | 'appearance' | 'engine'>('root');
-  const [providersOpen, setProvidersOpen] = useState(false);
-  // 仅桌面应用 (Electron) 显示供应商配置入口；浏览器 dev 不适用。
-  const isElectron =
-    typeof window !== 'undefined' &&
-    (window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron ===
-      true;
+  const [settingsView, setSettingsView] = useState<'root' | 'engine'>('root');
+  const [modelOpen, setModelOpen] = useState(false);
+  const [personalizationOpen, setPersonalizationOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   // 会话行的操作菜单 / 内联重命名状态
@@ -293,13 +293,51 @@ export function Sidebar({
               {settingsView === 'root' && (
                 <>
                   <PopoverLabel>设置</PopoverLabel>
-                  <PopoverItem
-                    icon={<Sun size={15} />}
-                    trailing={<ChevronRight size={14} className="flex-none text-text-tertiary" />}
-                    onClick={() => setSettingsView('appearance')}
-                  >
-                    外观
-                  </PopoverItem>
+                  {/* 外观：行内深色/浅色切换，无需二次菜单 */}
+                  <div className="flex w-full items-center gap-2 px-3 py-[7px]">
+                    <span className="flex-none text-text-tertiary">
+                      <Palette size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-body-sm text-text-secondary">
+                      外观
+                    </span>
+                    <div className="flex flex-none items-center rounded-md border border-border-default bg-surface-1 p-[2px]">
+                      <button
+                        type="button"
+                        title="浅色"
+                        aria-label="浅色"
+                        aria-pressed={theme === 'light'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSetTheme('light');
+                        }}
+                        className={`grid h-[22px] w-[22px] place-items-center rounded-[5px] transition-colors ${
+                          theme === 'light'
+                            ? 'bg-surface-3 text-text-primary'
+                            : 'text-text-tertiary hover:text-text-secondary'
+                        }`}
+                      >
+                        <Sun size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        title="深色"
+                        aria-label="深色"
+                        aria-pressed={theme === 'dark'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSetTheme('dark');
+                        }}
+                        className={`grid h-[22px] w-[22px] place-items-center rounded-[5px] transition-colors ${
+                          theme === 'dark'
+                            ? 'bg-surface-3 text-text-primary'
+                            : 'text-text-tertiary hover:text-text-secondary'
+                        }`}
+                      >
+                        <Moon size={13} />
+                      </button>
+                    </div>
+                  </div>
                   <PopoverItem
                     icon={<Sparkles size={15} />}
                     trailing={<ChevronRight size={14} className="flex-none text-text-tertiary" />}
@@ -307,52 +345,24 @@ export function Sidebar({
                   >
                     默认引擎
                   </PopoverItem>
-                  {isElectron && (
-                    <>
-                      <PopoverLabel>模型</PopoverLabel>
-                      <PopoverItem
-                        onClick={() => {
-                          setSettingsOpen(false);
-                          setSettingsView('root');
-                          setProvidersOpen(true);
-                        }}
-                      >
-                        LLM / Embedding 供应商…
-                      </PopoverItem>
-                    </>
-                  )}
-                </>
-              )}
-
-              {settingsView === 'appearance' && (
-                <>
                   <PopoverItem
-                    icon={<ChevronLeft size={14} />}
-                    onClick={() => setSettingsView('root')}
+                    icon={<Cpu size={15} />}
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      setModelOpen(true);
+                    }}
                   >
-                    外观
+                    模型
                   </PopoverItem>
-                  {[
-                    { value: 'light' as const, label: '浅色', Icon: Sun },
-                    { value: 'dark' as const, label: '深色', Icon: Moon },
-                  ].map(({ value, label, Icon }) => (
-                    <PopoverItem
-                      key={value}
-                      icon={<Icon size={15} />}
-                      trailing={
-                        theme === value ? (
-                          <Check size={14} className="flex-none text-accent-fg" />
-                        ) : undefined
-                      }
-                      onClick={() => {
-                        onSetTheme(value);
-                        setSettingsOpen(false);
-                        setSettingsView('root');
-                      }}
-                    >
-                      {label}
-                    </PopoverItem>
-                  ))}
+                  <PopoverItem
+                    icon={<UserRoundCog size={15} />}
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      setPersonalizationOpen(true);
+                    }}
+                  >
+                    个性化
+                  </PopoverItem>
                 </>
               )}
 
@@ -375,7 +385,6 @@ export function Sidebar({
                       }
                       onClick={() => {
                         onSetDefaultEngine(value);
-                        setSettingsOpen(false);
                         setSettingsView('root');
                       }}
                     >
@@ -389,7 +398,11 @@ export function Sidebar({
         </div>
       </div>
 
-      {isElectron && <SettingsModal open={providersOpen} onClose={() => setProvidersOpen(false)} />}
+      <SettingsModal open={modelOpen} onClose={() => setModelOpen(false)} />
+      <PersonalizationModal
+        open={personalizationOpen}
+        onClose={() => setPersonalizationOpen(false)}
+      />
     </aside>
   );
 }

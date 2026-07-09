@@ -32,6 +32,14 @@ def _runtime_data_root() -> Path:
     return Path(env) if env else Path.home() / ".maestro"
 
 
+def runtime_data_root() -> Path:
+    """对外公开的可写数据根目录 (默认 ~/.maestro，可被 MAESTRO_DATA_DIR 覆盖)。
+
+    供 model_config 等模块读写 settings.json，避免在多处重复 _runtime_data_root 实现。
+    """
+    return _runtime_data_root()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -65,6 +73,12 @@ class Settings(BaseSettings):
     embed_model: str = ""
     embed_base_url: str = ""
     embed_api_key: str = ""
+
+    # 多供应商模型配置 (前端设置弹框通过 PUT /models 写入 <数据根>/settings.json 的
+    # `model_providers` 键)。形如 {"llm": {"providers": [...], "active_id": ...},
+    # "embedding": {...}}。若某 section 存在 active provider，其 base_url/api_key/model
+    # 会覆盖上面的扁平默认值 (see maestro.foundation.model_config / bootstrap)。
+    model_providers: dict | None = None
 
     # 路由 / 策略选择 置信度门控
     route_confidence_threshold: float = 0.8

@@ -76,6 +76,38 @@ function resolveActiveEnv(config) {
   return env;
 }
 
+// 从 settings.json 的 model_providers 解析「已启用」供应商为 flat env。
+// settings.json 是设置弹框的单一数据源 (经 PUT /models 写入)，与弹框展示完全联动。
+function readModelProviders(userDataDir) {
+  const p = path.join(userDataDir, 'settings.json');
+  if (!fs.existsSync(p)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return raw.model_providers ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveActiveEnvFromSettings(userDataDir) {
+  const mp = readModelProviders(userDataDir);
+  if (!mp) return null;
+  const env = {};
+  const llm = (mp.llm?.providers || []).find((p) => p.id === mp.llm?.active_id);
+  if (llm) {
+    env.LLM_BASE_URL = llm.base_url;
+    env.LLM_API_KEY = llm.api_key;
+    env.LLM_MODEL = llm.model;
+  }
+  const emb = (mp.embedding?.providers || []).find((p) => p.id === mp.embedding?.active_id);
+  if (emb) {
+    env.EMBED_BASE_URL = emb.base_url;
+    env.EMBED_API_KEY = emb.api_key;
+    env.EMBED_MODEL = emb.model;
+  }
+  return env;
+}
+
 // Pick a free TCP port on loopback (bind 0 then release for the backend to reuse).
 function pickFreePort() {
   return new Promise((resolve, reject) => {
@@ -98,5 +130,6 @@ module.exports = {
   removeProvider,
   setActive,
   resolveActiveEnv,
+  resolveActiveEnvFromSettings,
   pickFreePort,
 };

@@ -128,7 +128,7 @@ class AgentLoop:
                 st.status = AgentStatus.STUCK
                 break
             await emit_progress(
-                on_progress, f"思考中 (第 {iteration + 1}/{self._max_steps} 步)"
+                on_progress, "思考中…"
             )
             try:
                 await self._step(st, openai_tools, on_progress)

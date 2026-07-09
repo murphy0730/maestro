@@ -8,3 +8,5 @@ export { useThemeStore } from './themeStore';
 export type { Theme } from './themeStore';
 export { useDefaultEngineStore } from './defaultEngineStore';
 export type { DefaultEngine } from './defaultEngineStore';
+export { usePersonalizationStore } from './personalizationStore';
+export type { Personalization } from './personalizationStore';

@@ -61,6 +61,18 @@ class LLMClient:
         self.embed_model = embed_model
         self._client = None
         self._embed_client = None
+        self._build_clients(base_url, api_key, embed_base_url, embed_api_key, embed_model)
+
+    def _build_clients(
+        self,
+        base_url: str,
+        api_key: str,
+        embed_base_url: str,
+        embed_api_key: str,
+        embed_model: str,
+    ) -> None:
+        self._client = None
+        self._embed_client = None
         if api_key:
             from openai import AsyncOpenAI
 
@@ -78,6 +90,24 @@ class LLMClient:
                 self._embed_client = AsyncOpenAI(base_url=url, api_key=key)
             else:
                 logger.warning("配置了 EMBED_MODEL 但无可用 api_key，嵌入路由不可用")
+
+    def reconfigure(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        embed_base_url: str = "",
+        embed_api_key: str = "",
+        embed_model: str = "",
+    ) -> None:
+        """原地热更新连接参数 (设置弹框保存后由后端 PUT /models 或 /admin/reload-model 触发)。
+
+        复用同一 LLMClient 实例: 已持有该实例的引擎 (调度/排产/查询)、工具注册表、
+        嵌入客户端等引用无需重建，下次调用即用新连接。
+        """
+        self.model = model
+        self.embed_model = embed_model
+        self._build_clients(base_url, api_key, embed_base_url, embed_api_key, embed_model)
 
     @property
     def available(self) -> bool:

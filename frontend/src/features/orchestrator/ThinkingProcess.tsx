@@ -34,7 +34,8 @@ export function ThinkingProcess({ lines, streaming = false }: ThinkingProcessPro
           <span
             className={`h-[6px] w-[6px] rounded-full bg-accent ${streaming ? 'animate-pulse' : ''}`}
           />
-          思考过程（{lines.length} 步）
+          思考过程
+          {streaming && lines.length > 0 && `（${lines.length} 步）`}
         </span>
         <button
           type="button"

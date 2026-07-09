@@ -41,6 +41,7 @@ from maestro.foundation.integration.base import IntegrationAdapter
 from maestro.foundation.integration.mock_adapter import MockAdapter
 from maestro.foundation.kitting import KittingService
 from maestro.foundation.llm import LLMClient
+from maestro.foundation import model_config as mc
 from maestro.foundation.loaders import build_loader_registry
 from maestro.foundation.master_data import MasterDataService
 from maestro.foundation.memory import ConversationMemory
@@ -104,13 +105,23 @@ def build_platform(
     authz = AuthZ()
     pending = PendingActionStore()
     gate = ActionGate(authz, pending, audit)
+    # LLM 连接参数: 优先用 settings.json 中用户启用的 active provider (model_providers)，
+    # 否则回退到扁平默认值 / 环境变量 (.env)。这样"设置弹框启用模型"后重启后端即生效。
+    (
+        llm_base_url,
+        llm_api_key,
+        llm_model,
+        embed_base_url,
+        embed_api_key,
+        embed_model,
+    ) = mc.resolve_from_providers(settings.model_providers, settings)
     llm = llm or LLMClient(
-        settings.llm_base_url,
-        settings.llm_api_key,
-        settings.llm_model,
-        settings.embed_base_url,
-        settings.embed_api_key,
-        settings.embed_model,
+        llm_base_url,
+        llm_api_key,
+        llm_model,
+        embed_base_url,
+        embed_api_key,
+        embed_model,
     )
     session_store = SessionStore(settings.sessions_dir)
     memory = ConversationMemory(session_store)

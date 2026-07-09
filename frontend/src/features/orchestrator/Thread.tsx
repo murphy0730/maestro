@@ -9,6 +9,15 @@ import { PendingActionsCard } from './PendingActionsCard';
 import { ThinkingProcess } from './ThinkingProcess';
 import { Markdown } from '@/components/ui/Markdown';
 
+/** 判定思考过程是否有实质内容（非纯进度噪音）。
+ *  纯 "思考中…" / "整理结论…" / "调用工具 xxx" 这类自动生成的进度行
+ *  对用户无信息量；只要混入一行 LLM 自由思考文本就视为有实质内容。
+ */
+const TRIVIAL_PROGRESS_RE = /^(思考中…|整理结论…|调用工具\s+\S+)$/u;
+function hasSubstantiveThinking(lines: string[]): boolean {
+  return lines.some((l) => !TRIVIAL_PROGRESS_RE.test(l.trim()));
+}
+
 /**
  * Thread — renders a conversation. Clarification selection is lifted to the
  * parent via `onClarifySelect(messageId, optionId, routeTo)`; the picked
@@ -85,9 +94,12 @@ export function Thread({
                   />
                 </div>
               )}
-              {m.thinking && m.thinking.length > 0 && (
-                <ThinkingProcess lines={m.thinking} streaming={m.streaming} />
-              )}
+              {/* 思考过程：流式中始终展示；完成后仅在有实质内容时保留 */}
+              {m.thinking &&
+                m.thinking.length > 0 &&
+                (m.streaming || hasSubstantiveThinking(m.thinking)) && (
+                  <ThinkingProcess lines={m.thinking} streaming={m.streaming} />
+                )}
               {m.text && (
                 <div className="text-body leading-relaxed">
                   <Markdown>{m.text}</Markdown>

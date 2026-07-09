@@ -38,17 +38,21 @@ function setElectron(on: boolean) {
 afterEach(cleanup);
 
 describe('Sidebar settings menu', () => {
-  it('shows the provider menu item in Electron', () => {
+  it('opens the root settings menu with all entries in Electron', () => {
     setElectron(true);
     render(<Sidebar {...baseProps} />);
     fireEvent.click(screen.getByTitle('设置'));
-    expect(screen.queryByText('LLM / Embedding 供应商…')).toBeTruthy();
+    expect(screen.queryByText('外观')).toBeTruthy();
+    expect(screen.queryByText('默认引擎')).toBeTruthy();
+    expect(screen.queryByText('模型')).toBeTruthy();
+    expect(screen.queryByText('个性化')).toBeTruthy();
   });
 
-  it('hides the provider menu item in browser dev', () => {
+  it('opens the root settings menu with all entries in browser dev too', () => {
     setElectron(false);
     render(<Sidebar {...baseProps} />);
     fireEvent.click(screen.getByTitle('设置'));
-    expect(screen.queryByText('LLM / Embedding 供应商…')).toBeNull();
+    expect(screen.queryByText('模型')).toBeTruthy();
+    expect(screen.queryByText('个性化')).toBeTruthy();
   });
 });

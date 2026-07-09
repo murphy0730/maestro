@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from maestro.bootstrap import build_platform
 from maestro.domain.models import SystemEvent
+from maestro.foundation import model_config as mc
 from maestro.engines.query.ingestor import DocumentNotFound
 from maestro.foundation.loaders import UnsupportedFileType
 from maestro.foundation.tools.builtin import QUERY_READONLY_TOOLS
@@ -574,3 +575,75 @@ async def health():
     if not hasattr(app.state, "platform"):
         raise HTTPException(status_code=503, detail="platform not ready")
     return {"status": "ok", "llm_available": app.state.platform.llm.available}
+
+
+# ── 模型供应商配置 (设置弹框持久化到 settings.json，后端热更新生效) ──
+
+
+class ProviderModel(BaseModel):
+    id: str | None = None
+    name: str = ""
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+
+
+class ProviderSectionModel(BaseModel):
+    providers: list[ProviderModel] = []
+    active_id: str | None = None
+
+
+class ModelsConfigModel(BaseModel):
+    llm: ProviderSectionModel = ProviderSectionModel()
+    embedding: ProviderSectionModel = ProviderSectionModel()
+
+
+def _apply_model_config(platform, providers: dict | None) -> None:
+    """解析 providers 块中的 active provider，原地热更新运行中的 LLMClient。"""
+    (
+        base,
+        key,
+        model,
+        embed_base,
+        embed_key,
+        embed_model,
+    ) = mc.resolve_from_providers(providers, platform.settings)
+    platform.llm.reconfigure(base, key, model, embed_base, embed_key, embed_model)
+
+
+@app.get("/models")
+async def get_models():
+    """返回当前已持久化的模型供应商配置 (settings.json 的 model_providers 块)。"""
+    if not hasattr(app.state, "platform"):
+        raise HTTPException(status_code=503, detail="platform not ready")
+    data = mc.load_model_providers()
+    return data if data is not None else mc.EMPTY_PROVIDERS
+
+
+@app.put("/models")
+async def put_models(cfg: ModelsConfigModel):
+    """保存模型配置到 settings.json 并热更新运行中的 LLM 客户端 (无需重启后端)。
+
+    说明: 整段 providers 都会落盘 (供设置弹框回显); 后端仅使用 active_id 指向的
+    "已启用" provider 的连接信息。api_key 以明文存于 settings.json，与现有设计一致。
+    """
+    if not hasattr(app.state, "platform"):
+        raise HTTPException(status_code=503, detail="platform not ready")
+    platform = app.state.platform
+    payload = cfg.model_dump()
+    mc.save_model_providers(payload)
+    _apply_model_config(platform, payload)
+    return {"ok": True, "available": platform.llm.available}
+
+
+@app.post("/admin/reload-model")
+async def reload_model():
+    """重读 settings.json 的 model_providers 并热更新运行中的 LLM 客户端。
+
+    供 Electron 侧车在重启后端前/前端保存后触发; settings.json 已被写入时使新配置即时生效。
+    """
+    if not hasattr(app.state, "platform"):
+        raise HTTPException(status_code=503, detail="platform not ready")
+    platform = app.state.platform
+    _apply_model_config(platform, mc.load_model_providers())
+    return {"ok": True, "available": platform.llm.available}

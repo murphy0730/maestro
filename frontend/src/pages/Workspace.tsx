@@ -167,7 +167,10 @@ export function Workspace() {
       // fallback: 只重置线程
     }
     resetThread();
-  }, [createSessionMut, setActiveSessionId, resetThread]);
+    // 新建会话：输入框的引擎默认回到用户设置的「默认引擎」
+    setRoute(defaultEngine);
+    if (defaultEngine !== 'auto') setSelectedSkills([]);
+  }, [createSessionMut, setActiveSessionId, resetThread, defaultEngine, setRoute, setSelectedSkills]);
 
   /** 切换历史会话 */
   const handleSelectSession = useCallback(
@@ -212,6 +215,9 @@ export function Workspace() {
           setActiveSessionId(null);
         }
         resetThread();
+        // 删除最后一个会话后自动新建：引擎同样回落到「默认引擎」
+        setRoute(defaultEngine);
+        if (defaultEngine !== 'auto') setSelectedSkills([]);
       }
     },
     [
@@ -222,6 +228,9 @@ export function Workspace() {
       setActiveSessionId,
       loadSession,
       resetThread,
+      defaultEngine,
+      setRoute,
+      setSelectedSkills,
     ],
   );
 
