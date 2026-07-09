@@ -1,5 +1,5 @@
 import { PanelRight } from 'lucide-react';
-import type { ActiveEngine } from '@/types';
+import type { ActiveEngine, SchedulingTraceStep } from '@/types';
 import { PlanningPanel } from '@/features/planning/PlanningPanel';
 import { SchedulingPanel } from '@/features/scheduling/SchedulingPanel';
 import { KnowledgeManager } from '@/features/query/KnowledgeManager';
@@ -24,14 +24,15 @@ function EmptyPanel() {
 interface ContextPanelHostProps {
   engine: ActiveEngine;
   onClose?: () => void;
+  schedulingSteps?: SchedulingTraceStep[];
 }
 
-export function ContextPanelHost({ engine, onClose }: ContextPanelHostProps) {
+export function ContextPanelHost({ engine, onClose, schedulingSteps }: ContextPanelHostProps) {
   switch (engine) {
     case 'planning':
       return <PlanningPanel onClose={onClose} />;
     case 'scheduling':
-      return <SchedulingPanel onClose={onClose} />;
+      return <SchedulingPanel onClose={onClose} steps={schedulingSteps} />;
     case 'query':
       return <KnowledgeManager onClose={onClose} />;
     default:

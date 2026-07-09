@@ -38,6 +38,7 @@ class SkillEngine:
         store: SkillStore,
         settings,
         named_preconditions: dict[str, Precondition],
+        observations=None,
     ):
         self._llm = llm
         self._tools = tools
@@ -46,6 +47,7 @@ class SkillEngine:
         self._store = store
         self._settings = settings
         self._named = named_preconditions
+        self._observations = observations
 
     async def handle(
         self,
@@ -107,6 +109,7 @@ class SkillEngine:
                 combined, allowed, self._settings.react_max_steps,
                 observation_max_bytes=self._settings.react_observation_max_bytes,
                 extra_preconditions=extra or None,
+                observations=self._observations,
             ).run(message, history=history, on_progress=on_progress)
         except LLMError:
             return EngineResponse(reply="LLM 调用失败，技能暂不可用")

@@ -173,6 +173,18 @@ async def _sse_from_response(resp: ChatResponse) -> AsyncIterator[str]:
         yield _sse("done", {"message_id": f"msg-{uuid4().hex[:12]}"})
         return
 
+    # 调度引擎的 ReAct 轨迹 (工具步 + observation 句柄) 经 context 帧下发, 供前端
+    # Context Panel 渲染并按 observation_ref 懒加载完整结果。
+    steps = resp.data.get("steps")
+    if steps:
+        yield _sse(
+            "context",
+            {
+                "engine": "scheduling",
+                "payload": {"steps": steps, "stop_reason": resp.data.get("stop_reason")},
+            },
+        )
+
     # 智能体已产出完整答复；按契约拆成 token 增量流出，营造逐字效果
     for chunk in _reply_chunks(resp.reply):
         yield _sse("token", {"delta": chunk})
@@ -394,6 +406,18 @@ async def audit_timeline(session_id: str | None = None, limit: int = 100):
 async def pending():
     """查询全部待确认动作。"""
     return [a.model_dump(mode="json") for a in app.state.platform.pending.list_pending()]
+
+
+@app.get("/observations/{ref}")
+async def get_observation(
+    ref: str, offset: int = 0, limit: int = 20, keys: str | None = None
+):
+    """懒加载一个被离线暂存的大工具观察 (方案2)。keys 为逗号分隔的 dict 取键。"""
+    key_list = [k for k in keys.split(",") if k] if keys else None
+    page = app.state.platform.observations.get(ref, offset=offset, limit=limit, keys=key_list)
+    if "error" in page:
+        raise HTTPException(status_code=404, detail=page["error"])
+    return page
 
 
 class CreateSessionRequest(BaseModel):

@@ -10,37 +10,39 @@
 """
 
 import logging
-from typing import Any, Awaitable, Callable, Literal
+from typing import Awaitable, Callable, Literal
 
 from pydantic import BaseModel
 
 from maestro.domain.models import ActionResult, PendingAction
 from maestro.foundation.audit import AuditLog
+from maestro.foundation.permissions import (
+    ActionLevel,
+    PermissionEngine,
+    effect_to_level,
+)
 
 logger = logging.getLogger(__name__)
-
-ActionLevel = Literal["auto", "requires_confirmation", "deny"]
-
-# 授权策略配置表 (action_type → 级别)，未知写操作默认需确认 (保守)
-DEFAULT_POLICIES: dict[str, ActionLevel] = {
-    "send_expedite_message.internal": "auto",
-    "send_expedite_message.supplier": "requires_confirmation",
-    "dispatch_work_order": "requires_confirmation",
-    "update_work_order_status": "requires_confirmation",
-    "send_notification": "requires_confirmation",
-}
 
 Executor = Callable[[], Awaitable[ActionResult]]
 
 
 class AuthZ:
-    """动作分级授权策略 (读操作不经此层，始终允许)。"""
+    """动作分级授权策略 (读操作不经此层，始终允许)。
 
-    def __init__(self, policies: dict[str, ActionLevel] | None = None):
-        self.policies: dict[str, ActionLevel] = {**DEFAULT_POLICIES, **(policies or {})}
+    v0.3: 判级不再硬编码，转为委托统一权限引擎 (PermissionEngine)。可传入共享
+    engine (与 ReAct 的 can_use_tool 层同源)；未传则按 policies 自建一个。
+    """
+
+    def __init__(
+        self,
+        policies: dict[str, ActionLevel] | None = None,
+        engine: PermissionEngine | None = None,
+    ):
+        self.engine = engine or PermissionEngine(action_policies=policies)
 
     def decide(self, action_type: str) -> ActionLevel:
-        return self.policies.get(action_type, "requires_confirmation")
+        return effect_to_level(self.engine.evaluate_action(action_type).effect)
 
 
 class PendingActionStore:

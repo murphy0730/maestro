@@ -87,7 +87,8 @@ class Settings(BaseSettings):
 
     # 调度引擎 (ReAct 智能体) 护栏
     react_max_steps: int = 8  # 思考-行动循环最大步数 (防无限循环/绕路)
-    react_observation_max_bytes: int = 8192  # 单条工具观察回喂上限，超出截断 (防上下文爆炸)
+    react_observation_max_bytes: int = 8192  # 单条工具观察回喂上限，超出离线暂存 (防上下文爆炸)
+    react_observation_store_max: int = 200  # 观察离线暂存的全局条数上限 (FIFO 淘汰)
 
     # 查询引擎 (RAG)
     rag_top_k: int = 3  # 每次检索返回的知识片段数

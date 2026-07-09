@@ -92,9 +92,34 @@ export interface ClarifyRequest {
 
 /** `context` SSE event: activate/update the right Context Panel.
  *  Payload shape depends on the engine; planning carries a SolveRun. */
+/** One ReAct tool step in the scheduling trace. `observation` may be a compact
+ *  handle carrying `observation_ref` when the real result was offloaded (方案2). */
+export interface SchedulingTraceStep {
+  thought?: string;
+  tool: string;
+  arguments?: Record<string, unknown>;
+  observation?: { observation_ref?: string; total?: number; hint?: string } & Record<string, unknown>;
+  blocked?: boolean;
+}
+
+/** A page returned by `GET /observations/{ref}` (and the `read_observation` tool). */
+export interface ObservationPage {
+  observation_ref: string;
+  kind: 'list' | 'dict' | 'scalar';
+  total?: number;
+  offset?: number;
+  limit?: number;
+  has_more?: boolean;
+  items?: unknown[];
+  keys?: Record<string, unknown>;
+  slice?: string;
+  item_keys?: string[];
+  preview?: unknown;
+}
+
 export type ChatContextEvent =
   | { engine: 'planning'; payload: SolveRun }
-  | { engine: 'scheduling'; payload: Record<string, unknown> }
+  | { engine: 'scheduling'; payload: { steps?: SchedulingTraceStep[]; stop_reason?: string } }
   | { engine: 'query'; payload: Record<string, unknown> };
 
 /** A write action held by the ActionGate awaiting human confirmation. */

@@ -4,8 +4,22 @@ import type {
   ExecuteActionRequest,
   ExecuteActionResponse,
   KittingResponse,
+  ObservationPage,
 } from '@/types';
 import { apiGet, apiPost, withQuery } from './client';
+
+/** `GET /observations/{ref}` — lazy-load a page of an offloaded large tool observation (方案2). */
+export function getObservation(
+  ref: string,
+  offset = 0,
+  limit = 20,
+  signal?: AbortSignal,
+): Promise<ObservationPage> {
+  return apiGet<ObservationPage>(
+    withQuery(`/observations/${encodeURIComponent(ref)}`, { offset, limit }),
+    { signal },
+  );
+}
 
 /** `GET /scheduling/kitting` — kitting (齐套) check for a scope. */
 export function getKitting(sessionId: string, scope?: string, signal?: AbortSignal): Promise<KittingResponse> {

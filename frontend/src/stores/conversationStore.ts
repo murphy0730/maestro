@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ActiveEngine, ChatMessageData } from '@/types';
+import type { ActiveEngine, ChatMessageData, SchedulingTraceStep } from '@/types';
 
 /**
  * Orchestrator UI state: the committed conversation history, the engine
@@ -11,6 +11,8 @@ interface ConversationState {
   messages: ChatMessageData[];
   activeEngine: ActiveEngine;
   contextPanelOpen: boolean;
+  /** Latest scheduling ReAct 工具轨迹 (from the `context` event) for the panel. */
+  schedulingSteps: SchedulingTraceStep[];
 
   /** Append a finalized message. */
   addMessage: (message: ChatMessageData) => void;
@@ -18,6 +20,8 @@ interface ConversationState {
   updateMessage: (id: string, patch: Partial<ChatMessageData>) => void;
   /** Activate an engine and open the panel (called on a `context` event). */
   activateEngine: (engine: ActiveEngine) => void;
+  /** Store the scheduling trace carried by a `context` event. */
+  setSchedulingSteps: (steps: SchedulingTraceStep[]) => void;
   setContextPanelOpen: (open: boolean) => void;
   closeContextPanel: () => void;
   resetThread: (initialMessages?: ChatMessageData[]) => void;
@@ -31,8 +35,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
   messages: INITIAL_MESSAGES,
   activeEngine: null,
   contextPanelOpen: false,
+  schedulingSteps: [],
 
   addMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
+
+  setSchedulingSteps: (steps) => set({ schedulingSteps: steps }),
 
   updateMessage: (id, patch) =>
     set((s) => ({
@@ -45,5 +52,5 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   closeContextPanel: () => set({ contextPanelOpen: false }),
 
-  resetThread: (initialMessages) => set({ messages: initialMessages ?? INITIAL_MESSAGES, activeEngine: null, contextPanelOpen: false }),
+  resetThread: (initialMessages) => set({ messages: initialMessages ?? INITIAL_MESSAGES, activeEngine: null, contextPanelOpen: false, schedulingSteps: [] }),
 }));

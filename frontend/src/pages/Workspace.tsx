@@ -34,6 +34,7 @@ import type { RouteEngine } from '@/types';
 export function Workspace() {
   const messages = useConversationStore((s) => s.messages);
   const activeEngine = useConversationStore((s) => s.activeEngine);
+  const schedulingSteps = useConversationStore((s) => s.schedulingSteps);
   const contextPanelOpen = useConversationStore((s) => s.contextPanelOpen);
   const activateEngine = useConversationStore((s) => s.activateEngine);
   const closeContextPanel = useConversationStore((s) => s.closeContextPanel);
@@ -355,7 +356,11 @@ export function Workspace() {
         }
         panel={
           panelOpen ? (
-            <ContextPanelHost engine={activeEngine} onClose={closeContextPanel} />
+            <ContextPanelHost
+              engine={activeEngine}
+              onClose={closeContextPanel}
+              schedulingSteps={schedulingSteps}
+            />
           ) : undefined
         }
       />

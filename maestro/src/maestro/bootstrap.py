@@ -45,6 +45,8 @@ from maestro.foundation import model_config as mc
 from maestro.foundation.loaders import build_loader_registry
 from maestro.foundation.master_data import MasterDataService
 from maestro.foundation.memory import ConversationMemory
+from maestro.foundation.observation_store import ObservationStore
+from maestro.foundation.permissions import PermissionEngine
 from maestro.foundation.session_store import SessionStore
 from maestro.foundation.tools.builtin import (
     QUERY_READONLY_TOOLS,
@@ -71,6 +73,7 @@ class Platform:
     authz: AuthZ
     pending: PendingActionStore
     gate: ActionGate
+    observations: ObservationStore
     memory: ConversationMemory
     session_store: SessionStore
     llm: LLMClient
@@ -102,9 +105,15 @@ def build_platform(
     # 共享底座
     adapter = adapter or MockAdapter(settings.mock_data_dir)
     audit = AuditLog(settings.audit_log_file)
-    authz = AuthZ()
+    # 统一权限引擎 (allow/deny/ask): 同一实例既作 ActionGate 的写动作决策来源,
+    # 也供调度 ReAct 的 can_use_tool 层评估读/中性工具 (决策集中、可审计)。
+    permissions = PermissionEngine()
+    authz = AuthZ(engine=permissions)
     pending = PendingActionStore()
     gate = ActionGate(authz, pending, audit)
+    # 工具观察离线暂存 (方案2): 大结果存 store, 上下文/轨迹只放 ref 句柄; 供 read_observation
+    # 工具与 GET /observations/{ref} 取回。进程内、FIFO 淘汰。
+    observations = ObservationStore(cap=settings.react_observation_store_max)
     # LLM 连接参数: 优先用 settings.json 中用户启用的 active provider (model_providers)，
     # 否则回退到扁平默认值 / 环境变量 (.env)。这样"设置弹框启用模型"后重启后端即生效。
     (
@@ -131,7 +140,7 @@ def build_platform(
 
     # 工具库 (三引擎共享): 注册内置工具 + 为高危写操作挂前置断言 (两道写护栏之一)
     tools = ToolRegistry()
-    register_builtin_tools(tools, adapter, gate, kitting, llm, followups)
+    register_builtin_tools(tools, adapter, gate, kitting, llm, followups, observations)
     tools.attach_precondition("dispatch_work_order", make_dispatch_precondition(kitting, adapter))
     tools.attach_precondition("send_expedite_message", make_expedite_precondition(kitting, followups))
 
@@ -172,7 +181,8 @@ def build_platform(
 
     # 技能引擎 (按 skill_id 执行单个技能包内的 AgentLoop；不拥有 Context Panel)
     skill_engine = SkillEngine(
-        llm, tools, pending, audit, skill_store, settings, named_preconditions
+        llm, tools, pending, audit, skill_store, settings, named_preconditions,
+        observations=observations,
     )
 
     # 调度引擎 (ReAct 智能体)
@@ -180,6 +190,8 @@ def build_platform(
         llm, tools, pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS,
         settings.react_max_steps,
         observation_max_bytes=settings.react_observation_max_bytes,
+        permissions=permissions,
+        observations=observations,
     )
     scheduling_engine = SchedulingEngine(agent, kitting, audit)
 
@@ -234,6 +246,7 @@ def build_platform(
         authz=authz,
         pending=pending,
         gate=gate,
+        observations=observations,
         memory=memory,
         session_store=session_store,
         llm=llm,

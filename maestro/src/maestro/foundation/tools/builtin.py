@@ -20,6 +20,7 @@ from maestro.foundation.authz import ActionGate, GateOutcome, gate_outcome_summa
 from maestro.foundation.integration.base import IntegrationAdapter
 from maestro.foundation.kitting import KittingService
 from maestro.foundation.llm import LLMClient, LLMError
+from maestro.foundation.observation_store import ObservationStore
 from maestro.foundation.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ def register_builtin_tools(
     kitting: KittingService,
     llm: LLMClient,
     followups: FollowupStore,
+    observations: ObservationStore | None = None,
 ) -> None:
     # ── 只读类 (ReAct 自由调用) ──────────────────────────────
 
@@ -209,6 +211,14 @@ def register_builtin_tools(
     async def record_followup(note: str, wo_id: str | None = None, material_id: str | None = None):
         rec = followups.add(note, wo_id, material_id)
         return {"recorded": True, **rec}
+
+    async def read_observation(
+        ref: str, offset: int = 0, limit: int = 20, keys: list[str] | None = None
+    ):
+        """分页取回一个被离线暂存的大观察 (observation_ref)。"""
+        if observations is None:
+            return {"error": "观察暂存不可用 (未配置 ObservationStore)"}
+        return observations.get(ref, offset=offset, limit=limit, keys=keys)
 
     # ── 注册 (含 JSON schema 与 kind) ─────────────────────────
 
@@ -336,6 +346,23 @@ def register_builtin_tools(
         record_followup,
         kind="aux",
     )
+    registry.register(
+        "read_observation",
+        "分页取回被离线暂存的大工具结果 (当某次工具观察过大返回 observation_ref 时使用)。"
+        "list 用 offset/limit 翻页；dict 可传 keys 取子集；不要臆造未取回的内容。",
+        {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string"},
+                "offset": {"type": "integer"},
+                "limit": {"type": "integer"},
+                "keys": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["ref"],
+        },
+        read_observation,
+        kind="read",
+    )
 
 
 # scheduling 引擎可调度的工具白名单 (read + write + aux 全集)
@@ -352,6 +379,7 @@ SCHEDULING_TOOLS = [
     "notify_personnel",
     "classify_exception",
     "record_followup",
+    "read_observation",
 ]
 
 # 查询引擎可用的只读工具 (绝不含写操作)
@@ -360,4 +388,5 @@ QUERY_READONLY_TOOLS = [
     "query_inventory",
     "query_work_orders",
     "check_kitting",
+    "read_observation",
 ]

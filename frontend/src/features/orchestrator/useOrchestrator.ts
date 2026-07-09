@@ -33,6 +33,7 @@ export function useOrchestrator(sessionId: string) {
   const addMessage = useConversationStore((s) => s.addMessage);
   const updateMessage = useConversationStore((s) => s.updateMessage);
   const activateEngine = useConversationStore((s) => s.activateEngine);
+  const setSchedulingSteps = useConversationStore((s) => s.setSchedulingSteps);
 
   // One assistant turn in flight: its id, start time, and a commit guard.
   const pendingRef = useRef(false);
@@ -59,6 +60,7 @@ export function useOrchestrator(sessionId: string) {
         pendingActions: c.actions.length > 0 ? c.actions : undefined,
       });
       if (engine) activateEngine(engine);
+      if (c.context?.engine === 'scheduling') setSchedulingSteps(c.context.payload.steps ?? []);
       pendingRef.current = false;
       c.reset();
     } else if (c.phase === 'awaiting_clarification' && c.clarify) {
@@ -82,7 +84,7 @@ export function useOrchestrator(sessionId: string) {
       pendingRef.current = false;
       c.reset();
     }
-  }, [chat.phase, addMessage, activateEngine]);
+  }, [chat.phase, addMessage, activateEngine, setSchedulingSteps]);
 
   /** Send a user message; `currentEngine` carries session stickiness. */
   const send = useCallback(

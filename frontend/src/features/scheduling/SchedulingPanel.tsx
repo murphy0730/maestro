@@ -6,6 +6,8 @@ import { EngineStrip, SectionLabel, PanelFootNote } from '@/components/ui/panel'
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { STATUS_CLASSES } from '@/lib/status';
 import { SCHEDULING_PANEL, KIT_STATUS, type KitItem, type TaskOrder } from '@/mocks/panels';
+import type { SchedulingTraceStep } from '@/types';
+import { ObservationTrace } from './ObservationTrace';
 
 function KitRow({ name, sub, have, need, status }: KitItem) {
   const s = KIT_STATUS[status];
@@ -72,9 +74,10 @@ function TaskOrderRow({ id, desc, level }: TaskOrder) {
 
 interface PanelProps {
   onClose?: () => void;
+  steps?: SchedulingTraceStep[];
 }
 
-export function SchedulingPanel({ onClose }: PanelProps) {
+export function SchedulingPanel({ onClose, steps = [] }: PanelProps) {
   const d = SCHEDULING_PANEL;
   return (
     <ContextPanel
@@ -101,6 +104,8 @@ export function SchedulingPanel({ onClose }: PanelProps) {
       }
     >
       <EngineStrip route="scheduling" title={d.strip.title} meta={d.strip.meta} />
+
+      <ObservationTrace steps={steps} />
 
       <div>
         <SectionLabel
