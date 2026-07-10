@@ -48,6 +48,7 @@ SleepTool = build_tool(ToolDef(
 ))
 
 
-def register_sleep_tools():
+def register_sleep_tools(tool_registry=None):
     from ..registry import registry
-    registry.register(SleepTool)
+
+    (tool_registry or registry).register(SleepTool)

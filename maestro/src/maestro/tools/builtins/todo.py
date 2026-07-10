@@ -82,6 +82,7 @@ TodoWriteTool = build_tool(ToolDef(
 ))
 
 
-def register_todo_tools():
+def register_todo_tools(tool_registry=None):
     from ..registry import registry
-    registry.register(TodoWriteTool)
+
+    (tool_registry or registry).register(TodoWriteTool)

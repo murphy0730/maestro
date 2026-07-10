@@ -16,6 +16,8 @@ from maestro.mcp.types import (
 from maestro.tools import (
     ToolManager,
     ToolResultStatus,
+    ToolRegistry as FrameworkRegistry,
+    initialize_tools,
     registry,
 )
 from maestro.tools.base import ToolDef, ToolResult, build_tool
@@ -227,6 +229,16 @@ async def test_bridge_readonly_tool_executes():
     assert "glob" in bridged and foundation.get("glob").kind == "read"
     result = await foundation.execute("glob", {"pattern": "*.toml"})
     assert "pyproject.toml" in result["filenames"]
+
+
+async def test_bridge_uses_its_explicit_framework_registry():
+    framework = initialize_tools(FrameworkRegistry())
+    framework.register(_make_deferred_tool("platform_only", "隔离工具", "platform-only"))
+    foundation = FoundationRegistry()
+    register_framework_tools(foundation, framework_tools=framework)
+
+    result = await foundation.execute("tool_search", {"query": "+platform-only"})
+    assert [item["name"] for item in result["matches"]] == ["platform_only"]
 
 
 async def test_bridge_write_tool_blocked_by_permission(tmp_path):

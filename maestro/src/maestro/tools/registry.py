@@ -10,20 +10,8 @@ from .base import Tool, find_tool_by_name, tool_matches_name
 
 class ToolRegistry:
     """工具注册表。"""
-
-    _instance: Optional['ToolRegistry'] = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
     def __init__(self):
-        if self._initialized:
-            return
         self._tools: Dict[str, Tool] = {}
-        self._initialized = True
 
     def register(self, tool: Tool) -> None:
         """注册工具，包括主名称和别名。"""

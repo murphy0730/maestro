@@ -15,7 +15,8 @@ from ..domain.models import ActionResult
 from ..foundation.tools.registry import ToolRegistry as FoundationRegistry
 from .base import Tool, ToolPermissionLevel, ToolResultStatus
 from .manager import ToolManager
-from .registry import registry as framework_registry
+from .registry import ToolRegistry as FrameworkRegistry
+from .registry import registry as default_framework_registry
 
 if TYPE_CHECKING:
     from ..foundation.authz import ActionGate
@@ -33,6 +34,7 @@ def register_framework_tools(
     foundation_registry: FoundationRegistry,
     tool_manager: ToolManager | None = None,
     gate: Optional["ActionGate"] = None,
+    framework_tools: FrameworkRegistry | None = None,
 ) -> list[str]:
     """把框架注册表中所有启用的工具桥接进 foundation 工具库。
 
@@ -40,11 +42,12 @@ def register_framework_tools(
     传入 gate 时，requires_confirm 工具被拦截后会生成 PendingAction（随 actions
     事件下发前台确认卡片，经 /chat/confirm 批准后真正执行）；不传则仅返回拦截信息。
     """
-    manager = tool_manager or ToolManager()
+    framework_tools = framework_tools or default_framework_registry
+    manager = tool_manager or ToolManager(registry=framework_tools)
     existing = set(foundation_registry.names())
     bridged: list[str] = []
 
-    for tool in framework_registry.list_enabled():
+    for tool in framework_tools.list_enabled():
         if tool.name in existing:
             logger.warning("[BRIDGE] 跳过重名工具: %s (foundation 已注册)", tool.name)
             continue

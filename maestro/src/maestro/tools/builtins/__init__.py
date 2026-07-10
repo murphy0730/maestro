@@ -15,16 +15,17 @@ from .sleep import SleepTool, register_sleep_tools
 from .todo import TodoWriteTool, register_todo_tools
 from .tool_search import ToolSearchTool, register_tool_search_tools
 from .web import WebFetchTool, register_web_tools
+from ..registry import ToolRegistry
 
 
-def register_all_builtins():
+def register_all_builtins(tool_registry: ToolRegistry | None = None):
     """注册所有内置工具。"""
-    register_filesystem_tools()
-    register_search_tools()
-    register_todo_tools()
-    register_web_tools()
-    register_tool_search_tools()
-    register_sleep_tools()
+    register_filesystem_tools(tool_registry)
+    register_search_tools(tool_registry)
+    register_todo_tools(tool_registry)
+    register_web_tools(tool_registry)
+    register_tool_search_tools(tool_registry)
+    register_sleep_tools(tool_registry)
 
 
 def get_all_base_tools():

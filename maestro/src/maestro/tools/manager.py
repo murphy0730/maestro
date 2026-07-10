@@ -9,15 +9,19 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .base import Tool, ToolResult, ToolResultStatus, ToolPermissionLevel
-from .registry import registry, find_tool_by_name
+from .registry import ToolRegistry, registry as default_registry
 from .permissions import PermissionChecker, PermissionResult, PermissionRule
 
 
 class ToolManager:
     """工具管理器。"""
 
-    def __init__(self, permission_checker: Optional[PermissionChecker] = None):
-        self.registry = registry
+    def __init__(
+        self,
+        permission_checker: Optional[PermissionChecker] = None,
+        registry: Optional[ToolRegistry] = None,
+    ):
+        self.registry = registry or default_registry
         self.permission_checker = permission_checker or PermissionChecker()
         self._pending_confirmations: Dict[str, Tuple[Tool, Any, Dict[str, Any], Optional[PermissionRule]]] = {}
         self._confirmation_counter = 0
@@ -91,7 +95,9 @@ class ToolManager:
             )
 
         try:
-            result = await tool.execute(parsed_args, context, on_progress)
+            execution_context = dict(context)
+            execution_context.setdefault("tool_registry", self.registry)
+            result = await tool.execute(parsed_args, execution_context, on_progress)
 
             if result.status == ToolResultStatus.SUCCESS:
                 result = self._handle_large_result(result, tool)

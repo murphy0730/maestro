@@ -54,10 +54,12 @@ async def tool_search_execute(
     context: dict,
     on_progress: None = None
 ) -> ToolResult:
-    from ..registry import registry
+    tool_registry = context.get("tool_registry")
+    if tool_registry is None:
+        from ..registry import registry as tool_registry
 
-    deferred = registry.list_deferred()
-    loaded = registry.list_initial_load()
+    deferred = tool_registry.list_deferred()
+    loaded = tool_registry.list_initial_load()
     max_results = args.max_results or 5
     query = args.query.strip()
 
@@ -114,6 +116,7 @@ ToolSearchTool = build_tool(ToolDef(
 ))
 
 
-def register_tool_search_tools():
+def register_tool_search_tools(tool_registry=None):
     from ..registry import registry
-    registry.register(ToolSearchTool)
+
+    (tool_registry or registry).register(ToolSearchTool)

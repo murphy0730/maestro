@@ -171,7 +171,9 @@ GlobTool = build_tool(ToolDef(
 ))
 
 
-def register_search_tools():
+def register_search_tools(tool_registry=None):
     from ..registry import registry
-    registry.register(GrepTool)
-    registry.register(GlobTool)
+
+    target = tool_registry or registry
+    target.register(GrepTool)
+    target.register(GlobTool)

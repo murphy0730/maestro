@@ -136,6 +136,7 @@ WebFetchTool = build_tool(ToolDef(
 ))
 
 
-def register_web_tools():
+def register_web_tools(tool_registry=None):
     from ..registry import registry
-    registry.register(WebFetchTool)
+
+    (tool_registry or registry).register(WebFetchTool)

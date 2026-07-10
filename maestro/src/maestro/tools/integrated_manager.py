@@ -10,25 +10,30 @@ from .base import Tool
 from .manager import ToolManager
 from .mcp_resources import create_mcp_resource_tools
 from .mcp_wrapper import create_mcp_tool_wrapper
-from .registry import registry
+from .registry import ToolRegistry, registry as default_registry
 
 
 class IntegratedToolManager:
     """集成工具管理器，结合内置工具和 MCP 工具。"""
 
-    def __init__(self, mcp_manager: Optional[MCPManager] = None):
-        self.tool_manager = ToolManager()
+    def __init__(
+        self,
+        mcp_manager: Optional[MCPManager] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+    ):
+        self.registry = tool_registry or default_registry
+        self.tool_manager = ToolManager(registry=self.registry)
         self.mcp_manager = mcp_manager or MCPManager()
         self._mcp_tools_registered: List[str] = []
         # MCP 资源工具绑定本管理器的 MCPManager 实例
         for tool in create_mcp_resource_tools(self.mcp_manager):
-            registry.register(tool)
+            self.registry.register(tool)
 
     async def refresh_mcp_tools(self) -> None:
         """刷新 MCP 工具。"""
         for tool_name in self._mcp_tools_registered:
             try:
-                registry.unregister(tool_name)
+                self.registry.unregister(tool_name)
             except Exception:
                 pass
 
@@ -37,7 +42,7 @@ class IntegratedToolManager:
         mcp_tools = self.mcp_manager.get_all_tools()
         for mcp_tool in mcp_tools:
             wrapper = create_mcp_tool_wrapper(mcp_tool, self.mcp_manager)
-            registry.register(wrapper)
+            self.registry.register(wrapper)
             self._mcp_tools_registered.append(wrapper.name)
 
     def get_tools_for_agent(self) -> List[Dict[str, Any]]:

@@ -230,9 +230,11 @@ ListFilesTool = build_tool(ToolDef(
 ))
 
 
-def register_filesystem_tools():
+def register_filesystem_tools(tool_registry=None):
     from ..registry import registry
-    registry.register(ReadFileTool)
-    registry.register(WriteFileTool)
-    registry.register(EditFileTool)
-    registry.register(ListFilesTool)
+
+    target = tool_registry or registry
+    target.register(ReadFileTool)
+    target.register(WriteFileTool)
+    target.register(EditFileTool)
+    target.register(ListFilesTool)

@@ -55,6 +55,7 @@ from maestro.foundation.tools.builtin import (
     scheduling_tools,
 )
 from maestro.foundation.tools.registry import Precondition, ToolRegistry
+from maestro.tools import ToolManager, ToolRegistry as FrameworkToolRegistry
 from maestro.tools import initialize_tools as initialize_framework_tools
 from maestro.tools.bridge import register_framework_tools
 from maestro.foundation.vectorstore import VectorStore
@@ -147,8 +148,13 @@ def build_platform(
     # 新工具框架 (tools/) 桥接: 通用工具 (glob/todo_write/tool_search/web_fetch 等) 注册进
     # 共享工具库，技能 allowed_tools 可按名引用；requires_confirm 工具在桥内被框架权限门
     # 拦截 → 经 gate 生成 PendingAction (随 actions 事件下发前台确认卡片)。
-    initialize_framework_tools()
-    register_framework_tools(tools, gate=gate)
+    framework_tools = initialize_framework_tools(FrameworkToolRegistry())
+    register_framework_tools(
+        tools,
+        tool_manager=ToolManager(registry=framework_tools),
+        gate=gate,
+        framework_tools=framework_tools,
+    )
 
     # 命名前置断言表 (供技能包 frontmatter `tool_preconditions` 按名引用):
     # 普通字典，不建 Registry 类。键即断言名，与 preconditions.py 的工厂一一对应。
