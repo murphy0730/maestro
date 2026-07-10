@@ -1,7 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
+/**
+ * Modal — a real dialog: `role="dialog"` + `aria-modal`, labelled by its own
+ * title, Escape to close, focus moved in on open and returned to whatever
+ * opened it on close. Left-aligned title; callers put the main action
+ * bottom-right inside `children`.
+ */
 interface ModalProps {
   open: boolean;
   onClose: () => void;
@@ -24,6 +30,10 @@ export function Modal({
   widthClassName = 'w-[420px]',
   bodyClassName = 'p-4',
 }: ModalProps) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -33,6 +43,14 @@ export function Modal({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Move focus into the dialog on open, hand it back to the opener on close.
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => openerRef.current?.focus();
+  }, [open]);
+
   if (!open) return null;
   return createPortal(
     <div
@@ -40,14 +58,21 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={`flex max-h-[88vh] w-full max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-1 shadow-popover ${widthClassName}`}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={`flex max-h-[88vh] w-full max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border-default bg-surface-1 shadow-popover outline-none ${widthClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex flex-none items-center justify-between gap-3 border-b border-border-default px-6 py-4">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="flex-none text-body font-semibold text-text-primary">{title}</span>
+        <div className="flex flex-none items-start justify-between gap-3 border-b border-border-subtle px-5 py-[14px]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span id={titleId} className="font-display text-h4 font-semibold text-text-primary">
+              {title}
+            </span>
             {subtitle && (
-              <span className="truncate text-caption font-normal text-text-tertiary">
+              <span className="text-caption font-normal leading-relaxed text-text-tertiary">
                 {subtitle}
               </span>
             )}
@@ -55,9 +80,9 @@ export function Modal({
           <button
             onClick={onClose}
             aria-label="关闭"
-            className="flex-none rounded-md p-1 text-text-tertiary transition-colors hover:bg-border-subtle hover:text-text-primary"
+            className="grid h-[30px] w-[30px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
         <div className={`min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}>{children}</div>

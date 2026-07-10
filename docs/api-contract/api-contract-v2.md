@@ -76,6 +76,25 @@ data: {
   "skill_ids": ["capacity-report", "line-changeover"] }
 ```
 
+**执行模式（v2 新增）**：`/chat`、`/chat/stream`、`/chat/clarify` 请求体新增可选
+`mode: "plan" | "auto"`，缺省 `"plan"`。对应前端 Composer 的「默认模式 / 完全访问模式」，
+经 `Orchestrator.handle(mode=…)` 下沉到 `ActionGate` 判级：
+
+| 操作 | `plan`（默认模式） | `auto`（完全访问模式） |
+|---|---|---|
+| 读（查订单 / 查齐套 / `read_file` / `grep` / `list_files`） | 直接执行 | 直接执行 |
+| 写文件、`web_fetch`（`tool:write_file` / `tool:edit_file` / `tool:web_fetch`） | 需确认 | 直接执行 |
+| 写生产系统（`dispatch_work_order`、`update_work_order_status`、`send_expedite_message.*`、`send_notification`、`record_followup`） | 需确认 | **需确认** |
+
+「需确认」= 该动作变成 `PendingAction`，随 `actions` 事件下发确认卡片，经 `POST /chat/confirm`
+批准后才执行。完全访问模式**永不**放开写生产系统。缺省 `"plan"` 时行为与 v1 逐字节一致；
+不经 HTTP 的调用（事件驱动唤醒、CLI）同样取 `"plan"`。
+
+```jsonc
+// /chat、/chat/stream、/chat/clarify 请求体增量
+{ "mode": "auto" }
+```
+
 **`route` 帧扩展（v2 新增）**：
 - `intent` 枚举增加 `"skill"`（v1 `IntentType` 为 `planning | scheduling | query | uncertain` 四分类，现为五分类）。
 - payload 增加 `skill_id` 字段：技能路由为技能 `name`，非技能路由为 `null`。

@@ -52,5 +52,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   closeContextPanel: () => set({ contextPanelOpen: false }),
 
-  resetThread: (initialMessages) => set({ messages: initialMessages ?? INITIAL_MESSAGES, activeEngine: null, contextPanelOpen: false, schedulingSteps: [] }),
+  resetThread: (initialMessages) =>
+    set({
+      messages: initialMessages ?? INITIAL_MESSAGES,
+      activeEngine: null,
+      contextPanelOpen: false,
+      schedulingSteps: [],
+    }),
 }));

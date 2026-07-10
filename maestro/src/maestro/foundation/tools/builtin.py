@@ -10,12 +10,14 @@
 registry.attach_precondition 挂载。
 """
 
+import json
 import logging
 from datetime import date, datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel
 
+from maestro.domain.models import ActionResult
 from maestro.foundation.authz import ActionGate, GateOutcome, gate_outcome_summary
 from maestro.foundation.integration.base import IntegrationAdapter
 from maestro.foundation.kitting import KittingService
@@ -209,8 +211,21 @@ def register_builtin_tools(
         return assessment.model_dump()
 
     async def record_followup(note: str, wo_id: str | None = None, material_id: str | None = None):
-        rec = followups.add(note, wo_id, material_id)
-        return {"recorded": True, **rec}
+        async def _execute() -> ActionResult:
+            rec = followups.add(note, wo_id, material_id)
+            return ActionResult(
+                success=True,
+                action="record_followup",
+                detail=json.dumps(rec, ensure_ascii=False, default=str),
+            )
+
+        outcome = await gate.request(
+            "record_followup",
+            description=f"记录跟踪: {note}",
+            params={"note": note, "wo_id": wo_id, "material_id": material_id},
+            executor=_execute,
+        )
+        return _gate_result(outcome)
 
     async def read_observation(
         ref: str, offset: int = 0, limit: int = 20, keys: list[str] | None = None
@@ -344,7 +359,7 @@ def register_builtin_tools(
             "required": ["note"],
         },
         record_followup,
-        kind="aux",
+        kind="write",
     )
     registry.register(
         "read_observation",
@@ -365,22 +380,16 @@ def register_builtin_tools(
     )
 
 
-# scheduling 引擎可调度的工具白名单 (read + write + aux 全集)
-SCHEDULING_TOOLS = [
-    "query_orders",
-    "query_inventory",
-    "query_work_orders",
-    "check_kitting",
-    "analyze_material_shortage",
-    "analyze_exception_impact",
-    "send_expedite_message",
-    "dispatch_work_order",
-    "update_work_order_status",
-    "notify_personnel",
-    "classify_exception",
-    "record_followup",
-    "read_observation",
-]
+def scheduling_tools(registry: ToolRegistry) -> list[str]:
+    """scheduling 引擎可调度的工具白名单 = 注册表全集 (read + write + aux)。
+
+    动态派生而非手写列表: 新增内置工具只要注册进 registry 就自动可被调度引擎调用，
+    不必再改这里。调用点须在所有工具注册完成之后 (见 bootstrap.build_platform)。
+
+    放开「能否被调用」不等于放开「能否直接执行」—— 写操作仍逐一经 ActionGate 判级,
+    写生产系统的动作无论何种执行模式都需人工确认 (foundation/permissions.py)。
+    """
+    return registry.names()
 
 # 查询引擎可用的只读工具 (绝不含写操作)
 QUERY_READONLY_TOOLS = [

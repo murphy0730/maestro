@@ -1,219 +1,250 @@
+/* Self-hosted variable fonts — no CDN, so the Electron shell works offline. */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/inter';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ============================================================
-   Cadence — design tokens (CSS custom properties)
-   macOS-material restyle: light is the default theme (:root);
-   dark overrides live under :root[data-theme='dark'].
-   Alpha-blended fills/borders/glows are referenced from
-   tailwind.config.ts via var(); every color in the app resolves
-   to a token here.
+   Maestro — design tokens (CSS custom properties)
+   Source of truth: docs/design/maestro-design-system-v1.html
+
+   Linear/Vercel language. Light is the default theme (:root);
+   dark is a designed sibling under :root[data-theme='dark'].
+
+   ONE blue, ONE green, ONE amber, ONE red — each answers exactly
+   one question:
+     蓝   沟通与导航 — 我的气泡 / 发送 / 新建对话 / 排产 route / 品牌
+     绿   执行      — 提交排产方案 / 直接下发 / 成功 / auto 授权
+     琥珀 待确认    — requires_confirmation 授权 / 产能告警
+     红   阻塞      — 缺料 / 危险操作
+   The brand hue and the planning-route hue are the same blue, so the
+   UI never shows two blues. Neutrals carry a cool bias toward it,
+   which keeps the greys from reading as dirty.
+
+   tailwind.config.ts mirrors every var below as a semantic utility;
+   components use those, never raw hex.
    ============================================================ */
 :root {
-  /* ---- Base backgrounds (depth: sunken recessed < base < raised surfaces) ---- */
-  --bg-sunken: #e8e8ed;
-  --bg-base: #f5f5f7;
+  color-scheme: light;
+
+  /* ---- Base backgrounds (depth: sunken < base < raised surfaces) ---- */
+  --bg-sunken: #f4f5f6;
+  --bg-base: #fbfbfc;
   --surface-1: #ffffff;
-  --surface-2: #fafafc;
-  --surface-3: #f0f0f4;
-  --surface-inset: #ececf1;
+  --surface-2: #f7f8f8;
+  --surface-3: #eff0f2;
+  --surface-inset: #f4f5f6;
 
-  /* ---- Glass materials (sidebar/topbar chrome, popovers, composer dock) ---- */
-  --glass-fill: rgba(255, 255, 255, 0.72);
-  --glass-popover: rgba(252, 252, 254, 0.86);
-  --glass-tint: rgba(10, 162, 192, 0.03);
-  --glass-blur: 20px;
+  /* ---- Chrome surfaces ----
+     The macOS glass material is gone: in this language material reads as
+     noise, and backdrop blur drops frames on long Electron lists. The vars
+     survive so the `.material-*` classes keep working — they now paint solid. */
+  --glass-fill: #ffffff;
+  --glass-popover: #ffffff;
+  --glass-tint: transparent;
+  --glass-blur: 0px;
 
-  /* ---- Borders / hairlines (black alpha on light) ---- */
-  --border-subtle: rgba(0, 0, 0, 0.06);
-  --border-default: rgba(0, 0, 0, 0.1);
-  --border-strong: rgba(0, 0, 0, 0.16);
-  --border-accent: rgba(10, 162, 192, 0.45);
+  /* ---- Borders / hairlines (cool-tinted black alpha on light) ---- */
+  --border-subtle: rgba(9, 10, 14, 0.06);
+  --border-default: rgba(9, 10, 14, 0.1);
+  --border-strong: rgba(9, 10, 14, 0.17);
+  --border-accent: rgba(47, 111, 235, 0.28);
 
   /* ---- Text ---- */
-  --text-primary: #1d1d1f;
-  --text-secondary: #515158;
-  --text-tertiary: #86868b;
-  --text-disabled: #b8b8bf;
+  --text-primary: #0e0f11;
+  --text-secondary: #5b5f66;
+  --text-tertiary: #8a8f96;
+  --text-disabled: #b7bbc0;
   --text-on-color: #ffffff;
-  --text-inverse: #f5f5f7;
+  --text-inverse: #fbfbfc;
 
-  /* ---- Route: 排产 Planning — systemBlue ---- */
-  --route-planning: #007aff;
-  --route-planning-fg: #005fc2;
-  --route-planning-bg: rgba(0, 122, 255, 0.1);
-  --route-planning-border: rgba(0, 122, 255, 0.32);
-  --route-planning-glow: rgba(0, 122, 255, 0.2);
+  /* ---- Route: 排产 Planning — THE blue (also the brand) ---- */
+  --route-planning: #2f6feb;
+  --route-planning-fg: #1d53c0;
+  --route-planning-bg: rgba(47, 111, 235, 0.09);
+  --route-planning-border: rgba(47, 111, 235, 0.28);
+  --route-planning-glow: rgba(47, 111, 235, 0.18);
 
-  /* ---- Route: 调度 Scheduling — systemOrange ---- */
-  --route-scheduling: #ff9500;
-  --route-scheduling-fg: #9e5c00;
-  --route-scheduling-bg: rgba(255, 149, 0, 0.12);
-  --route-scheduling-border: rgba(255, 149, 0, 0.35);
-  --route-scheduling-glow: rgba(255, 149, 0, 0.2);
+  /* ---- Route: 调度 Scheduling — orange ---- */
+  --route-scheduling: #c2620a;
+  --route-scheduling-fg: #9a4d06;
+  --route-scheduling-bg: rgba(194, 98, 10, 0.09);
+  --route-scheduling-border: rgba(194, 98, 10, 0.28);
+  --route-scheduling-glow: rgba(194, 98, 10, 0.18);
 
-  /* ---- Route: 查询 Query — teal/mint ---- */
-  --route-query: #0da88e;
-  --route-query-fg: #067a67;
-  --route-query-bg: rgba(13, 168, 142, 0.1);
-  --route-query-border: rgba(13, 168, 142, 0.32);
-  --route-query-glow: rgba(13, 168, 142, 0.2);
+  /* ---- Route: 查询 Query — teal ---- */
+  --route-query: #0e8e7f;
+  --route-query-fg: #0a6c60;
+  --route-query-bg: rgba(14, 142, 127, 0.09);
+  --route-query-border: rgba(14, 142, 127, 0.26);
+  --route-query-glow: rgba(14, 142, 127, 0.18);
 
-  /* ---- Route: 不确定 Uncertain — systemIndigo ---- */
-  --route-uncertain: #5e5ce6;
-  --route-uncertain-fg: #4a48c4;
-  --route-uncertain-bg: rgba(94, 92, 230, 0.1);
-  --route-uncertain-border: rgba(94, 92, 230, 0.32);
-  --route-uncertain-glow: rgba(94, 92, 230, 0.2);
+  /* ---- Route: 不确定 Uncertain — deliberately colourless.
+     A route we have not decided yet must not look decided. ---- */
+  --route-uncertain: #6e7379;
+  --route-uncertain-fg: #55595e;
+  --route-uncertain-bg: rgba(110, 115, 121, 0.09);
+  --route-uncertain-border: rgba(110, 115, 121, 0.24);
+  --route-uncertain-glow: rgba(110, 115, 121, 0.16);
 
   /* ---- Status ---- */
-  --status-success: #34c759;
-  --status-success-bg: rgba(52, 199, 89, 0.12);
-  --status-warning: #e6a100;
-  --status-warning-bg: rgba(230, 161, 0, 0.13);
-  --status-error: #ff3b30;
-  --status-error-bg: rgba(255, 59, 48, 0.11);
-  --status-info: #409cff;
-  --status-info-bg: rgba(64, 156, 255, 0.12);
+  --status-success: #12a150;
+  --status-success-bg: rgba(18, 161, 80, 0.09);
+  --status-warning: #b45309;
+  --status-warning-bg: rgba(180, 83, 9, 0.09);
+  --status-error: #dc2626;
+  --status-error-bg: rgba(220, 38, 38, 0.08);
+  --status-info: #2f6feb;
+  --status-info-bg: rgba(47, 111, 235, 0.09);
 
-  /* ---- Action authorization ---- */
-  --auth-auto: #22a06b;
-  --auth-auto-bg: rgba(34, 160, 107, 0.11);
-  --auth-auto-border: rgba(34, 160, 107, 0.38);
-  --auth-confirm: #cc7a00;
-  --auth-confirm-bg: rgba(255, 159, 10, 0.13);
-  --auth-confirm-border: rgba(255, 159, 10, 0.42);
+  /* ---- Action authorization: auto borrows green, confirm borrows amber ---- */
+  --auth-auto: #12a150;
+  --auth-auto-bg: rgba(18, 161, 80, 0.09);
+  --auth-auto-border: rgba(18, 161, 80, 0.28);
+  --auth-confirm: #b45309;
+  --auth-confirm-bg: rgba(180, 83, 9, 0.09);
+  --auth-confirm-border: rgba(180, 83, 9, 0.28);
 
-  /* ---- Accent (brand cyan, restrained) ---- */
-  --accent: #0aa2c0;
-  --accent-strong: #0891b2;
-  --accent-fg: #087f96;
-  --accent-bg: rgba(10, 162, 192, 0.09);
-  --accent-border: rgba(10, 162, 192, 0.38);
-  --accent-glow: rgba(10, 162, 192, 0.22);
+  /* ---- Accent === the planning blue. Not a second hue. ---- */
+  --accent: #2f6feb;
+  --accent-strong: #2560d4;
+  --accent-fg: #1d53c0;
+  --accent-bg: rgba(47, 111, 235, 0.09);
+  --accent-border: rgba(47, 111, 235, 0.28);
+  --accent-glow: rgba(47, 111, 235, 0.18);
+
+  /* ---- Solid fills for filled controls; white text sits on these,
+     and they hold their value across both themes. ---- */
+  --blue-solid: #2f6feb;
+  --blue-solid-hover: #2560d4;
+  --green-solid: #16a34a;
+  --green-solid-hover: #12813b;
+  --on-solid: #ffffff;
 
   /* ---- Data-viz sequence ---- */
-  --data-1: #007aff;
-  --data-2: #0da88e;
-  --data-3: #ff9500;
-  --data-4: #5e5ce6;
-  --data-5: #0aa2c0;
-  --data-6: #ff3b30;
+  --data-1: #2f6feb;
+  --data-2: #0e8e7f;
+  --data-3: #c2620a;
+  --data-4: #6e7379;
+  --data-5: #12a150;
+  --data-6: #dc2626;
 
-  /* ---- Elevation (diffuse macOS shadows; heavier values in dark) ---- */
-  --shadow-elev-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
-  --shadow-elev-2: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
-  --shadow-elev-3: 0 16px 40px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-popover: 0 10px 34px rgba(0, 0, 0, 0.16), 0 0 0 1px var(--border-default);
-  --inset-hi: rgba(255, 255, 255, 0.75);
+  /* ---- Elevation — restrained. Hierarchy comes from 1px hairlines and
+     surface steps; shadow appears only when something truly floats. ---- */
+  --shadow-elev-1: 0 1px 2px rgba(9, 10, 14, 0.05);
+  --shadow-elev-2: 0 4px 12px rgba(9, 10, 14, 0.07), 0 1px 2px rgba(9, 10, 14, 0.04);
+  --shadow-elev-3: 0 16px 40px rgba(9, 10, 14, 0.12), 0 2px 8px rgba(9, 10, 14, 0.05);
+  --shadow-popover: 0 12px 32px rgba(9, 10, 14, 0.14), 0 0 0 1px var(--border-default);
+  --inset-hi: rgba(255, 255, 255, 0.6);
 
-  /* ---- Typography (system stacks — no webfont dependency) ---- */
+  /* ---- Typography ----
+     Display: Geist (tight tracking). Body: Inter. Data: Geist Mono (tabular).
+     Latin faces sit before PingFang SC so CJK falls back automatically —
+     no manual span-splitting needed. */
+  --font-display:
+    'Geist Variable', 'Geist', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui,
+    sans-serif;
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', system-ui, 'Segoe UI', sans-serif;
+    'Inter Variable', 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui,
+    sans-serif;
   --font-mono:
-    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+    'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas,
+    monospace;
 }
 
 /* ============================================================
-   Dark theme — overrides on <html data-theme="dark">.
-   Neutral macOS dark materials (warm greys, not blue-black).
-   Brand hues brighten for dark surfaces; *-fg text variants
-   lighten so they stay legible on dark tinted backgrounds.
+   Dark theme — a designed sibling, not an inversion.
+   Hues brighten for dark grounds; *-fg variants lighten so they stay
+   legible on tinted fills. The solid fills stay put: white text on
+   #2f6feb / #16a34a reads on both themes.
    ============================================================ */
 :root[data-theme='dark'] {
-  /* ---- Base backgrounds ---- */
-  --bg-sunken: #131316;
-  --bg-base: #1a1a1e;
-  --surface-1: #212126;
-  --surface-2: #28282e;
-  --surface-3: #313138;
-  --surface-inset: #17171b;
+  color-scheme: dark;
 
-  /* ---- Glass ---- */
-  --glass-fill: rgba(28, 28, 32, 0.68);
-  --glass-popover: rgba(40, 40, 46, 0.88);
-  --glass-tint: rgba(77, 214, 232, 0.04);
+  --bg-sunken: #08090a;
+  --bg-base: #0e0f11;
+  --surface-1: #141517;
+  --surface-2: #1a1b1e;
+  --surface-3: #222326;
+  --surface-inset: #0b0c0e;
 
-  /* ---- Borders / hairlines (white alpha on dark) ---- */
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-default: rgba(255, 255, 255, 0.11);
-  --border-strong: rgba(255, 255, 255, 0.17);
-  --border-accent: rgba(77, 214, 232, 0.45);
+  --glass-fill: #141517;
+  --glass-popover: #1a1b1e;
+  --glass-tint: transparent;
 
-  /* ---- Text ---- */
-  --text-primary: #f2f2f5;
-  --text-secondary: #a8a8b0;
-  --text-tertiary: #77777f;
-  --text-disabled: #4a4a52;
-  --text-on-color: #04262c;
-  --text-inverse: #1a1a1e;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --border-accent: rgba(76, 141, 255, 0.32);
 
-  /* ---- Routes (brightened for dark) ---- */
-  --route-planning: #0a84ff;
-  --route-planning-fg: #6cb2ff;
-  --route-planning-bg: rgba(10, 132, 255, 0.14);
-  --route-planning-border: rgba(10, 132, 255, 0.38);
-  --route-planning-glow: rgba(10, 132, 255, 0.24);
+  --text-primary: #f4f5f6;
+  --text-secondary: #969aa1;
+  --text-tertiary: #62666d;
+  --text-disabled: #3f4247;
+  --text-on-color: #ffffff;
+  --text-inverse: #0e0f11;
 
-  --route-scheduling: #ff9f0a;
-  --route-scheduling-fg: #ffbe55;
-  --route-scheduling-bg: rgba(255, 159, 10, 0.13);
-  --route-scheduling-border: rgba(255, 159, 10, 0.38);
-  --route-scheduling-glow: rgba(255, 159, 10, 0.22);
+  --route-planning: #4c8dff;
+  --route-planning-fg: #8fbaff;
+  --route-planning-bg: rgba(76, 141, 255, 0.13);
+  --route-planning-border: rgba(76, 141, 255, 0.32);
+  --route-planning-glow: rgba(76, 141, 255, 0.22);
 
-  --route-query: #2ed3b7;
-  --route-query-fg: #63e0cb;
-  --route-query-bg: rgba(46, 211, 183, 0.12);
-  --route-query-border: rgba(46, 211, 183, 0.36);
-  --route-query-glow: rgba(46, 211, 183, 0.22);
+  --route-scheduling: #f97316;
+  --route-scheduling-fg: #fb923c;
+  --route-scheduling-bg: rgba(249, 115, 22, 0.13);
+  --route-scheduling-border: rgba(249, 115, 22, 0.3);
+  --route-scheduling-glow: rgba(249, 115, 22, 0.2);
 
-  --route-uncertain: #7d7aea;
-  --route-uncertain-fg: #a8a5f2;
-  --route-uncertain-bg: rgba(125, 122, 234, 0.14);
-  --route-uncertain-border: rgba(125, 122, 234, 0.36);
-  --route-uncertain-glow: rgba(125, 122, 234, 0.22);
+  --route-query: #2dd4bf;
+  --route-query-fg: #6fe3d3;
+  --route-query-bg: rgba(45, 212, 191, 0.12);
+  --route-query-border: rgba(45, 212, 191, 0.28);
+  --route-query-glow: rgba(45, 212, 191, 0.2);
 
-  /* ---- Status ---- */
-  --status-success: #30d158;
-  --status-success-bg: rgba(48, 209, 88, 0.13);
-  --status-warning: #ffd60a;
-  --status-warning-bg: rgba(255, 214, 10, 0.12);
-  --status-error: #ff453a;
-  --status-error-bg: rgba(255, 69, 58, 0.12);
-  --status-info: #409cff;
-  --status-info-bg: rgba(64, 156, 255, 0.13);
+  --route-uncertain: #8a8f96;
+  --route-uncertain-fg: #a9aeb4;
+  --route-uncertain-bg: rgba(138, 143, 150, 0.12);
+  --route-uncertain-border: rgba(138, 143, 150, 0.28);
+  --route-uncertain-glow: rgba(138, 143, 150, 0.18);
 
-  /* ---- Action authorization ---- */
-  --auth-auto: #32d074;
-  --auth-auto-bg: rgba(50, 208, 116, 0.12);
-  --auth-auto-border: rgba(50, 208, 116, 0.4);
-  --auth-confirm: #ffb020;
-  --auth-confirm-bg: rgba(255, 176, 32, 0.13);
-  --auth-confirm-border: rgba(255, 176, 32, 0.44);
+  --status-success: #3dd68c;
+  --status-success-bg: rgba(61, 214, 140, 0.12);
+  --status-warning: #ffc53d;
+  --status-warning-bg: rgba(255, 197, 61, 0.12);
+  --status-error: #ff6369;
+  --status-error-bg: rgba(255, 99, 105, 0.12);
+  --status-info: #4c8dff;
+  --status-info-bg: rgba(76, 141, 255, 0.13);
 
-  /* ---- Accent ---- */
-  --accent: #4dd6e8;
-  --accent-strong: #2bbcd4;
-  --accent-fg: #7fe3ef;
-  --accent-bg: rgba(77, 214, 232, 0.1);
-  --accent-border: rgba(77, 214, 232, 0.4);
-  --accent-glow: rgba(77, 214, 232, 0.3);
+  --auth-auto: #3dd68c;
+  --auth-auto-bg: rgba(61, 214, 140, 0.12);
+  --auth-auto-border: rgba(61, 214, 140, 0.3);
+  --auth-confirm: #ffc53d;
+  --auth-confirm-bg: rgba(255, 197, 61, 0.12);
+  --auth-confirm-border: rgba(255, 197, 61, 0.32);
 
-  /* ---- Data-viz sequence ---- */
-  --data-1: #0a84ff;
-  --data-2: #2ed3b7;
-  --data-3: #ff9f0a;
-  --data-4: #7d7aea;
-  --data-5: #4dd6e8;
-  --data-6: #ff453a;
+  --accent: #4c8dff;
+  --accent-strong: #2f6feb;
+  --accent-fg: #8fbaff;
+  --accent-bg: rgba(76, 141, 255, 0.13);
+  --accent-border: rgba(76, 141, 255, 0.32);
+  --accent-glow: rgba(76, 141, 255, 0.22);
 
-  /* ---- Elevation ---- */
-  --shadow-elev-1: 0 1px 3px rgba(0, 0, 0, 0.32);
-  --shadow-elev-2: 0 6px 18px rgba(0, 0, 0, 0.38);
-  --shadow-elev-3: 0 16px 44px rgba(0, 0, 0, 0.5);
-  --shadow-popover: 0 10px 34px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border-default);
+  --data-1: #4c8dff;
+  --data-2: #2dd4bf;
+  --data-3: #f97316;
+  --data-4: #8a8f96;
+  --data-5: #3dd68c;
+  --data-6: #ff6369;
+
+  --shadow-elev-1: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-elev-2: 0 4px 12px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-elev-3: 0 16px 40px rgba(0, 0, 0, 0.46), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border-default);
   --inset-hi: rgba(255, 255, 255, 0.06);
 }
 
@@ -231,28 +262,33 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
+
+  /* Digits line up wherever they stack: tables, gantt, KPI, param rows. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 @layer components {
-  /* ---- macOS materials ----
-     Blur belongs on fixed chrome only (sidebar, topbar, popovers,
-     composer dock) — never inside scrolling content. */
-  .material-chrome {
+  /* ---- Chrome surfaces ----
+     Kept as class names so sidebar/topbar/popover/composer markup is
+     unchanged; they now paint solid instead of blurring. */
+  .material-chrome,
+  .material-dock {
     background-color: var(--glass-fill);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   }
 
   .material-popover {
     background-color: var(--glass-popover);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-    backdrop-filter: blur(16px) saturate(180%);
   }
 
-  .material-dock {
-    background-color: var(--glass-fill);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  /* ---- Chinese typography ----
+     PingFang SC has no true SemiBold: font-weight >= 600 synthesises a
+     faux-bold that smears the strokes, and the -0.02em tracking tuned for
+     Latin crushes Han glyphs. Cap the weight and zero the tracking. */
+  .cn-head {
+    font-weight: 500;
+    letter-spacing: 0;
   }
 
   /* ---- Electron window drag regions (hiddenInset titlebar) ----
@@ -267,11 +303,12 @@
   }
 }
 
-/* Fallback: browsers without backdrop-filter get opaque surfaces. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .material-chrome,
-  .material-popover,
-  .material-dock {
-    background-color: var(--surface-1);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

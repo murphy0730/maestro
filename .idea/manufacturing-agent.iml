@@ -4,6 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/scheduling_platform/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/scheduling_platform/src/scheduling_platform" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/maestro/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/scheduling_platform/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/maestro/.venv" />

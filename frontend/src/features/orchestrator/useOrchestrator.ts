@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ChatMessageData, EngineType, IntentType, RouteEngine } from '@/types';
+import type { ChatMessageData, ComposerMode, EngineType, IntentType, RouteEngine } from '@/types';
 import { confirmChatAction, useStreamingChat } from '@/api';
 import { ROUTE_META } from '@/lib/routes';
 import { useConversationStore } from '@/stores';
@@ -86,14 +86,20 @@ export function useOrchestrator(sessionId: string) {
     }
   }, [chat.phase, addMessage, activateEngine, setSchedulingSteps]);
 
-  /** Send a user message; `currentEngine` carries session stickiness. */
+  /** Send a user message; `currentEngine` carries session stickiness, `mode` the
+   *  ActionGate posture the backend should run this turn under. */
   const send = useCallback(
-    (text: string, currentEngine: EngineType | null, skillIds: string[] = []) => {
+    (
+      text: string,
+      currentEngine: EngineType | null,
+      skillIds: string[] = [],
+      mode: ComposerMode = 'plan',
+    ) => {
       turnIdRef.current = `a-${Date.now()}`;
       turnTimeRef.current = nowHM();
       pendingRef.current = true;
       addMessage({ id: `u-${Date.now()}`, kind: 'user', time: nowHM(), text });
-      chatRef.current.send(text, currentEngine, skillIds);
+      chatRef.current.send(text, currentEngine, skillIds, mode);
     },
     [addMessage],
   );
@@ -129,7 +135,7 @@ export function useOrchestrator(sessionId: string) {
 
   /** Answer a clarification: record the choice, then resume the stream. */
   const selectClarification = useCallback(
-    (messageId: string, optionId: string, routeTo: IntentType) => {
+    (messageId: string, optionId: string, routeTo: IntentType, mode: ComposerMode = 'plan') => {
       updateMessage(messageId, { selectedOptionId: optionId });
       const zh = routeTo === 'uncertain' ? '澄清' : ROUTE_META[routeTo].zh;
       addMessage({
@@ -141,7 +147,7 @@ export function useOrchestrator(sessionId: string) {
       turnIdRef.current = `a-${Date.now()}`;
       turnTimeRef.current = nowHM();
       pendingRef.current = true;
-      chatRef.current.selectClarification(optionId, routeTo);
+      chatRef.current.selectClarification(optionId, routeTo, mode);
     },
     [updateMessage, addMessage],
   );

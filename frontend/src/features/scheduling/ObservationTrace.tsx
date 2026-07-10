@@ -38,7 +38,9 @@ function ObservationRow({ step }: { step: SchedulingTraceStep }) {
           </Badge>
         )}
         {typeof step.observation?.total === 'number' && (
-          <span className="font-mono text-[10px] text-text-tertiary">{step.observation.total} 条</span>
+          <span className="font-mono text-[10px] text-text-tertiary">
+            {step.observation.total} 条
+          </span>
         )}
       </div>
       {step.thought && (

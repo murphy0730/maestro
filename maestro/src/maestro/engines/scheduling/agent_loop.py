@@ -280,7 +280,8 @@ class AgentLoop:
     async def _gate_call(self, name: str, args: dict, st: _RunState):
         """执行前的全部门控 (串行、确定顺序)。返回 (blocked_observation, None) 被拦截，
         或 (None, tool) 放行并附待执行工具。"""
-        # 护栏 3: 工具白名单
+        # 护栏 3: 工具白名单。白名单现取注册表全集 (见 builtin.scheduling_tools)，
+        # 故此处主要拦截 LLM 幻觉出的工具名；写操作的把关在下面的 ActionGate。
         if name not in self._allowed:
             return {"blocked": f"工具 {name} 不在调度引擎白名单内，已拒绝"}, None
         # 绕圈: 完全相同的调用 (同名同参) 计数并跳过重复执行

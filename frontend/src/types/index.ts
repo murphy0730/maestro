@@ -86,4 +86,5 @@ export type ChatMessageData = SystemMessage | UserMessage | AgentMessage | Clari
    Composer selectors
    ============================================================ */
 export type ComposerRoute = 'auto' | 'planning' | 'scheduling' | 'query';
-export type ComposerMode = 'plan' | 'auto';
+// ComposerMode 声明在 api.ts (请求体要引用它，而 api.ts 不能反向导入本文件)
+export type { ComposerMode } from './api';

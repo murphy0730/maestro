@@ -193,5 +193,7 @@ def test_authz_decision_sourced_from_engine():
 
     engine = PermissionEngine(rules=[PermissionRule(effect="deny", action_type="dispatch_work_order")])
     authz = AuthZ(engine=engine)
-    assert authz.decide("dispatch_work_order") == "deny"  # 规则覆盖策略表
-    assert authz.decide("send_expedite_message.internal") == "auto"  # 策略表默认仍生效
+    assert authz.decide("dispatch_work_order") == "deny"  # deny 规则可收紧生产写入
+    # 写生产系统: 任何模式都需确认 (internal 催料也不例外)
+    assert authz.decide("send_expedite_message.internal") == "requires_confirmation"
+    assert authz.decide("send_expedite_message.internal", "auto") == "requires_confirmation"

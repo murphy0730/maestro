@@ -22,6 +22,7 @@ from maestro.domain.models import SystemEvent
 from maestro.foundation import model_config as mc
 from maestro.engines.query.ingestor import DocumentNotFound
 from maestro.foundation.loaders import UnsupportedFileType
+from maestro.foundation.exec_context import ExecMode
 from maestro.foundation.tools.builtin import QUERY_READONLY_TOOLS
 from maestro.orchestrator.schemas import ChatResponse
 from maestro.skills.parser import extract_package, validate_allowed_tools
@@ -64,6 +65,8 @@ class ChatRequest(BaseModel):
     # 技能包选择: 透传到 orchestrator.handle。skill_ids 多技能；skill_id 兼容单值，二者都在时合并
     skill_id: str | None = None
     skill_ids: list[str] | None = None
+    # 执行模式: plan=写操作均需确认；auto=文件/网络写入直接执行，写生产系统仍需确认
+    mode: ExecMode = "plan"
 
 
 EngineName = Literal["planning", "scheduling", "query"]
@@ -78,6 +81,8 @@ class ChatStreamRequest(BaseModel):
     # 技能包选择: 透传到 orchestrator.handle。skill_ids 多技能；skill_id 兼容单值，二者都在时合并
     skill_id: str | None = None
     skill_ids: list[str] | None = None
+    # 执行模式: plan=写操作均需确认；auto=文件/网络写入直接执行，写生产系统仍需确认
+    mode: ExecMode = "plan"
 
 
 class ClarifyStreamRequest(BaseModel):
@@ -86,6 +91,8 @@ class ClarifyStreamRequest(BaseModel):
     session_id: str = "default"
     option_id: str
     route_to: EngineName
+    # 执行模式: plan=写操作均需确认；auto=文件/网络写入直接执行，写生产系统仍需确认
+    mode: ExecMode = "plan"
 
 
 class ConfirmRequest(BaseModel):
@@ -105,6 +112,7 @@ async def chat(req: ChatRequest):
     response = await app.state.platform.orchestrator.handle(
         req.session_id, req.message, route=req.route,
         skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
+        mode=req.mode,
     )
     return response.model_dump(mode="json")
 
@@ -244,6 +252,7 @@ async def chat_stream(req: ChatStreamRequest):
                 route=req.current_engine or "auto",
                 on_progress=progress_q.put,
                 skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
+                mode=req.mode,
             )
         )
         try:
@@ -274,7 +283,7 @@ async def chat_clarify(req: ClarifyStreamRequest):
         progress_q: asyncio.Queue[str] = asyncio.Queue()
         resume_task = asyncio.create_task(
             app.state.platform.orchestrator.resume_clarification(
-                req.session_id, req.route_to, on_progress=progress_q.put
+                req.session_id, req.route_to, on_progress=progress_q.put, mode=req.mode
             )
         )
         try:

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from maestro.domain.models import ActionResult, PendingAction
 from maestro.foundation.audit import AuditLog
+from maestro.foundation.exec_context import ExecMode, current_mode
 from maestro.foundation.permissions import (
     ActionLevel,
     PermissionEngine,
@@ -41,8 +42,8 @@ class AuthZ:
     ):
         self.engine = engine or PermissionEngine(action_policies=policies)
 
-    def decide(self, action_type: str) -> ActionLevel:
-        return effect_to_level(self.engine.evaluate_action(action_type).effect)
+    def decide(self, action_type: str, mode: ExecMode = "plan") -> ActionLevel:
+        return effect_to_level(self.engine.evaluate_action(action_type, mode).effect)
 
 
 class PendingActionStore:
@@ -103,7 +104,8 @@ class ActionGate:
         actor: str = "system",
     ) -> GateOutcome:
         params = params or {}
-        level = self.authz.decide(action_type)
+        # 执行模式由 Orchestrator.handle 经 contextvar 注入; 事件驱动/CLI 取默认 "plan"
+        level = self.authz.decide(action_type, current_mode())
         if level == "deny":
             self.audit.record(actor, action_type, params, "deny", {"status": "denied"})
             return GateOutcome(status="denied")

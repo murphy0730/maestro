@@ -1,29 +1,35 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { Check, Zap } from 'lucide-react';
 import type { AuthLevel } from '@/types';
+import { BoltIcon, ShieldIcon } from '@/components/ui/Icon';
 
 /**
- * Action button whose appearance encodes its authorization level:
- * `auto` (green, executes immediately) vs `confirm` (amber, needs a human).
- * The distinction must read at a glance. `compact` is the footer-row form.
+ * Action button whose appearance encodes its authorization level.
+ *
+ * `auto` is solid green — 执行, safe to run without asking.
+ * `confirm` keeps an amber outline: it is the one button in the app that
+ * writes to MES on a human's authority, and it must not look like ordinary
+ * execution. The bolt/shield icons carry the same distinction for anyone who
+ * cannot separate the two hues.
+ *
+ * `compact` is the footer-row form.
  */
 const LEVELS: Record<
   AuthLevel,
-  { text: string; surface: string; dot: string; glow: string; tag: string }
+  { text: string; surface: string; hover: string; tag: string; Icon: typeof BoltIcon }
 > = {
   auto: {
-    text: 'text-auth-auto',
-    surface: 'bg-auth-auto-bg border-auth-auto-border',
-    dot: 'bg-auth-auto',
-    glow: 'hover:shadow-glow-success',
+    text: 'text-on-solid',
+    surface: 'bg-green-solid border-transparent',
+    hover: 'hover:bg-green-solid-hover',
     tag: '可直接执行',
+    Icon: BoltIcon,
   },
   confirm: {
     text: 'text-auth-confirm',
     surface: 'bg-auth-confirm-bg border-auth-confirm-border',
-    dot: 'bg-auth-confirm',
-    glow: 'hover:shadow-glow-confirm',
+    hover: 'hover:bg-auth-confirm-bg',
     tag: '需确认',
+    Icon: ShieldIcon,
   },
 };
 
@@ -46,17 +52,18 @@ export function AuthAction({
   ...rest
 }: AuthActionProps) {
   const cfg = LEVELS[level];
+  const { Icon } = cfg;
 
   if (compact) {
     return (
       <button
         disabled={disabled}
-        className={`inline-flex h-[38px] items-center justify-center gap-[7px] rounded-md border px-3 font-sans text-body font-semibold tracking-mono transition-shadow duration-fast ease-out ${
+        className={`inline-flex h-control items-center justify-center gap-[6px] rounded-sm border px-3 font-sans text-body-sm font-medium transition-colors duration-fast ease-out ${
           cfg.surface
-        } ${cfg.text} ${disabled ? 'cursor-not-allowed opacity-50' : `cursor-pointer ${cfg.glow}`} ${className}`}
+        } ${cfg.text} ${disabled ? 'cursor-not-allowed opacity-50' : `cursor-pointer ${cfg.hover}`} ${className}`}
         {...rest}
       >
-        <span className={`h-[6px] w-[6px] flex-none rounded-full ${cfg.dot}`} />
+        {icon ?? <Icon size={13} />}
         {children}
       </button>
     );
@@ -65,21 +72,17 @@ export function AuthAction({
   return (
     <button
       disabled={disabled}
-      className={`flex w-full items-center gap-3 rounded-md border border-l-strong px-3 py-[10px] text-left font-sans transition-shadow duration-fast ease-out ${
+      className={`flex w-full items-center gap-3 rounded-md border px-3 py-[10px] text-left font-sans transition-colors duration-fast ease-out ${
         cfg.surface
-      } ${cfg.text} border-l-current ${disabled ? 'cursor-not-allowed opacity-50' : `cursor-pointer ${cfg.glow}`} ${className}`}
+      } ${cfg.text} ${disabled ? 'cursor-not-allowed opacity-50' : `cursor-pointer ${cfg.hover}`} ${className}`}
       {...rest}
     >
-      <span
-        className={`grid h-[22px] w-[22px] flex-none place-items-center rounded-sm bg-surface-1 shadow-elev-1 ${cfg.text}`}
-      >
-        {icon ?? (level === 'auto' ? <Zap size={12} /> : <Check size={12} />)}
+      <span className="grid h-[22px] w-[22px] flex-none place-items-center">
+        {icon ?? <Icon size={14} />}
       </span>
       <span className="flex-1">
-        <span className="block text-body font-semibold text-text-primary">{children}</span>
-        <span className={`mt-[2px] block text-micro font-semibold ${cfg.text}`}>
-          {hint ?? cfg.tag}
-        </span>
+        <span className="block text-body font-medium">{children}</span>
+        <span className="mt-[2px] block text-micro font-medium opacity-80">{hint ?? cfg.tag}</span>
       </span>
     </button>
   );

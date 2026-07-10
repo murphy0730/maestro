@@ -18,6 +18,9 @@
     "test:electron": "node --test electron/*.test.cjs"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.2.9",
+    "@fontsource-variable/geist-mono": "^5.2.8",
+    "@fontsource-variable/inter": "^5.2.8",
     "@tanstack/react-query": "^5.51.0",
     "lucide-react": "^1.21.0",
     "react": "^18.3.1",
@@ -69,18 +72,35 @@
       "electron/**/*"
     ],
     "extraResources": [
-      { "from": "../maestro/dist/backend", "to": "backend", "filter": ["**/*"] }
+      {
+        "from": "../maestro/dist/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
-      "target": ["nsis"],
-      "signingHashAlgorithms": ["sha256"]
+      "target": [
+        "nsis"
+      ],
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
     },
     "nsis": {
       "oneClick": false,

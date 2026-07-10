@@ -4,6 +4,7 @@ import type {
   ChatContextEvent,
   ChatStreamEvent,
   ClarifyPayload,
+  ComposerMode,
   EngineType,
   IntentType,
   PendingActionPayload,
@@ -136,13 +137,25 @@ export function useStreamingChat(sessionId: string) {
     [consume],
   );
 
-  /** Send a user message. `currentEngine` carries session stickiness. */
+  /** Send a user message. `currentEngine` carries session stickiness; `mode` the
+   *  ActionGate posture (plan = writes need confirmation, auto = file writes don't). */
   const send = useCallback(
-    (message: string, currentEngine: EngineType | null = null, skillIds: string[] = []) => {
+    (
+      message: string,
+      currentEngine: EngineType | null = null,
+      skillIds: string[] = [],
+      mode: ComposerMode = 'plan',
+    ) => {
       start(
         (signal) =>
           streamChat(
-            { session_id: sessionId, message, current_engine: currentEngine, skill_ids: skillIds },
+            {
+              session_id: sessionId,
+              message,
+              current_engine: currentEngine,
+              skill_ids: skillIds,
+              mode,
+            },
             signal,
           ),
         true,
@@ -153,10 +166,13 @@ export function useStreamingChat(sessionId: string) {
 
   /** Answer a clarification; resumes the stream on the chosen engine. */
   const selectClarification = useCallback(
-    (optionId: string, routeTo: IntentType) => {
+    (optionId: string, routeTo: IntentType, mode: ComposerMode = 'plan') => {
       start(
         (signal) =>
-          clarifyChat({ session_id: sessionId, option_id: optionId, route_to: routeTo }, signal),
+          clarifyChat(
+            { session_id: sessionId, option_id: optionId, route_to: routeTo, mode },
+            signal,
+          ),
         false,
       );
     },

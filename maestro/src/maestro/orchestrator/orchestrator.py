@@ -11,6 +11,7 @@ from maestro.engines.base import Engine, EngineResponse, ProgressFn, emit_progre
 from maestro.engines.query.query_engine import QueryEngine
 from maestro.foundation.audit import AuditLog
 from maestro.foundation.authz import ActionGate
+from maestro.foundation.exec_context import ExecMode, use_mode
 from maestro.foundation.memory import ConversationMemory
 from maestro.orchestrator.router import IntentRouter, extract_entities
 from maestro.orchestrator.schemas import ChatResponse, RouteDecision
@@ -66,6 +67,21 @@ class Orchestrator:
         self._skills = skill_engine
 
     async def handle(
+        self,
+        session_id: str,
+        message: str,
+        route: str = "auto",
+        on_progress: ProgressFn | None = None,
+        skill_ids: list[str] | None = None,
+        mode: ExecMode = "plan",
+    ) -> ChatResponse:
+        """三个引擎 + 技能引擎的唯一入口，故在此把执行模式注入 contextvar，
+        由下游 ActionGate.request 读取。不经 HTTP 的调用 (CLI/事件) 取默认 "plan"。
+        """
+        with use_mode(mode):
+            return await self._handle(session_id, message, route, on_progress, skill_ids)
+
+    async def _handle(
         self,
         session_id: str,
         message: str,
@@ -236,14 +252,21 @@ class Orchestrator:
         )
 
     async def resume_clarification(
-        self, session_id: str, route_to: str, on_progress: ProgressFn | None = None
+        self,
+        session_id: str,
+        route_to: str,
+        on_progress: ProgressFn | None = None,
+        mode: ExecMode = "plan",
     ) -> ChatResponse:
         """澄清回选 (前端 /chat/clarify)：按所选引擎直接路由暂存的原请求。"""
-        state = self._memory.get(session_id)
-        pending = state.context.get("pending_clarification")
-        original = pending["message"] if pending else ""
-        self._memory.set_context(session_id, "pending_clarification", None)
-        return await self._route_clarified(session_id, original, route_to, state, on_progress)
+        with use_mode(mode):
+            state = self._memory.get(session_id)
+            pending = state.context.get("pending_clarification")
+            original = pending["message"] if pending else ""
+            self._memory.set_context(session_id, "pending_clarification", None)
+            return await self._route_clarified(
+                session_id, original, route_to, state, on_progress
+            )
 
     async def confirm(self, session_id: str, action_id: str, approved: bool) -> ChatResponse:
         """确认/拒绝一个待执行动作。"""

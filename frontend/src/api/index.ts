@@ -17,7 +17,13 @@ export { streamSse, type SseMessage } from './streaming';
 // Raw endpoint functions
 export { streamChat, clarifyChat, confirmChatAction } from './chat';
 export { solve, getSolveRuns } from './planning';
-export { getKitting, getDispatchOrders, executeAction, getExceptionImpact, getObservation } from './scheduling';
+export {
+  getKitting,
+  getDispatchOrders,
+  executeAction,
+  getExceptionImpact,
+  getObservation,
+} from './scheduling';
 export { streamQuery, getAuditTimeline } from './query';
 export {
   listKnowledge,

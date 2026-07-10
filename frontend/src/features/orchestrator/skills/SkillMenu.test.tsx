@@ -31,7 +31,9 @@ describe('SkillMenu', () => {
     const onToggleSkill = vi.fn();
     render(<SkillMenu {...props({ onToggleSkill })} />);
     fireEvent.click(screen.getByText('产能日报'));
-    expect(onToggleSkill).toHaveBeenCalledWith(expect.objectContaining({ name: 'capacity-report' }));
+    expect(onToggleSkill).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'capacity-report' }),
+    );
   });
 
   it('清空与导入入口', () => {

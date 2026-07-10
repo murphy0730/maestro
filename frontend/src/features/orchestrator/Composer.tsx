@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Paperclip,
-  ArrowUp,
   Zap,
   ShieldCheck,
   CalendarCog,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Button } from '@/components/ui/Button';
+import { SendIcon } from '@/components/ui/Icon';
 import { Popover } from '@/components/ui/Popover';
 import { SkillMenu } from './skills/SkillMenu';
 
@@ -59,21 +59,26 @@ const ROUTE_OPTS: {
   { id: 'query', label: '查询', desc: '指定查询引擎', dot: 'bg-query', icon: Search },
 ];
 
+/**
+ * Full access (`auto`) bypasses the ActionGate's `requires_confirmation` step,
+ * so it is the most powerful click in the app. Its chip is tinted amber rather
+ * than neutral: a risky option should look risky.
+ */
 const MODE_OPTS: { id: ComposerMode; label: string; desc: string; icon: IconType; tint: string }[] =
   [
     {
       id: 'plan',
-      label: 'Plan mode',
-      desc: '写操作需确认后执行',
+      label: '默认模式',
+      desc: '写操作停在 ActionGate，等你确认',
       icon: ShieldCheck,
-      tint: 'text-auth-confirm',
+      tint: 'text-text-secondary',
     },
     {
       id: 'auto',
-      label: 'Auto mode',
-      desc: '自动执行 AUTO 级动作',
+      label: '完全访问模式',
+      desc: 'Agent 可直接读写文件',
       icon: Zap,
-      tint: 'text-auth-auto',
+      tint: 'text-auth-confirm',
     },
   ];
 
@@ -128,15 +133,23 @@ export function Composer({
   }, [openMenu]);
 
   const chip = (active: boolean) =>
-    `inline-flex h-8 cursor-pointer items-center gap-[6px] rounded-md border px-[9px] font-sans text-caption font-semibold text-text-secondary transition-colors duration-fast ease-out ${
-      active ? 'border-accent-border bg-accent-bg' : 'border-border-default hover:bg-border-subtle'
+    `inline-flex h-[26px] cursor-pointer items-center gap-[6px] rounded-sm border px-[9px] font-sans text-caption font-medium text-text-secondary transition-colors duration-fast ease-out ${
+      active
+        ? 'border-accent-border bg-accent-bg'
+        : 'border-border-default bg-surface-2 hover:bg-surface-3'
     }`;
+
+  /** Full-access mode keeps its amber tint even when its menu is closed. */
+  const modeChip = (active: boolean) =>
+    mode === 'auto'
+      ? `inline-flex h-[26px] cursor-pointer items-center gap-[6px] rounded-sm border border-auth-confirm-border bg-auth-confirm-bg px-[9px] font-sans text-caption font-medium text-auth-confirm transition-colors duration-fast ease-out`
+      : chip(active);
 
   return (
     <div className="flex-none px-[30px] pb-[18px] pt-2">
       <div className="pointer-events-auto mx-auto max-w-[760px]">
         <div
-          className={`material-dock rounded-xl border transition-colors duration-fast ${
+          className={`material-dock rounded-lg border transition-colors duration-fast ${
             slash
               ? 'border-accent-border shadow-glow-accent'
               : 'border-border-default shadow-elev-2'
@@ -177,12 +190,16 @@ export function Composer({
             className="block max-h-[120px] w-full resize-none border-none bg-transparent px-[15px] pb-[7px] pt-[13px] font-sans text-body leading-normal text-text-primary outline-none placeholder:text-text-tertiary"
           />
           <div ref={toolbarRef} className="flex items-center gap-2 px-[10px] py-2">
+            {/* Attachment is an input source, not a send modifier — it sits
+                furthest left, fenced off from the route/mode/skill chips. */}
             <button
               title="添加文件"
-              className="grid h-8 w-8 flex-none cursor-pointer place-items-center rounded-md border border-border-default text-text-tertiary transition-colors duration-fast ease-out hover:bg-border-subtle hover:text-text-secondary"
+              aria-label="添加文件"
+              className="grid h-[30px] w-[30px] flex-none cursor-pointer place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary"
             >
               <Paperclip size={16} />
             </button>
+            <span aria-hidden="true" className="h-[18px] w-px flex-none bg-border-default" />
 
             {/* route selector — click to open, pick one */}
             <div className="relative">
@@ -236,11 +253,11 @@ export function Composer({
                 onClick={() => setOpenMenu((m) => (m === 'mode' ? null : 'mode'))}
                 aria-haspopup="menu"
                 aria-expanded={openMenu === 'mode'}
-                className={chip(openMenu === 'mode')}
+                className={modeChip(openMenu === 'mode')}
               >
-                <CurModeIcon size={13} className={curMode.tint} />
-                <span className="text-text-primary">{curMode.label}</span>
-                <ChevronDown size={13} className="text-text-tertiary" />
+                <CurModeIcon size={13} className={mode === 'auto' ? '' : curMode.tint} />
+                <span className={mode === 'auto' ? '' : 'text-text-primary'}>{curMode.label}</span>
+                <ChevronDown size={13} className="opacity-60" />
               </button>
               {openMenu === 'mode' && (
                 <Popover role="menu" className="absolute bottom-full left-0 mb-2 w-[224px] px-1">
@@ -287,6 +304,8 @@ export function Composer({
             />
 
             <span className="flex-1" />
+            {/* Send is the terminus: pinned right, the only solid-blue square
+                icon button in the app. */}
             {isStreaming ? (
               <Button
                 variant="danger"
@@ -296,22 +315,30 @@ export function Composer({
                 停止
               </Button>
             ) : (
-              <Button variant="primary" onClick={submit} leadingIcon={<ArrowUp size={15} />}>
-                发送
-              </Button>
+              <button
+                type="button"
+                onClick={submit}
+                title="发送消息"
+                aria-label="发送消息"
+                className="grid h-[30px] w-[30px] flex-none cursor-pointer place-items-center rounded-sm bg-blue-solid text-on-solid shadow-elev-1 transition-colors duration-fast ease-out hover:bg-blue-solid-hover"
+              >
+                <SendIcon size={15} />
+              </button>
             )}
           </div>
         </div>
 
         <div className="mt-2 flex items-center gap-[7px] text-[11px] text-text-tertiary">
           {mode === 'auto' ? (
-            <Zap size={12} className="text-auth-auto" />
+            <Zap size={12} className="text-auth-confirm" />
           ) : (
-            <ShieldCheck size={12} className="text-auth-confirm" />
+            <ShieldCheck size={12} className="text-text-tertiary" />
           )}
           <span>
             {route === 'auto' ? '引擎自动分类' : `指定 ${curRoute.label}引擎`} ·{' '}
-            {mode === 'auto' ? 'Auto mode：自动执行 AUTO 级动作' : 'Plan mode：写操作需确认后执行'}
+            {mode === 'auto'
+              ? '完全访问模式：Agent 可直接写入 MES'
+              : '默认模式：写操作需确认后执行'}
           </span>
           <span className="flex-1" />
           <span className="font-mono">Enter 发送 · Shift+Enter 换行</span>

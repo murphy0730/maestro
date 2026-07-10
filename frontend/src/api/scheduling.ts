@@ -22,12 +22,22 @@ export function getObservation(
 }
 
 /** `GET /scheduling/kitting` — kitting (齐套) check for a scope. */
-export function getKitting(sessionId: string, scope?: string, signal?: AbortSignal): Promise<KittingResponse> {
-  return apiGet<KittingResponse>(withQuery('/scheduling/kitting', { session_id: sessionId, scope }), { signal });
+export function getKitting(
+  sessionId: string,
+  scope?: string,
+  signal?: AbortSignal,
+): Promise<KittingResponse> {
+  return apiGet<KittingResponse>(
+    withQuery('/scheduling/kitting', { session_id: sessionId, scope }),
+    { signal },
+  );
 }
 
 /** `GET /scheduling/dispatch-orders` — pending dispatch orders (task 任务令). */
-export function getDispatchOrders(sessionId: string, signal?: AbortSignal): Promise<DispatchOrdersResponse> {
+export function getDispatchOrders(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<DispatchOrdersResponse> {
   return apiGet<DispatchOrdersResponse>(
     withQuery('/scheduling/dispatch-orders', { session_id: sessionId }),
     { signal },
@@ -35,7 +45,10 @@ export function getDispatchOrders(sessionId: string, signal?: AbortSignal): Prom
 }
 
 /** `POST /scheduling/execute` — execute a dispatch action (with confirmation). */
-export function executeAction(req: ExecuteActionRequest, signal?: AbortSignal): Promise<ExecuteActionResponse> {
+export function executeAction(
+  req: ExecuteActionRequest,
+  signal?: AbortSignal,
+): Promise<ExecuteActionResponse> {
   return apiPost<ExecuteActionResponse>('/scheduling/execute', req, { signal });
 }
 

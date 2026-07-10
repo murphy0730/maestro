@@ -50,9 +50,9 @@ from maestro.foundation.permissions import PermissionEngine
 from maestro.foundation.session_store import SessionStore
 from maestro.foundation.tools.builtin import (
     QUERY_READONLY_TOOLS,
-    SCHEDULING_TOOLS,
     FollowupStore,
     register_builtin_tools,
+    scheduling_tools,
 )
 from maestro.foundation.tools.registry import Precondition, ToolRegistry
 from maestro.tools import initialize_tools as initialize_framework_tools
@@ -157,8 +157,8 @@ def build_platform(
         "expedite_valid": make_expedite_precondition(kitting, followups),
     }
 
-    # 技能包仓库 + read_skill_file 工具 (kind="read"，不进 SCHEDULING_TOOLS/QUERY_READONLY_TOOLS
-    # 白名单，仅在技能执行体内被显式调用时才有意义)。
+    # 技能包仓库 + read_skill_file 工具 (kind="read"。不进 QUERY_READONLY_TOOLS；
+    # 调度白名单取注册表全集故含之，但仅在技能执行体内被显式调用时才有意义)。
     skill_store = SkillStore(settings.skills_dir)
 
     async def _read_skill_file(skill_name: str, path: str) -> dict:
@@ -185,9 +185,9 @@ def build_platform(
         observations=observations,
     )
 
-    # 调度引擎 (ReAct 智能体)
+    # 调度引擎 (ReAct 智能体)。白名单 = 此刻注册表全集，故须在所有工具注册之后构造。
     agent = AgentLoop(
-        llm, tools, pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS,
+        llm, tools, pending, audit, SCHEDULING_SYSTEM, scheduling_tools(tools),
         settings.react_max_steps,
         observation_max_bytes=settings.react_observation_max_bytes,
         permissions=permissions,

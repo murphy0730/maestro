@@ -60,6 +60,9 @@ export interface RouteDecision {
    2. Orchestrator — unified chat entry
    ============================================================ */
 
+/** Composer 的执行模式，同时是 /chat 系列请求体的字段。 */
+export type ComposerMode = 'plan' | 'auto';
+
 export interface ChatStreamRequest {
   session_id: string;
   message: string;
@@ -69,6 +72,8 @@ export interface ChatStreamRequest {
   skill_id?: string | null;
   /** 多技能选择: 前端多选技能透传，后端合并为单次运行。 */
   skill_ids?: string[];
+  /** 执行模式: plan=写操作均需确认；auto=文件写入直接执行，写 MES 仍需确认。 */
+  mode?: ComposerMode;
 }
 
 /** Clarification option offered when intent = uncertain. */
@@ -88,6 +93,8 @@ export interface ClarifyRequest {
   session_id: string;
   option_id: string;
   route_to: IntentType;
+  /** 执行模式: 与 ChatStreamRequest.mode 同义，续流时保持一致。 */
+  mode?: ComposerMode;
 }
 
 /** `context` SSE event: activate/update the right Context Panel.
@@ -98,7 +105,10 @@ export interface SchedulingTraceStep {
   thought?: string;
   tool: string;
   arguments?: Record<string, unknown>;
-  observation?: { observation_ref?: string; total?: number; hint?: string } & Record<string, unknown>;
+  observation?: { observation_ref?: string; total?: number; hint?: string } & Record<
+    string,
+    unknown
+  >;
   blocked?: boolean;
 }
 

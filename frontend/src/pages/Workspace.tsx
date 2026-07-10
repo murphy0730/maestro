@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Layout } from '@/components/layout/Layout';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -32,6 +33,7 @@ import type { RouteEngine } from '@/types';
  *  - activeSessionId 驱动 useOrchestrator，确保消息发到正确会话。
  */
 export function Workspace() {
+  const navigate = useNavigate();
   const messages = useConversationStore((s) => s.messages);
   const activeEngine = useConversationStore((s) => s.activeEngine);
   const schedulingSteps = useConversationStore((s) => s.schedulingSteps);
@@ -171,7 +173,14 @@ export function Workspace() {
     // 新建会话：输入框的引擎默认回到用户设置的「默认引擎」
     setRoute(defaultEngine);
     if (defaultEngine !== 'auto') setSelectedSkills([]);
-  }, [createSessionMut, setActiveSessionId, resetThread, defaultEngine, setRoute, setSelectedSkills]);
+  }, [
+    createSessionMut,
+    setActiveSessionId,
+    resetThread,
+    defaultEngine,
+    setRoute,
+    setSelectedSkills,
+  ]);
 
   /** 切换历史会话 */
   const handleSelectSession = useCallback(
@@ -256,6 +265,7 @@ export function Workspace() {
           text,
           route === 'auto' ? null : route,
           selectedSkills.map((s) => s.name),
+          mode,
         )
       }
       route={route}
@@ -288,11 +298,13 @@ export function Workspace() {
             <Sidebar
               appName="Maestro"
               user="周文涛"
+              initial="Z"
               role="排产调度员"
               conversations={sidebarConversations}
               activeId={activeSessionId ?? ''}
               onSelect={handleSelectSession}
               onNewConversation={handleNewConversation}
+              onOpenTasks={() => navigate('/tasks')}
               onRenameSession={handleRenameSession}
               onDeleteSession={handleDeleteSession}
               onCollapse={() => setSidebarCollapsed(true)}
@@ -339,7 +351,9 @@ export function Workspace() {
               <Thread
                 messages={thread}
                 author="周文涛"
-                onClarifySelect={selectClarification}
+                onClarifySelect={(mid, oid, routeTo) =>
+                  selectClarification(mid, oid, routeTo, mode)
+                }
                 onActionConfirm={confirmPending}
               />
               {/* Composer floats over the thread so content scrolls under its glass */}

@@ -15,9 +15,9 @@ from maestro.engines.scheduling.preconditions import (
 )
 from maestro.foundation.kitting import KittingService
 from maestro.foundation.tools.builtin import (
-    SCHEDULING_TOOLS,
     FollowupStore,
     register_builtin_tools,
+    scheduling_tools,
 )
 from maestro.foundation.tools.registry import ToolRegistry
 
@@ -33,7 +33,7 @@ def _assemble(adapter, audit, gate, llm, settings):
         "send_expedite_message", make_expedite_precondition(kitting, followups)
     )
     agent = AgentLoop(
-        llm, tools, gate.pending, audit, SCHEDULING_SYSTEM, SCHEDULING_TOOLS,
+        llm, tools, gate.pending, audit, SCHEDULING_SYSTEM, scheduling_tools(tools),
         settings.react_max_steps,
     )
     engine = SchedulingEngine(agent, kitting, audit)

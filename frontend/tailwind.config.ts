@@ -1,14 +1,14 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Cadence design tokens — macOS-material restyle.
+ * Maestro design tokens — Linear/Vercel restyle.
  * The CSS custom properties live in src/index.css (light = :root default,
  * dark = [data-theme='dark'] overrides); this file mirrors them as semantic
- * Tailwind utilities so JSX can use `bg-planning`, `text-route-query-fg`,
- * `shadow-glow-scheduling`, etc.
+ * Tailwind utilities so JSX can use `bg-planning`, `text-route-query-fg`, etc.
  *
  * Every color references its CSS var so hues can differ per theme — no
- * raw hex here. Source of truth for the raw values is index.css.
+ * raw hex here. Source of truth for the raw values is index.css, which in
+ * turn tracks docs/design/maestro-design-system-v1.html.
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -106,6 +106,17 @@ const config: Config = {
           border: 'var(--accent-border)',
         },
 
+        // ============================================================
+        // SOLID FILLS — filled controls carry white text on both themes.
+        // blue = 沟通与导航 (send / new chat / my bubble)
+        // green = 执行 (submit plan / dispatch)
+        // ============================================================
+        'blue-solid': 'var(--blue-solid)',
+        'blue-solid-hover': 'var(--blue-solid-hover)',
+        'green-solid': 'var(--green-solid)',
+        'green-solid-hover': 'var(--green-solid-hover)',
+        'on-solid': 'var(--on-solid)',
+
         // ---- Data-viz sequence (charts, gantt tracks) ----
         'data-1': 'var(--data-1)',
         'data-2': 'var(--data-2)',
@@ -115,28 +126,12 @@ const config: Config = {
         'data-6': 'var(--data-6)',
       },
 
+      // Geist carries headings, Inter carries prose, Geist Mono carries any
+      // digits that must line up. Stacks are declared once in index.css.
       fontFamily: {
-        sans: [
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'SF Pro Text',
-          'Helvetica Neue',
-          'PingFang SC',
-          'Hiragino Sans GB',
-          'Microsoft YaHei',
-          'system-ui',
-          'Segoe UI',
-          'sans-serif',
-        ],
-        mono: [
-          'ui-monospace',
-          'SF Mono',
-          'SFMono-Regular',
-          'Menlo',
-          'Consolas',
-          'Liberation Mono',
-          'monospace',
-        ],
+        display: 'var(--font-display)',
+        sans: 'var(--font-sans)',
+        mono: 'var(--font-mono)',
       },
 
       fontSize: {
@@ -187,22 +182,23 @@ const config: Config = {
         '12': '64px',
         '13': '80px',
         // ---- Layout dimensions ----
-        sidebar: '260px',
+        sidebar: '228px',
         'context-panel': '400px',
         header: '56px',
         composer: '88px',
         'max-readable': '720px',
         // standard control height (buttons, inputs)
-        control: '34px',
+        control: '32px',
       },
 
-      // ---- Radii (macOS continuous-corner feel) ----
+      // ---- Radii — tightened from macOS 10/14/20. The geometric feel of
+      // this language comes from the smaller curvature radius. ----
       borderRadius: {
         xs: '4px',
         sm: '6px',
-        md: '10px',
-        lg: '14px',
-        xl: '20px',
+        md: '8px',
+        lg: '12px',
+        xl: '16px',
         pill: '999px',
       },
 
@@ -212,28 +208,30 @@ const config: Config = {
       },
 
       boxShadow: {
-        // elevation — diffuse macOS shadows, per-theme via CSS vars
+        // elevation — restrained; hierarchy is carried by 1px hairlines
         'elev-1': 'var(--shadow-elev-1)',
         'elev-2': 'var(--shadow-elev-2)',
         'elev-3': 'var(--shadow-elev-3)',
         popover: 'var(--shadow-popover)',
-        // glow — restrained; only glow-accent stays assertive (AI/live)
-        'glow-accent': '0 0 0 1px var(--accent-border), 0 0 12px var(--accent-glow)',
-        'glow-accent-sm': '0 0 8px var(--accent-glow)',
-        'glow-planning': '0 0 8px var(--route-planning-glow)',
-        'glow-scheduling': '0 0 8px var(--route-scheduling-glow)',
-        'glow-query': '0 0 8px var(--route-query-glow)',
-        'glow-uncertain': '0 0 8px var(--route-uncertain-glow)',
-        'glow-success': '0 0 8px rgba(48, 209, 88, 0.25)',
-        'glow-confirm': '0 0 8px rgba(255, 176, 32, 0.25)',
+        // The glow family is retained by name so existing JSX keeps compiling,
+        // but this language has no glows: each resolves to a hairline ring.
+        'glow-accent': '0 0 0 1px var(--accent-border)',
+        'glow-accent-sm': '0 0 0 1px var(--accent-border)',
+        'glow-planning': '0 0 0 1px var(--route-planning-border)',
+        'glow-scheduling': '0 0 0 1px var(--route-scheduling-border)',
+        'glow-query': '0 0 0 1px var(--route-query-border)',
+        'glow-uncertain': '0 0 0 1px var(--route-uncertain-border)',
+        'glow-success': '0 0 0 1px var(--auth-auto-border)',
+        'glow-confirm': '0 0 0 1px var(--auth-confirm-border)',
         // inner top hairline highlight (per-theme via CSS var)
         'inset-top-hi': 'inset 0 1px 0 var(--inset-hi)',
         // focus ring
         focus: '0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent-border)',
       },
 
+      // Retained so `backdrop-blur-glass` still compiles; the material is gone.
       backdropBlur: {
-        glass: '20px',
+        glass: '0px',
       },
 
       transitionTimingFunction: {

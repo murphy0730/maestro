@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Boxes,
+  ListChecks,
   SquarePen,
   Settings,
   Sun,
@@ -22,6 +22,7 @@ import type { ConversationSummary } from '@/mocks/session';
 import type { Theme, DefaultEngine } from '@/stores';
 import { ROUTE_META } from '@/lib/routes';
 import { Popover, PopoverItem, PopoverLabel } from '@/components/ui/Popover';
+import { BatonIcon } from '@/components/ui/Icon';
 import { SettingsModal } from '@/features/orchestrator/settings/SettingsModal';
 import { PersonalizationModal } from '@/features/orchestrator/settings/PersonalizationModal';
 
@@ -42,11 +43,16 @@ const ENGINE_OPTS: { value: DefaultEngine; label: string; dot: string }[] = [
 interface SidebarProps {
   appName: string;
   user: string;
+  /** Avatar letter. Latin names derive it from `user`; CJK names must pass it
+   *  explicitly (there is no letter to take the first character of). */
+  initial?: string;
   role: string;
   conversations: ConversationSummary[];
   activeId: string;
   onSelect: (id: string) => void;
   onNewConversation: () => void;
+  /** Navigate to the task list. Omitted (e.g. in tests) hides the entry. */
+  onOpenTasks?: () => void;
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
   onCollapse: () => void;
@@ -59,11 +65,13 @@ interface SidebarProps {
 export function Sidebar({
   appName,
   user,
+  initial,
   role,
   conversations,
   activeId,
   onSelect,
   onNewConversation,
+  onOpenTasks,
   onRenameSession,
   onDeleteSession,
   onCollapse,
@@ -129,14 +137,18 @@ export function Sidebar({
 
   return (
     <aside className="material-chrome flex w-sidebar flex-none flex-col border-r border-border-subtle">
-      {/* Brand */}
+      {/* Brand — the baton mark plus a wordmark with room to breathe. The
+          wordmark uses looser tracking than headings: at 15px, Geist 600 at
+          -0.02em nearly glues the letters together. */}
       <div className="flex h-header flex-none items-center gap-[10px] border-b border-border-subtle px-4">
-        <span className="grid h-7 w-7 flex-none place-items-center rounded-md bg-gradient-to-b from-accent to-accent-strong text-text-on-color shadow-elev-1">
-          <Boxes size={16} />
+        <span className="grid h-[30px] w-[30px] flex-none place-items-center rounded-md bg-blue-solid text-on-solid shadow-elev-1">
+          <BatonIcon size={18} />
         </span>
         <div className="flex min-w-0 flex-col leading-none">
-          <span className="text-body-sm font-semibold text-text-primary">{appName}</span>
-          <span className="mt-[3px] text-[10px] tracking-eyebrow text-text-tertiary">
+          <span className="font-display text-[15px] font-semibold tracking-[-0.005em] text-text-primary">
+            {appName}
+          </span>
+          <span className="mt-[4px] text-[9.5px] tracking-eyebrow text-text-tertiary">
             生产排产调度 Agent
           </span>
         </div>
@@ -153,11 +165,20 @@ export function Sidebar({
       <div className="flex-none p-3">
         <button
           onClick={onNewConversation}
-          className="inline-flex h-control w-full items-center justify-center gap-[7px] rounded-md border border-border-default bg-surface-1 text-body-sm font-semibold text-text-primary shadow-elev-1 transition-colors duration-fast ease-out hover:bg-surface-3"
+          className="inline-flex h-control w-full items-center justify-center gap-[7px] rounded-sm bg-blue-solid text-body-sm font-medium text-on-solid shadow-elev-1 transition-colors duration-fast ease-out hover:bg-blue-solid-hover"
         >
-          <SquarePen size={15} />
+          <SquarePen size={14} />
           新建对话
         </button>
+        {onOpenTasks && (
+          <button
+            onClick={onOpenTasks}
+            className="mt-[6px] inline-flex h-control w-full items-center gap-[9px] rounded-sm px-2 text-body-sm font-medium text-text-secondary transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-text-primary"
+          >
+            <ListChecks size={15} className="flex-none text-text-tertiary" />
+            任务列表
+          </button>
+        )}
       </div>
 
       {/* History */}
@@ -175,10 +196,10 @@ export function Sidebar({
             return (
               <div
                 key={c.id}
-                className={`group relative flex items-center rounded-md pr-1 transition-colors duration-fast ease-out ${
+                className={`group relative flex items-center rounded-sm pr-1 transition-colors duration-fast ease-out ${
                   active
-                    ? 'bg-accent-bg text-text-primary'
-                    : 'text-text-secondary hover:bg-border-subtle'
+                    ? 'bg-accent-bg text-text-primary ring-1 ring-inset ring-accent-border'
+                    : 'text-text-secondary hover:bg-surface-2'
                 }`}
               >
                 {editingId === c.id ? (
@@ -268,11 +289,11 @@ export function Sidebar({
 
       {/* User + settings */}
       <div className="flex flex-none items-center gap-[9px] border-t border-border-subtle px-3 py-3">
-        <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-border-default bg-surface-1 text-body-sm font-semibold text-text-primary">
-          {user.slice(0, 1)}
+        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-full bg-blue-solid font-display text-caption font-semibold text-on-solid">
+          {initial ?? user.trim().charAt(0).toUpperCase()}
         </span>
         <div className="flex min-w-0 flex-1 flex-col leading-none">
-          <span className="truncate text-body-sm font-semibold text-text-primary">{user}</span>
+          <span className="truncate text-body-sm font-medium text-text-primary">{user}</span>
           <span className="mt-[3px] truncate text-caption text-text-tertiary">{role}</span>
         </div>
         <div ref={settingsRef} className="relative flex-none">
