@@ -1,8 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { PanelRight } from 'lucide-react';
 import type { ActiveEngine, SchedulingTraceStep } from '@/types';
 import { PlanningPanel } from '@/features/planning/PlanningPanel';
 import { SchedulingPanel } from '@/features/scheduling/SchedulingPanel';
-import { KnowledgeManager } from '@/features/query/KnowledgeManager';
+
+const KnowledgeManager = lazy(async () => ({
+  default: (await import('@/features/query/KnowledgeManager')).KnowledgeManager,
+}));
 
 /**
  * ContextPanelHost — the shell that swaps the right panel's content to match
@@ -34,7 +38,11 @@ export function ContextPanelHost({ engine, onClose, schedulingSteps }: ContextPa
     case 'scheduling':
       return <SchedulingPanel onClose={onClose} steps={schedulingSteps} />;
     case 'query':
-      return <KnowledgeManager onClose={onClose} />;
+      return (
+        <Suspense fallback={<EmptyPanel />}>
+          <KnowledgeManager onClose={onClose} />
+        </Suspense>
+      );
     default:
       return <EmptyPanel />;
   }

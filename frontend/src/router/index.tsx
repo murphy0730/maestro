@@ -1,7 +1,9 @@
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter, createHashRouter } from 'react-router-dom';
 import { Workspace } from '@/pages/Workspace';
-import { Tasks } from '@/pages/Tasks';
 import { DesignTokens } from '@/pages/DesignTokens';
+
+const Tasks = lazy(async () => ({ default: (await import('@/pages/Tasks')).Tasks }));
 
 /**
  * Routes. `/` is the main workspace; `/tasks` is the task list for a planning
@@ -21,7 +23,11 @@ export const router = createRouter([
   },
   {
     path: '/tasks',
-    element: <Tasks />,
+    element: (
+      <Suspense fallback={<div className="p-6 text-body-sm text-text-tertiary">加载任务列表…</div>}>
+        <Tasks />
+      </Suspense>
+    ),
   },
   {
     path: '/design-tokens',
