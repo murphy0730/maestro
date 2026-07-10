@@ -50,3 +50,27 @@ def test_env_overrides_settings_json(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_API_KEY", "sk-from-env")
     s = Settings()
     assert s.llm_api_key == "sk-from-env"
+
+
+def test_settings_json_supplies_mcp_servers(monkeypatch, tmp_path):
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"mcp_servers": [{"name": "mes", "command": "python", "args": ["server.py"]}]}),
+        encoding="utf-8",
+    )
+    server = Settings().mcp_servers[0]
+    assert server.name == "mes"
+    assert server.transport_type == "stdio"
+    assert server.args == ["server.py"]
+
+
+def test_platform_falls_back_to_memory_when_chroma_cannot_open(monkeypatch, tmp_path):
+    from maestro.bootstrap import build_platform
+    from maestro.foundation.chroma_store import ChromaVectorStore
+
+    def unavailable(self, embedder, persist_dir):
+        raise RuntimeError("read-only database")
+
+    monkeypatch.setattr(ChromaVectorStore, "__init__", unavailable)
+    platform = build_platform(Settings(vector_backend="chroma", chroma_dir=tmp_path / "chroma"))
+    assert type(platform.ingestor._store).__name__ == "VectorStore"

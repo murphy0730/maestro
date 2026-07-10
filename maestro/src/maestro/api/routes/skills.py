@@ -33,7 +33,9 @@ async def import_skill(request: Request, file: UploadFile = File(...)):
     if not (filename.lower().endswith(".md") or filename.lower().endswith(".zip")):
         raise HTTPException(status_code=415, detail="仅支持 .md / .zip 后缀")
     try:
-        frontmatter, body, attachments = extract_package(data, filename)
+        frontmatter, body, attachments = extract_package(
+            data, filename, platform.settings.skill_body_max_bytes
+        )
         allowed = validate_allowed_tools(
             frontmatter,
             set(platform.tools.names()),

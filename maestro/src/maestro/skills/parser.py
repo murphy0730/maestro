@@ -11,7 +11,7 @@ _ZIP_MAX_MEMBERS = 50
 _ZIP_MAX_TOTAL = 10 * 1024 * 1024
 
 
-def parse_skill_md(text: str) -> tuple[SkillFrontmatter, str]:
+def parse_skill_md(text: str, max_bytes: int = _BODY_MAX) -> tuple[SkillFrontmatter, str]:
     if not text.startswith("---"):
         raise SkillValidationError("frontmatter 必须以 '---' 开头")
     parts = text.split("---", 2)
@@ -30,22 +30,26 @@ def parse_skill_md(text: str) -> tuple[SkillFrontmatter, str]:
         raise SkillValidationError(str(e)) from e
     if not body.strip():
         raise SkillValidationError("正文不能为空")
-    if len(body.encode("utf-8")) > _BODY_MAX:
-        raise SkillValidationError("正文需 ≤32KB")
+    if len(body.encode("utf-8")) > max_bytes:
+        raise SkillValidationError(f"正文需 ≤{max_bytes // 1024}KB")
     return fm, body
 
 
-def extract_package(data: bytes, filename: str) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
+def extract_package(
+    data: bytes, filename: str, max_bytes: int = _BODY_MAX
+) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
     name = filename.lower()
     if name.endswith(".md"):
-        fm, body = parse_skill_md(data.decode("utf-8"))
+        fm, body = parse_skill_md(data.decode("utf-8"), max_bytes)
         return fm, body, {}
     if name.endswith(".zip"):
-        return _extract_zip(data)
+        return _extract_zip(data, max_bytes)
     raise SkillValidationError("仅支持 .md / .zip 后缀")
 
 
-def _extract_zip(data: bytes) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
+def _extract_zip(
+    data: bytes, max_bytes: int = _BODY_MAX
+) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
     bio = io.BytesIO(data)
     try:
         zf = zipfile.ZipFile(bio)
@@ -77,7 +81,7 @@ def _extract_zip(data: bytes) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
         if rel == "SKILL.md" or path == skill_path:
             continue
         attachments[rel] = content
-    fm, body = parse_skill_md(files[skill_path].decode("utf-8"))
+    fm, body = parse_skill_md(files[skill_path].decode("utf-8"), max_bytes)
     return fm, body, attachments
 
 

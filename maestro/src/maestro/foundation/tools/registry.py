@@ -52,6 +52,10 @@ class Tool:
     handler: Callable[..., Awaitable[Any]]
     kind: ToolKind = "read"
     precondition: Precondition | None = None
+    should_defer: bool = False
+    # 是否可与其它工具并发执行。read/aux 默认可并发；有共享可变状态的工具
+    # (如 invoke_skill 需原子扣减嵌套预算) 显式置 False，强制串行。
+    parallelizable: bool = True
 
 
 class ToolRegistry:
@@ -66,10 +70,15 @@ class ToolRegistry:
         handler: Callable[..., Awaitable[Any]],
         kind: ToolKind = "read",
         precondition: Precondition | None = None,
+        should_defer: bool = False,
+        parallelizable: bool = True,
     ) -> None:
         if name in self._tools:
             raise ValueError(f"工具 {name} 已注册")
-        self._tools[name] = Tool(name, description, parameters, handler, kind, precondition)
+        self._tools[name] = Tool(
+            name, description, parameters, handler, kind, precondition, should_defer,
+            parallelizable,
+        )
 
     def attach_precondition(self, name: str, precondition: Precondition) -> None:
         """为已注册的写操作工具挂载前置断言 (在组装根装配，避免 foundation 依赖引擎)。"""
@@ -83,8 +92,12 @@ class ToolRegistry:
             raise KeyError(f"工具 {name} 未注册")
         return self._tools[name]
 
-    def names(self, kind: ToolKind | None = None) -> list[str]:
-        return [t.name for t in self._tools.values() if kind is None or t.kind == kind]
+    def names(self, kind: ToolKind | None = None, include_deferred: bool = True) -> list[str]:
+        return [
+            t.name
+            for t in self._tools.values()
+            if (kind is None or t.kind == kind) and (include_deferred or not t.should_defer)
+        ]
 
     def list_all(self) -> list[Tool]:
         return list(self._tools.values())

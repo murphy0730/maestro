@@ -6,8 +6,9 @@
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
     JsonConfigSettingsSource,
@@ -38,6 +39,17 @@ def runtime_data_root() -> Path:
     供 model_config 等模块读写 settings.json，避免在多处重复 _runtime_data_root 实现。
     """
     return _runtime_data_root()
+
+
+class MCPServerSettings(BaseModel):
+    """A serialisable MCP server definition stored in settings.json or .env."""
+
+    name: str
+    transport_type: Literal["stdio", "sse", "websocket", "http"] = "stdio"
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    url: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
 
 
 class Settings(BaseSettings):
@@ -80,6 +92,10 @@ class Settings(BaseSettings):
     # 会覆盖上面的扁平默认值 (see maestro.foundation.model_config / bootstrap)。
     model_providers: dict | None = None
 
+    # MCP servers are connected during FastAPI lifespan startup.  Empty is a
+    # safe default and keeps CLI/tests free of external processes.
+    mcp_servers: list[MCPServerSettings] = Field(default_factory=list)
+
     # 路由 / 策略选择 置信度门控
     route_confidence_threshold: float = 0.8
     embed_confidence_threshold: float = 0.72  # 嵌入路由：top 相似度 ≥ 此值才直接路由
@@ -89,6 +105,11 @@ class Settings(BaseSettings):
     react_max_steps: int = 8  # 思考-行动循环最大步数 (防无限循环/绕路)
     react_observation_max_bytes: int = 8192  # 单条工具观察回喂上限，超出离线暂存 (防上下文爆炸)
     react_observation_store_max: int = 200  # 观察离线暂存的全局条数上限 (FIFO 淘汰)
+
+    # 技能引擎护栏
+    skill_body_max_bytes: int = 128 * 1024  # 单个技能包 SKILL.md 正文字节上限 (导入校验)
+    skill_prompt_max_bytes: int = 256 * 1024  # 多技能合并后渲染进 system prompt 的总字节上限
+    skill_max_depth: int = 2  # invoke_skill 嵌套深度上限 (防无界递归)
 
     # 查询引擎 (RAG)
     rag_top_k: int = 3  # 每次检索返回的知识片段数

@@ -1,25 +1,34 @@
-"""SkillEngine — 组装 AgentLoop 执行单个技能包。
+"""SkillEngine — 组装 AgentLoop 执行技能包 (支持有界嵌套)。
 
 不实现 Engine ABC (签名多 skill_id；由 Orchestrator 直接持有，与 QueryEngine 同待遇)。
 技能不拥有 Context Panel，不调 memory.set_engine。
 
 护栏装配:
-  - allowed_tools: meta.allowed_tools (HTTP 层 Task 2.2 在导入时已解析，运行时不为 None)。
-  - file_count > 0 时追加 "read_skill_file" 到白名单。
-  - extra_preconditions: 由 meta.tool_preconditions (dict[str, list[str]] 命名断言名)
-    装配，查表 self._named[name] 得到 Precondition；缺省 {} → None (AgentLoop 行为不变)。
+  - allowed_tools: meta.allowed_tools。file_count>0 时追加 read_skill_file/list_skill_files。
+  - extra_preconditions: 由 meta.tool_preconditions (命名断言) 装配。
+  - 合并总量: 多技能拼接后若超 skill_prompt_max_bytes 直接报错 (不静默截断)。
+  - 作用域/嵌套: 运行前 set_context 携带 allowed_skills/depth/visited/共享 Budget;
+    附件工具据此只访问当前技能;invoke_nested 有界递归 (深度/环/预算)。
 """
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from maestro.engines.base import EngineResponse, ProgressFn
 from maestro.engines.scheduling.agent_loop import AgentLoop
+from maestro.engines.scheduling.run_state import Budget
 from maestro.foundation.audit import AuditLog
 from maestro.foundation.authz import PendingActionStore
 from maestro.foundation.llm import LLMClient, LLMError
-from maestro.foundation.tools.registry import ToolRegistry, Precondition
+from maestro.foundation.tools.registry import Precondition, ToolRegistry
+from maestro.skills.context import (
+    SkillInvocationContext,
+    current_context,
+    reset_context,
+    set_context,
+)
 from maestro.skills.store import SkillStore
 
 SKILL_PREAMBLE = (
@@ -77,13 +86,73 @@ class SkillEngine:
         if not self._llm.available:
             return EngineResponse(reply="LLM 未配置，技能暂不可用")
 
+        # top-level 调用上下文: 可访问本次全部技能的附件、深度 0、共享一份新预算
+        # (全链路 = 单循环上限 × (最大深度+1)，故单技能不嵌套时循环自身 max_steps 先触顶)。
+        budget = Budget(self._settings.react_max_steps * (self._settings.skill_max_depth + 1))
+        ctx = SkillInvocationContext(
+            allowed_skills=frozenset(skill_ids),
+            depth=0,
+            visited=frozenset(skill_ids),
+            budget=budget,
+        )
+        return await self._run(skill_ids, message, history, on_progress, ctx)
+
+    async def invoke_nested(
+        self, skill_id: str, task: str, on_progress: ProgressFn | None = None
+    ) -> dict:
+        """invoke_skill 工具入口: 有界递归调用另一技能，返回观察 dict 回喂父循环。
+
+        有界护栏: 技能存在 + 未禁用模型调用 + 环检测 + 深度上限；子技能用**自己**的
+        allowed_tools、只能访问**自己**的附件、与父共享同一预算。"""
+        ctx = current_context()
+        if ctx is None:
+            return {"blocked": "invoke_skill 仅在技能执行体内可用"}
+        meta = self._store.get(skill_id)
+        if meta is None:
+            return {"blocked": f"技能 {skill_id} 不存在"}
+        if meta.disable_model_invocation:
+            return {"blocked": f"技能 {skill_id} 已禁用模型调用，不可被 invoke_skill 调用"}
+        if skill_id in ctx.visited:
+            return {"blocked": f"检测到技能调用环 ({skill_id} 已在祖先链)，已拒绝"}
+        if ctx.depth + 1 > self._settings.skill_max_depth:
+            return {"blocked": f"技能嵌套过深 (>{self._settings.skill_max_depth})，已拒绝"}
+        child = SkillInvocationContext(
+            allowed_skills=frozenset({skill_id}),
+            depth=ctx.depth + 1,
+            visited=ctx.visited | {skill_id},
+            budget=ctx.budget,
+        )
+        resp = await self._run([skill_id], task, None, on_progress, child)
+        return {
+            "skill_id": skill_id,
+            "answer": resp.reply,
+            "stop_reason": resp.data.get("stop_reason"),
+        }
+
+    async def _run(
+        self,
+        skill_ids: list[str],
+        message: str,
+        history: list[dict] | None,
+        on_progress: ProgressFn | None,
+        ctx: SkillInvocationContext,
+    ) -> EngineResponse:
+        metas = []
+        for sid in skill_ids:
+            meta = self._store.get(sid)
+            if meta is None:
+                return EngineResponse(reply=f"技能 {sid} 不存在或已被删除")
+            metas.append(meta)
+
         allowed: list[str] = []
         for m in metas:
             for t in (m.allowed_tools or []):
                 if t not in allowed:
                     allowed.append(t)
-        if any(m.file_count > 0 for m in metas) and "read_skill_file" not in allowed:
-            allowed.append("read_skill_file")
+        if any(m.file_count > 0 for m in metas):
+            for t in ("read_skill_file", "list_skill_files"):
+                if t not in allowed:
+                    allowed.append(t)
 
         extra: dict[str, list[Precondition]] = {}
         for m in metas:
@@ -101,8 +170,15 @@ class SkillEngine:
             except (KeyError, FileNotFoundError):
                 return EngineResponse(reply=f"技能 {sid} 不存在或已被删除")
             bodies.append(f"## 技能: {m.effective_display_name}\n\n{body}")
-        combined = SKILL_PREAMBLE + "\n\n---\n\n".join(bodies)
+        combined = SKILL_PREAMBLE + "\n\n---\n\n".join(bodies) + self._file_manifest(skill_ids, metas)
 
+        cap = self._settings.skill_prompt_max_bytes
+        if len(combined.encode("utf-8")) > cap:
+            return EngineResponse(
+                reply=f"技能正文合并后超出上限 ({cap // 1024}KB)，请精简正文或改用附件承载细节"
+            )
+
+        token = set_context(ctx)
         try:
             result = await AgentLoop(
                 self._llm, self._tools, self._pending, self._audit,
@@ -110,9 +186,12 @@ class SkillEngine:
                 observation_max_bytes=self._settings.react_observation_max_bytes,
                 extra_preconditions=extra or None,
                 observations=self._observations,
+                budget=ctx.budget,
             ).run(message, history=history, on_progress=on_progress)
         except LLMError:
             return EngineResponse(reply="LLM 调用失败，技能暂不可用")
+        finally:
+            reset_context(token)
         return EngineResponse(
             reply=result.answer,
             data={
@@ -121,4 +200,22 @@ class SkillEngine:
                 "skill_ids": list(skill_ids),
             },
             pending_actions=result.pending_actions,
+        )
+
+    def _file_manifest(self, skill_ids: list[str], metas: list) -> str:
+        """把当前技能的附件路径以结构化 (JSON 转义) 形式注入正文，让 agent 无需先
+        调 list_skill_files 就知道有哪些文件可读。路径来自技能包，按不可信文本转义。"""
+        lines = []
+        for sid, m in zip(skill_ids, metas):
+            paths = [a["path"] for a in self._store.list_attachments(sid)]
+            if paths:
+                lines.append(
+                    f"- 技能「{m.effective_display_name}」附带文件: "
+                    f"{json.dumps(paths, ensure_ascii=False)}"
+                )
+        if not lines:
+            return ""
+        return (
+            "\n\n---\n\n以下附件可用 `read_skill_file(path)` 按需读取"
+            "（`list_skill_files()` 亦可列出）:\n" + "\n".join(lines)
         )

@@ -9,7 +9,20 @@
 - 能力声明：`tools` + `resources`（不含 sampling / prompts）
 - MCP 工具经 `tools/mcp_wrapper.py` 包装后进入平台统一工具池，**默认需人工确认**
 
-> **接入状态**：本模块自包含，尚未接入 `bootstrap.py::build_platform()`，当前通过代码构造 `MCPServerConfig` 使用，暂无配置文件加载。工具框架侧文档见 [features/tools.md](tools.md)。
+> **接入状态**：MCP 已接入运行时主链。FastAPI lifespan 启动时读取 `Settings.mcp_servers`，连接服务器、发现工具并 bridge 到 SchedulingEngine；关闭时断开连接。配置可放在 `<MAESTRO_DATA_DIR>/settings.json` 或通过 `MCP_SERVERS` 环境变量提供 JSON。工具框架侧文档见 [features/tools.md](tools.md)。
+
+最小配置示例：
+
+```json
+{
+  "mcp_servers": [{
+    "name": "mes",
+    "transport_type": "stdio",
+    "command": "python",
+    "args": ["/opt/mes-mcp/server.py"]
+  }]
+}
+```
 
 ## 目录结构
 
@@ -260,8 +273,8 @@ contents = await mcp.read_resource("filesystem", "file:///data/a.txt")
 
 - 仅支持 stdio 传输；SSE / WebSocket / HTTP 待实现
 - 不支持 MCP 的 prompts / sampling 能力，也无 OAuth 认证流（`needs_auth` 状态已预留）
-- 服务器配置仅能通过代码构造，尚无配置文件（如 `.mcp.json`）加载
-- 未接入 `bootstrap.py`，尚未在 CLI / HTTP 主流程中启用
+- 当前仅支持 settings 中声明的服务器；尚未实现 Claude `.mcp.json` 的兼容加载
+- CLI 需要显式调用 `Platform.connect_mcp()`；HTTP 主流程会在 lifespan 自动连接
 - 无自动重连；`tools_changed` 仅在连接成功时触发一次（不监听服务器端的 listChanged 通知）
 
 ## 相关文档

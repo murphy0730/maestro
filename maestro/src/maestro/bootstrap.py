@@ -55,14 +55,18 @@ from maestro.foundation.tools.builtin import (
     scheduling_tools,
 )
 from maestro.foundation.tools.registry import Precondition, ToolRegistry
-from maestro.tools import ToolManager, ToolRegistry as FrameworkToolRegistry
+from maestro.mcp.manager import MCPManager
+from maestro.mcp.types import MCPServerConfig, MCPTransportType
+from maestro.tools import IntegratedToolManager, ToolRegistry as FrameworkToolRegistry
 from maestro.tools import initialize_tools as initialize_framework_tools
 from maestro.tools.bridge import register_framework_tools
 from maestro.foundation.vectorstore import VectorStore
 from maestro.orchestrator.embedding_router import EmbeddingRouter, load_examples
 from maestro.orchestrator.orchestrator import Orchestrator
 from maestro.orchestrator.router import IntentRouter
+from maestro.skills.context import current_context
 from maestro.skills.engine import SkillEngine
+from maestro.skills.schemas import SkillValidationError
 from maestro.skills.store import SkillStore
 
 
@@ -90,6 +94,36 @@ class Platform:
     skill_store: SkillStore
     skill_engine: SkillEngine
     named_preconditions: dict[str, Precondition]
+    mcp: IntegratedToolManager
+
+    async def connect_mcp(self) -> None:
+        """Connect configured MCP servers, bridge discovered tools, and refresh ReAct."""
+        for server in self.settings.mcp_servers:
+            await self.mcp.mcp_manager.add_server(
+                MCPServerConfig(
+                    name=server.name,
+                    transport_type=MCPTransportType(server.transport_type),
+                    command=server.command,
+                    args=server.args,
+                    url=server.url,
+                    env=server.env,
+                )
+            )
+        await self.mcp.mcp_manager.connect_all()
+        await self.refresh_mcp_tools()
+
+    async def disconnect_mcp(self) -> None:
+        await self.mcp.mcp_manager.disconnect_all()
+
+    async def refresh_mcp_tools(self) -> None:
+        await self.mcp.refresh_mcp_tools()
+        register_framework_tools(
+            self.tools,
+            tool_manager=self.mcp.tool_manager,
+            gate=self.gate,
+            framework_tools=self.mcp.registry,
+        )
+        self.scheduling_engine.refresh_tools(scheduling_tools(self.tools))
 
 
 def build_platform(
@@ -146,12 +180,13 @@ def build_platform(
     tools.attach_precondition("send_expedite_message", make_expedite_precondition(kitting, followups))
 
     # 新工具框架 (tools/) 桥接: 通用工具 (glob/todo_write/tool_search/web_fetch 等) 注册进
-    # 共享工具库，技能 allowed_tools 可按名引用；requires_confirm 工具在桥内被框架权限门
-    # 拦截 → 经 gate 生成 PendingAction (随 actions 事件下发前台确认卡片)。
+    # 共享工具库，技能 allowed_tools 可按名引用；需确认工具由 bridge 统一交给 ActionGate
+    # 生成 PendingAction (随 actions 事件下发前台确认卡片)。
     framework_tools = initialize_framework_tools(FrameworkToolRegistry())
+    mcp = IntegratedToolManager(mcp_manager=MCPManager(), tool_registry=framework_tools)
     register_framework_tools(
         tools,
-        tool_manager=ToolManager(registry=framework_tools),
+        tool_manager=mcp.tool_manager,
         gate=gate,
         framework_tools=framework_tools,
     )
@@ -167,21 +202,58 @@ def build_platform(
     # 调度白名单取注册表全集故含之，但仅在技能执行体内被显式调用时才有意义)。
     skill_store = SkillStore(settings.skills_dir)
 
-    async def _read_skill_file(skill_name: str, path: str) -> dict:
-        return skill_store.read_attachment(skill_name, path)
+    def _safe_rel(path: str) -> bool:
+        """附件相对路径白名单: 非空、限长、无控制字符、无绝对路径/反斜杠/.. 段。"""
+        if not path or len(path) > 255:
+            return False
+        if any(ord(c) < 32 for c in path):
+            return False
+        if path.startswith("/") or "\\" in path or ".." in path.split("/"):
+            return False
+        return True
+
+    async def _read_skill_file(path: str) -> dict:
+        """读取**当前技能**的附属文件。技能范围由 invocation context 携带,不接受
+        skill_name 入参 —— 杜绝跨技能越权读取。"""
+        ctx = current_context()
+        if ctx is None or not ctx.allowed_skills:
+            return {"blocked": "read_skill_file 仅在技能执行体内可用"}
+        if not _safe_rel(path):
+            return {"blocked": f"非法附件路径: {path}"}
+        for skill in sorted(ctx.allowed_skills):
+            try:
+                att = skill_store.read_attachment(skill, path)
+            except SkillValidationError:
+                continue
+            return {"path": path, "text": att["bytes"].decode("utf-8", "replace")}
+        return {"blocked": f"附件 {path} 不存在于当前技能"}
+
+    async def _list_skill_files() -> dict:
+        """列出**当前技能**的附件 (path + size_bytes)。范围由 invocation context 决定。"""
+        ctx = current_context()
+        if ctx is None or not ctx.allowed_skills:
+            return {"blocked": "list_skill_files 仅在技能执行体内可用"}
+        files: list[dict] = []
+        for skill in sorted(ctx.allowed_skills):
+            files.extend(skill_store.list_attachments(skill))
+        return {"files": files}
 
     tools.register(
         name="read_skill_file",
         description="读取当前技能包的附属文件(参考资料/模板)。仅在技能执行体内有意义。",
         parameters={
             "type": "object",
-            "properties": {
-                "skill_name": {"type": "string"},
-                "path": {"type": "string"},
-            },
-            "required": ["skill_name", "path"],
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
         },
         handler=_read_skill_file,
+        kind="read",
+    )
+    tools.register(
+        name="list_skill_files",
+        description="列出当前技能包的附属文件清单(路径与大小)。仅在技能执行体内有意义。",
+        parameters={"type": "object", "properties": {}},
+        handler=_list_skill_files,
         kind="read",
     )
 
@@ -189,6 +261,27 @@ def build_platform(
     skill_engine = SkillEngine(
         llm, tools, pending, audit, skill_store, settings, named_preconditions,
         observations=observations,
+    )
+
+    # invoke_skill: 技能内有界递归调用另一技能 (深度/环/共享预算护栏在 SkillEngine)。
+    # kind=aux 但 parallelizable=False —— 共享预算原子扣减须串行，禁止 gather 并发。
+    async def _invoke_skill(skill_id: str, task: str, on_progress=None) -> dict:
+        return await skill_engine.invoke_nested(skill_id, task, on_progress)
+
+    tools.register(
+        name="invoke_skill",
+        description="调用另一个技能来完成子任务(有界递归)。返回该技能的结论。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string"},
+                "task": {"type": "string"},
+            },
+            "required": ["skill_id", "task"],
+        },
+        handler=_invoke_skill,
+        kind="aux",
+        parallelizable=False,
     )
 
     # 调度引擎 (ReAct 智能体)。白名单 = 此刻注册表全集，故须在所有工具注册之后构造。
@@ -218,8 +311,14 @@ def build_platform(
     # embedding 与 llm 均复用同一份配置 (Settings.embed_* / llm_*)，此处只注入实例。
     embedder = EmbeddingClient(llm)
     if settings.vector_backend == "chroma":
-        from maestro.foundation.chroma_store import ChromaVectorStore
-        vectorstore = ChromaVectorStore(embedder, settings.chroma_dir)
+        try:
+            from maestro.foundation.chroma_store import ChromaVectorStore
+            vectorstore = ChromaVectorStore(embedder, settings.chroma_dir)
+        except Exception as error:  # noqa: BLE001 - RAG storage must not block the platform
+            logging.getLogger(__name__).warning(
+                "[BOOTSTRAP] Chroma 不可用，已回退内存向量库: %s", error
+            )
+            vectorstore = VectorStore(embedder)
     else:
         vectorstore = VectorStore(embedder)
     loaders = build_loader_registry()
@@ -268,4 +367,5 @@ def build_platform(
         skill_store=skill_store,
         skill_engine=skill_engine,
         named_preconditions=named_preconditions,
+        mcp=mcp,
     )

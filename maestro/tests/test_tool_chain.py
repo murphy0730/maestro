@@ -6,12 +6,21 @@
 
 import asyncio
 
+from pydantic import BaseModel
+
 from conftest import FakeLLM
 
 from maestro.engines.scheduling.agent_loop import AgentLoop
 from maestro.foundation.permissions import PermissionEngine, PermissionRule
 from maestro.foundation.tools.registry import ToolRegistry
 from maestro.foundation.tools.validation import validate_arguments
+from maestro.tools import ToolRegistry as FrameworkRegistry, initialize_tools
+from maestro.tools.base import ToolDef, ToolResult, ToolResultStatus, build_tool
+from maestro.tools.bridge import register_framework_tools
+
+
+class _NoArgs(BaseModel):
+    pass
 
 
 def _loop(llm, tools, gate, audit, allowed, **kw) -> AgentLoop:
@@ -197,3 +206,31 @@ def test_authz_decision_sourced_from_engine():
     # 写生产系统: 任何模式都需确认 (internal 催料也不例外)
     assert authz.decide("send_expedite_message.internal") == "requires_confirmation"
     assert authz.decide("send_expedite_message.internal", "auto") == "requires_confirmation"
+
+
+async def test_deferred_tool_requires_search_before_agent_can_use_it(audit, gate):
+    """tool_search activates only returned deferred definitions for one ReAct run."""
+    framework = initialize_tools(FrameworkRegistry())
+
+    async def deferred_execute(args, context, on_progress=None):
+        return ToolResult(status=ToolResultStatus.SUCCESS, content={"loaded": True})
+
+    framework.register(build_tool(ToolDef(
+        name="deferred_probe",
+        description="Deferred probe",
+        input_schema=_NoArgs,
+        execute=deferred_execute,
+        should_defer=True,
+        search_hint="probe",
+    )))
+    tools = ToolRegistry()
+    register_framework_tools(tools, framework_tools=framework)
+    llm = FakeLLM(chat_script=[
+        [("tool_search", {"query": "select:deferred_probe"})],
+        [("deferred_probe", {})],
+        "done",
+    ])
+    result = await _loop(llm, tools, gate, audit, tools.names()).run("t")
+
+    assert result.steps[0].blocked is False
+    assert result.steps[1].observation == {"loaded": True}

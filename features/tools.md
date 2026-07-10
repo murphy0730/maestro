@@ -10,7 +10,7 @@
 
 在此之上提供：注册表（`ToolRegistry`）、三级权限（`PermissionChecker`）、执行管理（`ToolManager`，含确认流程与大结果落盘）、内置工具集（`builtins/`），以及与 MCP 工具融合的 `IntegratedToolManager`。
 
-> **接入状态**：本模块目前是自包含的框架层，尚未接入 `bootstrap.py::build_platform()`。SchedulingEngine 现有的 ReAct 工具白名单走 `engines/scheduling/` 自己的护栏体系；本模块是面向后续统一工具池的新框架。MCP 侧文档见 [features/mcp.md](mcp.md)。
+> **接入状态**：框架工具通过 `tools/bridge.py` 已接入 `bootstrap.py::build_platform()` 的共享工具库，供 SchedulingEngine 与技能调用。Agent 首轮只获得非延迟工具；`tool_search` 返回的定义才会在本轮后续 ReAct 步骤中启用。MCP 侧文档见 [features/mcp.md](mcp.md)。
 
 ## 目录结构
 
@@ -150,7 +150,7 @@ MyTool = build_tool(ToolDef(
 
 返回 `PermissionResult(behavior, updated_input, reason)`。
 
-另提供规则接口：`add_allow_rule(tool_pattern, input_pattern)` / `add_deny_rule(...)` 存储允许/拒绝规则，`matches_deny_rule(tool_name)` 支持 `*` 通配符匹配。**注意**：当前 `check_permission()` 仅使用级别覆盖判定，allow/deny 规则需调用方显式检查（`matches_deny_rule`），尚未织入主判定链。
+`PermissionChecker` 仍可供框架单独使用；但 HTTP/CLI 主链的准入规则由 `foundation.permissions.PermissionEngine` 执行，所有需确认的桥接工具统一交给 `ActionGate` 创建 PendingAction。这样前端确认卡、审计与业务写操作共享同一确认通道，不会产生第二套确认 ID。
 
 ---
 
@@ -247,7 +247,7 @@ IntegratedToolManager
 └── refresh_mcp_tools()              # 注销旧 MCP 包装 → 重新包装注册
 ```
 
-- `refresh_mcp_tools()`：把 `MCPManager.get_all_tools()` 逐个经 `create_mcp_tool_wrapper()` 包装为本地 `Tool` 注册进 registry；重复调用会先注销上一批，适合在 MCP `tools_changed` 事件后调用。
+- `refresh_mcp_tools()`：把 `MCPManager.get_all_tools()` 逐个经 `create_mcp_tool_wrapper()` 包装为本地 `Tool` 注册进 registry；重复调用会先注销上一批，适合在 MCP `tools_changed` 事件后调用。平台启动和刷新后会将新工具 bridge 到共享注册表，并刷新 SchedulingEngine 白名单。
 - `assemble_tool_pool()`：遍历所有 **connected** 状态的 MCP 连接，即时包装其工具并与内置工具池合并（同名时内置工具优先）。
 - `execute_tool` / `confirm_execution` / `get_pending_confirmations` 等直接代理给 `ToolManager`，MCP 工具与内置工具走完全相同的执行管道与确认流程。
 

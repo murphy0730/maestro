@@ -84,6 +84,21 @@ class SkillStore:
             content = target.read_bytes()[:max_bytes]
             return {"path": rel_path, "bytes": content}
 
+    def list_attachments(self, name: str) -> list[dict]:
+        """列出技能包附件 (排除 SKILL.md)，供 list_skill_files 工具发现文件。
+        返回 [{path, size_bytes}]——是**大小**不是内容;内容按需经 read_attachment 读取。"""
+        with self._lock:
+            d = self._skill_dir(name)
+            if not d.exists():
+                return []
+            out = []
+            for p in sorted(d.rglob("*")):
+                if p.is_file() and p.name != "SKILL.md":
+                    out.append(
+                        {"path": str(p.relative_to(d)), "size_bytes": p.stat().st_size}
+                    )
+            return out
+
     def routable(self) -> list[SkillMeta]:
         with self._lock:
             return [m for m in self._index if not m.disable_model_invocation]

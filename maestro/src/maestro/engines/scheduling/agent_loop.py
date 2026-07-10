@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from maestro.engines.base import ProgressFn, emit_progress
-from maestro.engines.scheduling.run_state import AgentStatus, RunState
+from maestro.engines.scheduling.run_state import AgentStatus, Budget, RunState
 from maestro.engines.scheduling.schemas import AgentResult
 from maestro.engines.scheduling.termination import TerminationPolicy
 from maestro.engines.scheduling.tool_executor import ConfirmResolver, ToolExecutor
@@ -41,6 +41,7 @@ class AgentLoop:
         confirm_resolver: ConfirmResolver | None = None,
         validate_input: bool = True,
         observations: ObservationStore | None = None,
+        budget: Budget | None = None,
     ):
         self._llm = llm
         self._tools = tools
@@ -48,6 +49,7 @@ class AgentLoop:
         self._system = system_prompt
         self._allowed = list(allowed_tools)
         self._termination = TerminationPolicy(max_steps)
+        self._budget = budget
         self._executor = ToolExecutor(
             tools=tools,
             audit=audit,
@@ -64,6 +66,11 @@ class AgentLoop:
     def available(self) -> bool:
         return self._llm.available
 
+    def refresh_allowed_tools(self, allowed_tools: list[str]) -> None:
+        """Refresh the scheduling pool after runtime MCP discovery."""
+        self._allowed = list(allowed_tools)
+        self._executor.refresh_allowed_tools(allowed_tools)
+
     async def run(
         self,
         task: str,
@@ -74,8 +81,16 @@ class AgentLoop:
             raise LLMError("LLM 未配置，无法运行 ReAct 智能体")
 
         pending_before = {action.action_id for action in self._pending.list_pending()}
-        state = RunState.start(task, history)
-        openai_tools = self._tools.to_openai_tools(self._allowed)
+        initial_tools = []
+        for name in self._allowed:
+            try:
+                if not self._tools.get(name).should_defer:
+                    initial_tools.append(name)
+            except KeyError:
+                # Tests and hot-reload callers may carry a stale name while a
+                # registry is being rebuilt; never expose an undefined tool.
+                logger.warning("[AGENT] 跳过未注册工具: %s", name)
+        state = RunState.start(task, history, initial_tools)
         iteration = 0
 
         while state.status == AgentStatus.RUNNING:
@@ -83,9 +98,13 @@ class AgentLoop:
             if stop_status is not None:
                 state.status = stop_status
                 break
+            if self._budget is not None and not await self._budget.take():
+                # 全链路嵌套预算耗尽: 按 max_steps 同款收敛 (走 forced final 出结论)
+                state.status = AgentStatus.MAX_STEPS
+                break
             await emit_progress(on_progress, "思考中…")
             try:
-                await self._step(state, openai_tools, on_progress)
+                await self._step(state, on_progress)
             except LLMError:
                 state.status = AgentStatus.ERROR
                 break
@@ -108,9 +127,9 @@ class AgentLoop:
     async def _step(
         self,
         state: RunState,
-        openai_tools: list[dict],
         on_progress: ProgressFn | None = None,
     ) -> None:
+        openai_tools = self._tools.to_openai_tools(sorted(state.active_tools))
         turn = await self._chat_turn_resilient(state.messages, openai_tools)
         if not turn.tool_calls:
             text = turn.text.strip()
@@ -138,6 +157,7 @@ class AgentLoop:
         observation, blocked = await self._executor.handle_call(
             call.name, call.arguments, state, on_progress
         )
+        self._load_searched_tools(call.name, observation, state)
         self._record_step(state, turn, call, observation, blocked)
 
     async def _step_concurrent(self, calls, state: RunState, turn: AgentTurn, on_progress) -> None:
@@ -162,7 +182,17 @@ class AgentLoop:
                 self._record_step(state, turn, call, observation, True)
                 continue
             tool_observation, blocked = results[call.id]
+            self._load_searched_tools(call.name, tool_observation, state)
             self._record_step(state, turn, call, tool_observation, blocked)
+
+    def _load_searched_tools(self, name: str, observation: object, state: RunState) -> None:
+        """Activate only the definitions returned by tool_search for this run."""
+        if name != "tool_search" or not isinstance(observation, dict):
+            return
+        for match in observation.get("matches", []):
+            tool_name = match.get("name") if isinstance(match, dict) else None
+            if tool_name in self._allowed:
+                state.active_tools.add(tool_name)
 
     def _record_step(self, state: RunState, turn: AgentTurn, call, observation, blocked: bool) -> None:
         content, stored = self._executor.serialize_observation(observation)

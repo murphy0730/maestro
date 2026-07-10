@@ -12,6 +12,7 @@ from maestro.mcp.types import (
     MCPServerConnection,
     MCPServerConnectionStatus,
     MCPTransportType,
+    MCPTool,
 )
 from maestro.tools import (
     ToolManager,
@@ -212,6 +213,33 @@ async def test_read_mcp_resource_unknown_server(manager):
     result = await manager.execute_tool(
         "read_mcp_resource", {"server": "nope", "uri": "file:///a.txt"}, context={})
     assert result.status == ToolResultStatus.ERROR
+
+
+async def test_platform_refresh_mcp_tools_bridges_deferred_wrapper():
+    """Discovered MCP tools join the live scheduling registry but stay deferred."""
+    from maestro.bootstrap import build_platform
+    from maestro.config import Settings
+    from conftest import DATA_DIR, FakeLLM
+
+    platform = build_platform(
+        settings=Settings(
+            vector_backend="memory", mock_data_dir=DATA_DIR, audit_log_file=None
+        ),
+        llm=FakeLLM(),
+    )
+    config = MCPServerConfig(name="demo", transport_type=MCPTransportType.STDIO, command="true")
+    platform.mcp.mcp_manager._connections["demo"] = MCPServerConnection(
+        name="demo",
+        config=config,
+        status=MCPServerConnectionStatus.CONNECTED,
+        tools=[MCPTool("lookup", "Lookup demo data", {"type": "object"}, "demo")],
+    )
+
+    await platform.refresh_mcp_tools()
+
+    name = "mcp__demo__lookup"
+    assert platform.tools.get(name).should_defer is True
+    assert name in platform.scheduling_engine._agent._allowed
 
 
 # ---------- foundation 桥接 ----------

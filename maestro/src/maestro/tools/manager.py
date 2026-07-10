@@ -31,7 +31,8 @@ class ToolManager:
         tool_name: str,
         args: Dict[str, Any],
         context: Dict[str, Any],
-        on_progress: Optional[Callable[[Any], None]] = None
+        on_progress: Optional[Callable[[Any], None]] = None,
+        skip_permission: bool = False,
     ) -> ToolResult:
         """执行工具。"""
         tool = self.registry.find_by_name(tool_name)
@@ -66,18 +67,20 @@ class ToolManager:
                 error_message=validation_error
             )
 
-        permission_result = await self.permission_checker.check_permission(
-            tool, parsed_args, context
+        permission_result = (
+            None
+            if skip_permission
+            else await self.permission_checker.check_permission(tool, parsed_args, context)
         )
 
-        if permission_result.behavior == "deny":
+        if permission_result and permission_result.behavior == "deny":
             return ToolResult(
                 status=ToolResultStatus.ERROR,
                 content=None,
                 error_message=f"Permission denied for tool: {tool_name}"
             )
 
-        if permission_result.behavior == "require_confirmation":
+        if permission_result and permission_result.behavior == "require_confirmation":
             confirmation_id = self._create_pending_confirmation(
                 tool, parsed_args, context, permission_result.suggested_rule
             )

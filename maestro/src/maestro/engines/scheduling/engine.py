@@ -43,6 +43,9 @@ class SchedulingEngine(Engine):
         self._kitting = kitting
         self._audit = audit
 
+    def refresh_tools(self, allowed_tools: list[str]) -> None:
+        self._agent.refresh_allowed_tools(allowed_tools)
+
     # ── 对话触发 ─────────────────────────────────────────────
 
     async def handle_chat(

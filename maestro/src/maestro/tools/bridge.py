@@ -52,9 +52,45 @@ def register_framework_tools(
             logger.warning("[BRIDGE] 跳过重名工具: %s (foundation 已注册)", tool.name)
             continue
 
-        def make_handler(tool_name: str):
+        def make_handler(tool_name: str, framework_tool: Tool):
             async def handler(**kwargs):
-                result = await manager.execute_tool(tool_name, kwargs, context={})
+                # The scheduling path has one policy source: PermissionEngine for
+                # admission and ActionGate for confirmations.  Do not run the
+                # framework's independent PermissionChecker a second time.
+                if framework_tool.permission_level == ToolPermissionLevel.DENIED:
+                    return {"blocked_by_permission": True, "note": "该工具被策略拒绝"}
+                if framework_tool.permission_level == ToolPermissionLevel.REQUIRES_CONFIRM:
+                    if gate is None:
+                        # Standalone framework use retains its local confirmation
+                        # API. The platform path always supplies ActionGate.
+                        result = await manager.execute_tool(tool_name, kwargs, context={})
+                        return {
+                            "blocked_by_permission": True,
+                            **(result.content if isinstance(result.content, dict) else {}),
+                            "note": "该工具需人工确认",
+                        }
+                    params_brief = json.dumps(kwargs, ensure_ascii=False, default=str)
+                    if len(params_brief) > 200:
+                        params_brief = params_brief[:200] + "…"
+                    outcome = await gate.request(
+                        action_type=f"tool:{tool_name}",
+                        description=f"执行工具 {tool_name}，参数: {params_brief}",
+                        params=kwargs,
+                        executor=_make_direct_executor(manager, tool_name, kwargs),
+                    )
+                    if outcome.status == "pending" and outcome.action:
+                        return {
+                            "blocked_by_permission": True,
+                            "action_id": outcome.action.action_id,
+                            "note": "该工具需人工确认，已生成待确认动作，请在前台确认后执行",
+                        }
+                    if outcome.status == "denied":
+                        return {"blocked_by_permission": True, "note": "该工具被策略拒绝"}
+                    return {"executed_via_gate": True, "detail": outcome.result.detail if outcome.result else ""}
+
+                result = await manager.execute_tool(
+                    tool_name, kwargs, context={}, skip_permission=True
+                )
                 if result.status == ToolResultStatus.SUCCESS:
                     return result.content
                 if (
@@ -96,8 +132,9 @@ def register_framework_tools(
             name=tool.name,
             description=tool.description,
             parameters=tool.input_schema.model_json_schema(),
-            handler=make_handler(tool.name),
+            handler=make_handler(tool.name, tool),
             kind=_kind_for(tool),
+            should_defer=tool.should_defer and not tool.always_load,
         )
         bridged.append(tool.name)
 
@@ -105,17 +142,23 @@ def register_framework_tools(
     return bridged
 
 
-def _make_executor(manager: ToolManager, tool_name: str, confirmation_id: str):
-    """PendingAction 的 executor: 人工批准后经框架确认通道真正执行工具。"""
+def _make_direct_executor(manager: ToolManager, tool_name: str, kwargs: dict):
+    """Run a framework tool after ActionGate has approved it.
+
+    This intentionally bypasses PermissionChecker: ActionGate is the sole
+    confirmation owner for bridged tools in the platform request path.
+    """
 
     async def _execute() -> ActionResult:
-        result = await manager.confirm_execution(confirmation_id, approved=True)
-        ok = result is not None and result.status == ToolResultStatus.SUCCESS
+        result = await manager.execute_tool(
+            tool_name, kwargs, context={}, skip_permission=True
+        )
+        ok = result.status == ToolResultStatus.SUCCESS
         detail = (
             json.dumps(result.content, ensure_ascii=False, default=str)
             if ok
-            else (result.error_message if result else "confirmation expired")
+            else result.error_message or "tool execution failed"
         )
-        return ActionResult(success=ok, action=f"tool:{tool_name}", detail=detail or "")
+        return ActionResult(success=ok, action=f"tool:{tool_name}", detail=detail)
 
     return _execute

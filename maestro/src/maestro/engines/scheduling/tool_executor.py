@@ -38,11 +38,15 @@ class ToolExecutor:
         self._validate_input = validate_input
         self._observations = observations
 
+    def refresh_allowed_tools(self, allowed_tools: list[str]) -> None:
+        self._allowed = set(allowed_tools)
+
     def parallelizable(self, name: str) -> bool:
         if name not in self._allowed:
             return False
         try:
-            return self._tools.get(name).kind in ("read", "aux")
+            tool = self._tools.get(name)
+            return tool.parallelizable and tool.kind in ("read", "aux")
         except KeyError:
             return False
 
@@ -63,6 +67,10 @@ class ToolExecutor:
     ) -> tuple[object | None, Tool | None]:
         if name not in self._allowed:
             return {"blocked": f"工具 {name} 不在调度引擎白名单内，已拒绝"}, None
+        if name not in state.active_tools:
+            return {
+                "blocked": f"工具 {name} 尚未加载。请先用 tool_search 检索并加载它。"
+            }, None
 
         key = (name, json.dumps(args, sort_keys=True, ensure_ascii=False, default=str))
         state.seen[key] = state.seen.get(key, 0) + 1

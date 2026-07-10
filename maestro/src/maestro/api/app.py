@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     platform = build_platform()
     app.state.platform = platform
+    await platform.connect_mcp()
     bus_task = asyncio.create_task(platform.bus.run())
     patrol_task = asyncio.create_task(platform.patrol.run())
     logger.info("平台已启动: 事件总线 + 定时巡检运行中")
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
     finally:
         for task in (bus_task, patrol_task):
             task.cancel()
+        await platform.disconnect_mcp()
 
 
 def create_app() -> FastAPI:
