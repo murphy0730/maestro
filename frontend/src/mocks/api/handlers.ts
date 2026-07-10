@@ -46,11 +46,30 @@ const tokenFrames = (tokens: string[], step = 220): SseFrame[] =>
   tokens.map((t) => ({ event: 'token', data: { delta: t }, delay: step }));
 
 /** Build the planning reply stream (route → tokens → context → done). */
-function planningStream(): SseFrame[] {
+function planningStream(includePendingAction = false): SseFrame[] {
   return [
     { event: 'route', data: ROUTE_PLANNING, delay: 150 },
     ...tokenFrames(PLANNING_REPLY_TOKENS),
     { event: 'context', data: { engine: 'planning', payload: SOLVE_RUN_FEASIBLE }, delay: 200 },
+    ...(includePendingAction
+      ? [
+          {
+            event: 'actions' as const,
+            data: {
+              actions: [
+                {
+                  action_id: 'mock-dispatch-WO-104',
+                  action_type: 'dispatch_work_order',
+                  description: '下发任务令 WO-104 至产线',
+                  params: { wo_id: 'WO-104' },
+                  status: 'pending',
+                },
+              ],
+            },
+            delay: 120,
+          },
+        ]
+      : []),
     { event: 'done', data: { message_id: `msg-${Date.now()}` }, delay: 80 },
   ];
 }
@@ -144,7 +163,7 @@ export const handlers = [
         { event: 'done', data: { message_id: `msg-${Date.now()}` }, delay: 60 },
       ]);
     }
-    return sseResponse(planningStream());
+    return sseResponse(planningStream(/下发|确认/.test(text)));
   }),
 
   http.post(url('/chat/clarify'), async ({ request }) => {
