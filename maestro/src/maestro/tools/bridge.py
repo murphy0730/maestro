@@ -52,11 +52,53 @@ def register_framework_tools(
             logger.warning("[BRIDGE] 跳过重名工具: %s (foundation 已注册)", tool.name)
             continue
 
+        if gate is not None and (
+            tool.permission_level == ToolPermissionLevel.REQUIRES_CONFIRM
+            or tool.name in ("bash", "powershell")
+        ):
+            gate.register_executor(
+                f"tool:{tool.name}",
+                lambda params, name=tool.name: _execute_direct(manager, name, params),
+            )
+
         def make_handler(tool_name: str, framework_tool: Tool):
-            async def handler(**kwargs):
+            async def handler(on_progress=None, **kwargs):
                 # The scheduling path has one policy source: PermissionEngine for
                 # admission and ActionGate for confirmations.  Do not run the
                 # framework's independent PermissionChecker a second time.
+                if tool_name in ("bash", "powershell"):
+                    from maestro.execution.risk import classify_command
+
+                    risk = classify_command(str(kwargs.get("command", "")), tool_name)
+                    if risk.effect == "deny":
+                        return {
+                            "blocked_by_permission": True,
+                            "risk": risk.to_dict(),
+                            "note": risk.reason,
+                        }
+                    if risk.effect == "ask":
+                        if gate is None:
+                            return {
+                                "blocked_by_permission": True,
+                                "risk": risk.to_dict(),
+                                "note": "该命令需要人工确认",
+                            }
+                        outcome = await gate.request(
+                            action_type=f"tool:{tool_name}",
+                            description=f"执行 {tool_name} 命令: {kwargs.get('description') or kwargs.get('command')}",
+                            params=kwargs,
+                            executor=_make_direct_executor(manager, tool_name, kwargs),
+                        )
+                        if outcome.status == "pending" and outcome.action:
+                            return {
+                                "blocked_by_permission": True,
+                                "action_id": outcome.action.action_id,
+                                "risk": risk.to_dict(),
+                                "note": "命令需要人工确认，尚未执行",
+                            }
+                        if outcome.status == "denied":
+                            return {"blocked_by_permission": True, "risk": risk.to_dict()}
+                        return {"executed_via_gate": True, "detail": outcome.result.detail if outcome.result else ""}
                 if framework_tool.permission_level == ToolPermissionLevel.DENIED:
                     return {"blocked_by_permission": True, "note": "该工具被策略拒绝"}
                 if framework_tool.permission_level == ToolPermissionLevel.REQUIRES_CONFIRM:
@@ -89,7 +131,7 @@ def register_framework_tools(
                     return {"executed_via_gate": True, "detail": outcome.result.detail if outcome.result else ""}
 
                 result = await manager.execute_tool(
-                    tool_name, kwargs, context={}, skip_permission=True
+                    tool_name, kwargs, context={}, on_progress=on_progress, skip_permission=True
                 )
                 if result.status == ToolResultStatus.SUCCESS:
                     return result.content
@@ -162,3 +204,10 @@ def _make_direct_executor(manager: ToolManager, tool_name: str, kwargs: dict):
         return ActionResult(success=ok, action=f"tool:{tool_name}", detail=detail)
 
     return _execute
+
+
+async def _execute_direct(
+    manager: ToolManager, tool_name: str, kwargs: dict
+) -> ActionResult:
+    """Execute a registered framework action from persisted structured params."""
+    return await _make_direct_executor(manager, tool_name, kwargs)()

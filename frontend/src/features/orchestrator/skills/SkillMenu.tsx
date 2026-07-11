@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, Check, Search, ChevronDown, Import, Ban } from 'lucide-react';
+import { Sparkles, Check, Search, ChevronDown, Import, Ban, ShieldCheck } from 'lucide-react';
 import type { SkillMeta } from '@/types/api';
 
 interface SkillMenuProps {
@@ -8,6 +8,7 @@ interface SkillMenuProps {
   onToggleSkill: (s: SkillMeta) => void;
   onClear: () => void;
   onImportSkill: () => void;
+  onTrustSkill?: (skill: SkillMeta) => void;
   open: boolean;
   onToggle: () => void;
 }
@@ -18,6 +19,7 @@ export function SkillMenu({
   onToggleSkill,
   onClear,
   onImportSkill,
+  onTrustSkill,
   open,
   onToggle,
 }: SkillMenuProps) {
@@ -82,8 +84,7 @@ export function SkillMenu({
             {filtered.map((s) => {
               const selectedNow = isSel(s);
               return (
-                <button
-                  type="button"
+                <div
                   key={s.name}
                   role="menuitemcheckbox"
                   aria-checked={selectedNow}
@@ -97,8 +98,21 @@ export function SkillMenu({
                     </span>
                     <span className="truncate text-[11px] text-text-tertiary">{s.description}</span>
                   </span>
+                  {s.scripts?.length && !s.trust?.valid ? (
+                    <button
+                      type="button"
+                      title="信任当前版本脚本"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onTrustSkill?.(s);
+                      }}
+                      className="rounded-sm border border-status-warning/40 p-1 text-status-warning"
+                    >
+                      <ShieldCheck size={13} />
+                    </button>
+                  ) : null}
                   {selectedNow && <Check size={14} className="flex-none text-accent" />}
-                </button>
+                </div>
               );
             })}
 

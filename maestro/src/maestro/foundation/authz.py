@@ -9,7 +9,11 @@
 策略用配置表驱动，方便调整。初始版本单用户，多用户体系留接口 (actor 参数)。
 """
 
+import asyncio
 import logging
+import sqlite3
+from datetime import datetime
+from pathlib import Path
 from typing import Awaitable, Callable, Literal
 
 from pydantic import BaseModel
@@ -26,6 +30,8 @@ from maestro.foundation.permissions import (
 logger = logging.getLogger(__name__)
 
 Executor = Callable[[], Awaitable[ActionResult]]
+ParamExecutor = Callable[[dict], Awaitable[ActionResult]]
+Revalidator = Callable[[dict], Awaitable[tuple[bool, str]]]
 
 
 class AuthZ:
@@ -47,38 +53,85 @@ class AuthZ:
 
 
 class PendingActionStore:
-    """待确认动作存储 (内存)。保存动作元数据 + 延迟执行的 executor。"""
+    """待确认动作存储。测试可纯内存，运行时可用 SQLite 恢复结构化动作。"""
 
-    def __init__(self):
-        self._store: dict[str, tuple[PendingAction, Executor]] = {}
+    def __init__(self, db_path: Path | None = None):
+        self._store: dict[str, PendingAction] = {}
+        self._lock = asyncio.Lock()
+        self._db_path = db_path
+        if db_path is not None:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(db_path) as db:
+                db.execute(
+                    "CREATE TABLE IF NOT EXISTS pending_actions "
+                    "(action_id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+                )
+                rows = db.execute("SELECT payload FROM pending_actions").fetchall()
+            for (payload,) in rows:
+                action = PendingAction.model_validate_json(payload)
+                if action.status == "executing":
+                    action.status = "failed"
+                    action.failure_reason = "服务在动作执行期间中断，请重新发起"
+                    action.resolved_at = datetime.now()
+                    self._save(action)
+                self._store[action.action_id] = action
 
-    def add(self, action: PendingAction, executor: Executor) -> None:
-        self._store[action.action_id] = (action, executor)
+    def _save(self, action: PendingAction) -> None:
+        if self._db_path is None:
+            return
+        with sqlite3.connect(self._db_path) as db:
+            db.execute(
+                "INSERT OR REPLACE INTO pending_actions(action_id, payload) VALUES (?, ?)",
+                (action.action_id, action.model_dump_json()),
+            )
+
+    def add(self, action: PendingAction) -> None:
+        self._store[action.action_id] = action
+        self._save(action)
 
     def get(self, action_id: str) -> PendingAction | None:
-        item = self._store.get(action_id)
-        return item[0] if item else None
+        return self._store.get(action_id)
 
     def list_pending(self) -> list[PendingAction]:
-        return [a for a, _ in self._store.values() if a.status == "pending"]
+        return [action for action in self._store.values() if action.status == "pending"]
 
-    async def resolve(self, action_id: str, approved: bool) -> tuple[PendingAction, ActionResult | None]:
-        item = self._store.get(action_id)
-        if item is None:
-            raise KeyError(f"待确认动作 {action_id} 不存在")
-        action, executor = item
-        if action.status != "pending":
-            raise ValueError(f"动作 {action_id} 当前状态为 {action.status}，不可重复处理")
-        if not approved:
-            action.status = "rejected"
-            return action, None
+    async def claim(self, action_id: str, approved: bool) -> PendingAction:
+        """原子领取动作，防止两个确认请求重复执行同一副作用。"""
+        async with self._lock:
+            item = self._store.get(action_id)
+            if item is None:
+                raise KeyError(f"待确认动作 {action_id} 不存在")
+            action = item
+            if action.status != "pending":
+                raise ValueError(f"动作 {action_id} 当前状态为 {action.status}，不可重复处理")
+            action.resolved_at = datetime.now() if not approved else None
+            action.status = "executing" if approved else "rejected"
+            action.started_at = datetime.now() if approved else None
+            self._save(action)
+            return action
+
+    async def execute_claimed(
+        self, action_id: str, executor: ParamExecutor
+    ) -> tuple[PendingAction, ActionResult]:
+        action = self._store[action_id]
         try:
-            result = await executor()
+            result = await executor(action.params)
             action.status = "executed" if result.success else "failed"
         except Exception as e:  # noqa: BLE001 — 执行失败记录而非崩溃
             action.status = "failed"
             result = ActionResult(success=False, action=action.action_type, detail=str(e))
+        action.resolved_at = datetime.now()
+        action.failure_reason = None if result.success else result.detail
+        self._save(action)
         return action, result
+
+    def finish_without_execution(self, action_id: str, status: str, reason: str) -> PendingAction:
+        action = self._store[action_id]
+        action.status = status
+        action.failure_reason = reason
+        action.resolved_at = datetime.now()
+        self._save(action)
+        return action
 
 
 class GateOutcome(BaseModel):
@@ -90,10 +143,28 @@ class GateOutcome(BaseModel):
 class ActionGate:
     """写操作统一闸口: AuthZ 判级 → 执行/挂起/拒绝 → 审计。"""
 
-    def __init__(self, authz: AuthZ, pending: PendingActionStore, audit: AuditLog):
+    def __init__(
+        self,
+        authz: AuthZ,
+        pending: PendingActionStore,
+        audit: AuditLog,
+        revalidation_seconds: int = 300,
+        expiration_seconds: int = 86400,
+    ):
         self.authz = authz
         self.pending = pending
         self.audit = audit
+        self.revalidation_seconds = revalidation_seconds
+        self.expiration_seconds = expiration_seconds
+        self._revalidators: dict[str, Revalidator] = {}
+        self._executors: dict[str, ParamExecutor] = {}
+        self._ephemeral_executors: dict[str, Executor] = {}
+
+    def register_revalidator(self, action_type: str, revalidator: Revalidator) -> None:
+        self._revalidators[action_type] = revalidator
+
+    def register_executor(self, action_type: str, executor: ParamExecutor) -> None:
+        self._executors[action_type] = executor
 
     async def request(
         self,
@@ -110,17 +181,22 @@ class ActionGate:
             self.audit.record(actor, action_type, params, "deny", {"status": "denied"})
             return GateOutcome(status="denied")
         if level == "auto":
-            assert executor is not None
+            registered = self._executors.get(action_type)
+            if executor is None and registered is None:
+                raise RuntimeError(f"动作 {action_type} 未注册执行器")
             try:
-                result = await executor()
+                result = await executor() if executor is not None else await registered(params)
             except Exception as e:  # noqa: BLE001
                 result = ActionResult(success=False, action=action_type, detail=str(e))
             self.audit.record(actor, action_type, params, "auto", result.model_dump())
             return GateOutcome(status="executed", result=result)
         # requires_confirmation: 不直接执行，挂起等待人确认
         action = PendingAction(action_type=action_type, description=description, params=params)
-        assert executor is not None
-        self.pending.add(action, executor)
+        if executor is None and action_type not in self._executors:
+            raise RuntimeError(f"动作 {action_type} 未注册执行器")
+        if executor is not None:
+            self._ephemeral_executors[action.action_id] = executor
+        self.pending.add(action)
         self.audit.record(
             actor,
             action_type,
@@ -133,7 +209,48 @@ class ActionGate:
     async def confirm(
         self, action_id: str, approved: bool, actor: str = "user"
     ) -> tuple[PendingAction, ActionResult | None]:
-        action, result = await self.pending.resolve(action_id, approved)
+        action = await self.pending.claim(action_id, approved)
+        # 无论批准/拒绝/过期都释放临时闭包, 否则未批准的动作会永久驻留 (内存泄漏)。
+        ephemeral = self._ephemeral_executors.pop(action_id, None)
+        result = None
+        if approved:
+            registered = self._executors.get(action.action_type)
+            executor = registered or (
+                (lambda _params: ephemeral()) if ephemeral is not None else None
+            )
+            if executor is None:
+                action = self.pending.finish_without_execution(
+                    action_id, "failed", "动作执行器不可用，请重新发起"
+                )
+                self.audit.record(
+                    actor, f"confirm:{action.action_type}",
+                    {"action_id": action_id, "approved": approved},
+                    "requires_confirmation", {"status": action.status},
+                )
+                return action, None
+            age = (datetime.now() - action.validated_at).total_seconds()
+            if age >= self.expiration_seconds:
+                action = self.pending.finish_without_execution(
+                    action_id, "expired", "待确认动作已过期，请重新发起"
+                )
+            elif age >= self.revalidation_seconds:
+                decision = self.authz.decide(action.action_type, "plan")
+                if decision == "deny":
+                    action = self.pending.finish_without_execution(
+                        action_id, "validation_failed", "当前权限策略已拒绝该动作"
+                    )
+                else:
+                    revalidator = self._revalidators.get(action.action_type)
+                    ok, reason = await revalidator(action.params) if revalidator else (True, "")
+                    if not ok:
+                        action = self.pending.finish_without_execution(
+                            action_id, "validation_failed", reason
+                        )
+                    else:
+                        action.validated_at = datetime.now()
+                        action, result = await self.pending.execute_claimed(action_id, executor)
+            else:
+                action, result = await self.pending.execute_claimed(action_id, executor)
         self.audit.record(
             actor,
             f"confirm:{action.action_type}",

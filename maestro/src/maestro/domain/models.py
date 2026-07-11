@@ -125,7 +125,15 @@ class ActionResult(BaseModel):
     ref_id: str | None = None
 
 
-PendingActionStatus = Literal["pending", "approved", "rejected", "executed", "failed"]
+PendingActionStatus = Literal[
+    "pending",
+    "executing",
+    "rejected",
+    "executed",
+    "validation_failed",
+    "failed",
+    "expired",
+]
 
 
 class PendingAction(BaseModel):
@@ -137,3 +145,7 @@ class PendingAction(BaseModel):
     params: dict = Field(default_factory=dict)
     status: PendingActionStatus = "pending"
     created_at: datetime = Field(default_factory=datetime.now)
+    validated_at: datetime = Field(default_factory=datetime.now)
+    started_at: datetime | None = None
+    resolved_at: datetime | None = None
+    failure_reason: str | None = None

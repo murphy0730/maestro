@@ -10,7 +10,7 @@ import { Composer } from '@/features/orchestrator/Composer';
 import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModal';
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
 import { useConversationStore, useDefaultEngineStore, useThemeStore } from '@/stores';
-import { useSkills } from '@/api';
+import { useSkills, useTrustSkill } from '@/api';
 import { useWorkspaceSessions } from './workspace/useWorkspaceSessions';
 
 export function Workspace() {
@@ -55,6 +55,7 @@ export function Workspace() {
     useOrchestrator(currentSessionId);
 
   const skillsQuery = useSkills();
+  const trustSkillMutation = useTrustSkill();
   const skills = skillsQuery.data?.skills ?? [];
 
   const handleRouteChange = (next: ComposerRoute) => {
@@ -113,6 +114,18 @@ export function Workspace() {
       onToggleSkill={handleToggleSkill}
       onClearSkills={() => setSelectedSkills([])}
       onImportSkill={() => setImportOpen(true)}
+      onTrustSkill={(skill) => {
+        if (!skill.package_sha256) return;
+        const accepted = window.confirm(
+          `信任技能「${skill.display_name ?? skill.name}」当前版本？\n\n脚本每次执行仍会请求确认；SRT 不可用时，确认后可能在宿主机执行。\n\nHash: ${skill.package_sha256}`,
+        );
+        if (accepted) {
+          void trustSkillMutation.mutateAsync({
+            name: skill.name,
+            packageSha256: skill.package_sha256,
+          });
+        }
+      }}
     />
   );
 

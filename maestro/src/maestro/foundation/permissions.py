@@ -48,7 +48,13 @@ PRODUCTION_WRITE_ACTIONS: frozenset[str] = frozenset(
 
 # 写动作授权策略配置表 (action_type → 级别)，未知写动作默认需确认 (保守)。
 # 生产写入已由 PRODUCTION_WRITE_ACTIONS 无条件兜底，此表供外部注入非生产动作用。
-DEFAULT_POLICIES: dict[str, ActionLevel] = {}
+DEFAULT_POLICIES: dict[str, ActionLevel] = {
+    # Shell 风险分类为 ask 时，即便完全访问模式也必须显式确认。
+    "tool:bash": "requires_confirmation",
+    "tool:powershell": "requires_confirmation",
+    # 即使 Skill 包 hash 已被信任，每一次脚本执行仍需经过 ActionGate。
+    "run_skill_script": "requires_confirmation",
+}
 
 
 @dataclass
@@ -102,10 +108,11 @@ class PermissionEngine:
         self._rules.append(rule)
 
     def evaluate_tool(self, name: str, kind: str, arguments: dict | None = None) -> PermissionDecision:
-        """评估一次工具调用 (读/写/中性统一)。默认 allow, 规则可覆盖为 deny/ask。"""
-        for rule in self._rules:
-            if rule.matches_tool(name, kind):
-                return PermissionDecision(rule.effect, rule.reason or f"规则匹配工具 {name}", "rule")
+        """评估工具调用。多个规则命中时采用 deny > ask > allow。"""
+        matches = [rule for rule in self._rules if rule.matches_tool(name, kind)]
+        if matches:
+            rule = min(matches, key=lambda item: {"deny": 0, "ask": 1, "allow": 2}[item.effect])
+            return PermissionDecision(rule.effect, rule.reason or f"规则匹配工具 {name}", "rule")
         return PermissionDecision("allow", source="default")
 
     def evaluate_action(
@@ -121,11 +128,13 @@ class PermissionEngine:
         5. mode == "auto" → allow (完全访问模式放开文件/网络等非生产写入)
         6. → ask (未知写动作保守)
         """
-        rule = next((r for r in self._rules if r.matches_action(action_type)), None)
-        if rule is not None and rule.effect == "deny":
-            return PermissionDecision("deny", rule.reason, "rule")
+        matches = [rule for rule in self._rules if rule.matches_action(action_type)]
+        deny = next((rule for rule in matches if rule.effect == "deny"), None)
+        if deny is not None:
+            return PermissionDecision("deny", deny.reason, "rule")
         if action_type in PRODUCTION_WRITE_ACTIONS:
             return PermissionDecision("ask", "写生产系统，任何模式都需人工确认", "production")
+        rule = next((rule for effect in ("ask", "allow") for rule in matches if rule.effect == effect), None)
         if rule is not None:
             return PermissionDecision(rule.effect, rule.reason, "rule")
         level = self._action_policies.get(action_type)

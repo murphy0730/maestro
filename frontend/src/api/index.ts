@@ -32,7 +32,14 @@ export {
   renameKnowledge,
   deleteKnowledge,
 } from './knowledge';
-export { listSkills, importSkill, deleteSkill } from './skills';
+export {
+  listSkills,
+  importSkill,
+  validateSkill,
+  trustSkill,
+  revokeSkillTrust,
+  deleteSkill,
+} from './skills';
 
 // Query keys + TanStack Query hooks
 export { queryKeys } from './queryKeys';
@@ -55,6 +62,7 @@ export {
   useDeleteKnowledge,
   useSkills,
   useImportSkill,
+  useTrustSkill,
   useDeleteSkill,
 } from './hooks';
 

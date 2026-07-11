@@ -16,6 +16,7 @@ interface ComposerProps {
   onToggleSkill: (skill: SkillMeta) => void;
   onClearSkills: () => void;
   onImportSkill: () => void;
+  onTrustSkill?: (skill: SkillMeta) => void;
 }
 
 const ROUTE_LABELS: Record<ComposerRoute, string> = {
@@ -38,6 +39,7 @@ export function Composer({
   onToggleSkill,
   onClearSkills,
   onImportSkill,
+  onTrustSkill,
 }: ComposerProps) {
   const [draft, setDraft] = useState('');
   const slash = draft.startsWith('/');
@@ -100,6 +102,7 @@ export function Composer({
             mode={mode}
             onClearSkills={onClearSkills}
             onImportSkill={onImportSkill}
+            onTrustSkill={onTrustSkill}
             onModeChange={onModeChange}
             onRouteChange={onRouteChange}
             onStop={onStop}

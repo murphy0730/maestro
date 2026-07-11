@@ -279,6 +279,7 @@ class Orchestrator:
         elif result and result.success:
             reply = f"已执行: {action.description} — {result.detail}"
         else:
-            reply = f"执行失败: {action.description} — {result.detail if result else '未知错误'}"
+            detail = result.detail if result else action.failure_reason or "未知错误"
+            reply = f"执行失败: {action.description} — {detail}"
         self._memory.append(session_id, "assistant", reply, kind="system")
         return ChatResponse(reply=reply, pending_actions=[action])

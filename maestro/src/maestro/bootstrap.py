@@ -9,6 +9,7 @@ v0.2: 三引擎三范式 —
 - 查询引擎 QueryEngine: RAG + LLM (向量库 + 只读工具)。
 """
 
+import json
 import logging
 from dataclasses import dataclass
 
@@ -35,6 +36,7 @@ from maestro.events.handlers import register_event_handlers
 from maestro.events.scheduler import PatrolScheduler
 from maestro.foundation.audit import AuditLog
 from maestro.foundation.authz import ActionGate, AuthZ, PendingActionStore
+from maestro.domain.models import ActionResult
 from maestro.foundation.chunking import Chunker
 from maestro.foundation.embedding import EmbeddingClient
 from maestro.foundation.integration.base import IntegrationAdapter
@@ -67,6 +69,7 @@ from maestro.orchestrator.router import IntentRouter
 from maestro.skills.context import current_context
 from maestro.skills.engine import SkillEngine
 from maestro.skills.schemas import SkillValidationError
+from maestro.skills.script_execution import SkillScriptExecutionService, result_detail
 from maestro.skills.store import SkillStore
 
 
@@ -93,6 +96,7 @@ class Platform:
     patrol: PatrolScheduler
     skill_store: SkillStore
     skill_engine: SkillEngine
+    skill_scripts: SkillScriptExecutionService
     named_preconditions: dict[str, Precondition]
     mcp: IntegratedToolManager
 
@@ -144,8 +148,14 @@ def build_platform(
     # 也供调度 ReAct 的 can_use_tool 层评估读/中性工具 (决策集中、可审计)。
     permissions = PermissionEngine()
     authz = AuthZ(engine=permissions)
-    pending = PendingActionStore()
-    gate = ActionGate(authz, pending, audit)
+    pending = PendingActionStore(settings.pending_actions_db)
+    gate = ActionGate(
+        authz,
+        pending,
+        audit,
+        revalidation_seconds=settings.pending_revalidation_seconds,
+        expiration_seconds=settings.pending_expiration_seconds,
+    )
     # 工具观察离线暂存 (方案2): 大结果存 store, 上下文/轨迹只放 ref 句柄; 供 read_observation
     # 工具与 GET /observations/{ref} 取回。进程内、FIFO 淘汰。
     observations = ObservationStore(cap=settings.react_observation_store_max)
@@ -173,11 +183,59 @@ def build_platform(
     kitting = KittingService(adapter, audit)
     followups = FollowupStore()
 
+    gate.register_executor(
+        "dispatch_work_order",
+        lambda params: adapter.dispatch_work_order(params["wo_id"]),
+    )
+    gate.register_executor(
+        "update_work_order_status",
+        lambda params: adapter.update_work_order_status(params["wo_id"], params["status"]),
+    )
+    gate.register_executor(
+        "send_notification",
+        lambda params: adapter.send_message(
+            params["recipient"], params.get("channel", "im"), params["content"]
+        ),
+    )
+    for action_type in ("send_expedite_message.supplier", "send_expedite_message.internal"):
+        gate.register_executor(
+            action_type,
+            lambda params: adapter.send_message(
+                params["recipient"], params.get("channel", "im"), params["content"]
+            ),
+        )
+
+    async def _record_followup(params: dict) -> ActionResult:
+        record = followups.add(params["note"], params.get("wo_id"), params.get("material_id"))
+        return ActionResult(
+            success=True,
+            action="record_followup",
+            detail=json.dumps(record, ensure_ascii=False, default=str),
+        )
+
+    gate.register_executor("record_followup", _record_followup)
+
     # 工具库 (三引擎共享): 注册内置工具 + 为高危写操作挂前置断言 (两道写护栏之一)
     tools = ToolRegistry()
     register_builtin_tools(tools, adapter, gate, kitting, llm, followups, observations)
-    tools.attach_precondition("dispatch_work_order", make_dispatch_precondition(kitting, adapter))
-    tools.attach_precondition("send_expedite_message", make_expedite_precondition(kitting, followups))
+    dispatch_precondition = make_dispatch_precondition(kitting, adapter)
+    expedite_precondition = make_expedite_precondition(kitting, followups)
+    tools.attach_precondition("dispatch_work_order", dispatch_precondition)
+    tools.attach_precondition("send_expedite_message", expedite_precondition)
+
+    async def _revalidate(precondition, params: dict) -> tuple[bool, str]:
+        result = await precondition(params)
+        return result.ok, result.reason
+
+    gate.register_revalidator(
+        "dispatch_work_order", lambda params: _revalidate(dispatch_precondition, params)
+    )
+    gate.register_revalidator(
+        "send_expedite_message.supplier", lambda params: _revalidate(expedite_precondition, params)
+    )
+    gate.register_revalidator(
+        "send_expedite_message.internal", lambda params: _revalidate(expedite_precondition, params)
+    )
 
     # 新工具框架 (tools/) 桥接: 通用工具 (glob/todo_write/tool_search/web_fetch 等) 注册进
     # 共享工具库，技能 allowed_tools 可按名引用；需确认工具由 bridge 统一交给 ActionGate
@@ -194,13 +252,20 @@ def build_platform(
     # 命名前置断言表 (供技能包 frontmatter `tool_preconditions` 按名引用):
     # 普通字典，不建 Registry 类。键即断言名，与 preconditions.py 的工厂一一对应。
     named_preconditions: dict[str, Precondition] = {
-        "dispatch_ready": make_dispatch_precondition(kitting, adapter),
-        "expedite_valid": make_expedite_precondition(kitting, followups),
+        "dispatch_ready": dispatch_precondition,
+        "expedite_valid": expedite_precondition,
     }
 
     # 技能包仓库 + read_skill_file 工具 (kind="read"。不进 QUERY_READONLY_TOOLS；
     # 调度白名单取注册表全集故含之，但仅在技能执行体内被显式调用时才有意义)。
     skill_store = SkillStore(settings.skills_dir)
+    skill_scripts = SkillScriptExecutionService(
+        skill_store,
+        settings.skill_execution_dir,
+        settings.skills_dir,
+        timeout_seconds=settings.skill_script_timeout_seconds,
+        max_output_bytes=settings.skill_script_max_output_bytes,
+    )
 
     def _safe_rel(path: str) -> bool:
         """附件相对路径白名单: 非空、限长、无控制字符、无绝对路径/反斜杠/.. 段。"""
@@ -220,12 +285,38 @@ def build_platform(
             return {"blocked": "read_skill_file 仅在技能执行体内可用"}
         if not _safe_rel(path):
             return {"blocked": f"非法附件路径: {path}"}
-        for skill in sorted(ctx.allowed_skills):
+        skills = sorted(ctx.allowed_skills)
+        if len(skills) == 1:
+            candidates = [(skills[0], path)]
+        else:
+            skill, separator, rel_path = path.partition("/")
+            if not separator or skill not in ctx.allowed_skills or not _safe_rel(rel_path):
+                return {"blocked": "多技能执行时请使用 skill_id/相对路径 读取附件"}
+            candidates = [(skill, rel_path)]
+        for skill, rel_path in candidates:
             try:
-                att = skill_store.read_attachment(skill, path)
+                att = skill_store.read_attachment(skill, rel_path)
             except SkillValidationError:
                 continue
-            return {"path": path, "text": att["bytes"].decode("utf-8", "replace")}
+            try:
+                text = att["bytes"].decode("utf-8")
+            except UnicodeDecodeError:
+                return {
+                    "path": path,
+                    "content_type": att["content_type"],
+                    "size_bytes": att["size_bytes"],
+                    "truncated": att["truncated"],
+                    "binary": True,
+                    "note": "二进制附件不可直接注入模型上下文",
+                }
+            return {
+                "path": path,
+                "text": text,
+                "content_type": att["content_type"],
+                "size_bytes": att["size_bytes"],
+                "truncated": att["truncated"],
+                "binary": False,
+            }
         return {"blocked": f"附件 {path} 不存在于当前技能"}
 
     async def _list_skill_files() -> dict:
@@ -233,9 +324,14 @@ def build_platform(
         ctx = current_context()
         if ctx is None or not ctx.allowed_skills:
             return {"blocked": "list_skill_files 仅在技能执行体内可用"}
+        skills = sorted(ctx.allowed_skills)
         files: list[dict] = []
-        for skill in sorted(ctx.allowed_skills):
-            files.extend(skill_store.list_attachments(skill))
+        for skill in skills:
+            for item in skill_store.list_attachments(skill):
+                files.append({
+                    **item,
+                    "path": item["path"] if len(skills) == 1 else f"{skill}/{item['path']}",
+                })
         return {"files": files}
 
     tools.register(
@@ -255,6 +351,81 @@ def build_platform(
         parameters={"type": "object", "properties": {}},
         handler=_list_skill_files,
         kind="read",
+    )
+
+    async def _execute_skill_script(params: dict) -> ActionResult:
+        result = await skill_scripts.execute(params)
+        return ActionResult(
+            success=result.get("status") == "completed",
+            action="run_skill_script",
+            detail=result_detail(result),
+        )
+
+    gate.register_executor("run_skill_script", _execute_skill_script)
+
+    async def _run_skill_script(script: str, args: list[str] | None = None) -> dict:
+        if not settings.skill_scripts_enabled:
+            return {"blocked": "Skill 脚本执行已被管理员关闭"}
+        ctx = current_context()
+        if ctx is None or not ctx.allowed_skills:
+            return {"blocked": "run_skill_script 仅在技能执行体内可用"}
+        skills = sorted(ctx.allowed_skills)
+        if len(skills) == 1:
+            skill_id, rel_script = skills[0], script
+        else:
+            skill_id, separator, rel_script = script.partition("/")
+            if not separator or skill_id not in ctx.allowed_skills:
+                return {"blocked": "多技能执行时 script 必须使用 skill_id/相对路径"}
+        meta = skill_store.get(skill_id)
+        if meta is None:
+            return {"blocked": f"技能 {skill_id} 不存在"}
+        if not skill_store.is_trusted(skill_id, meta.package_sha256):
+            return {
+                "blocked": "技能当前版本尚未被本地用户信任，请先在技能菜单中信任当前 hash",
+                "package_sha256": meta.package_sha256,
+            }
+        params = {
+            "skill_id": skill_id,
+            "script": rel_script,
+            "args": args or [],
+            "package_sha256": meta.package_sha256,
+        }
+        outcome = await gate.request(
+            "run_skill_script",
+            f"执行可信技能 {meta.effective_display_name} 的脚本 {rel_script}",
+            params=params,
+            actor="local-user",
+        )
+        if outcome.status == "pending" and outcome.action:
+            return {
+                "pending_confirmation": True,
+                "action_id": outcome.action.action_id,
+                "execution": "确认后优先使用 SRT；不可用时在宿主机受控执行",
+            }
+        if outcome.status == "denied":
+            return {"blocked": "脚本执行被权限策略拒绝"}
+        return {
+            "executed": True,
+            "result": outcome.result.detail if outcome.result else "",
+        }
+
+    tools.register(
+        name="run_skill_script",
+        description=(
+            "执行当前已信任 Skill 声明的 Python/JavaScript 脚本。每次调用经过权限检查；"
+            "SRT 可用时沙箱执行，否则用户确认后在宿主机受控执行。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "script": {"type": "string"},
+                "args": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["script"],
+        },
+        handler=_run_skill_script,
+        kind="write",
+        parallelizable=False,
     )
 
     # 技能引擎 (按 skill_id 执行单个技能包内的 AgentLoop；不拥有 Context Panel)
@@ -366,6 +537,7 @@ def build_platform(
         patrol=patrol,
         skill_store=skill_store,
         skill_engine=skill_engine,
+        skill_scripts=skill_scripts,
         named_preconditions=named_preconditions,
         mcp=mcp,
     )

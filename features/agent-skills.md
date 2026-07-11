@@ -45,6 +45,13 @@ allowed_tools: [query_orders]
 | `tool_preconditions` | dict | ❌ | `{}` | 工具前置断言，格式见下 |
 | `version` | string | ❌ | `null` | 版本号，≤16 字符 |
 | `author` | string | ❌ | `null` | 作者名，≤32 字符 |
+| `license` | string | ❌ | `null` | 外部技能许可证标识 |
+| `compatibility` | string | ❌ | `null` | 外部生态兼容性说明 |
+| `argument_hint` / `argument-hint` | string | ❌ | `null` | 参数提示；两种命名均接受 |
+| `scripts` | string[] | ❌ | `[]` | 包内脚本声明；当前仅保存，默认不执行 |
+
+常见 kebab-case 字段会转换为内部 snake_case。未知字段不会静默丢弃，而是保存在
+`extensions`，并在兼容性预检中返回告警。
 
 ### `tool_preconditions` 格式
 
@@ -69,7 +76,7 @@ tool_preconditions:
 Frontmatter 之后的内容作为技能的系统提示词，发送给 LLM。正文有以下限制：
 
 - 不能为空
-- UTF-8 编码后 ≤ 32KB
+- UTF-8 编码后默认 ≤ 128KB（由 `SKILL_BODY_MAX_BYTES` 配置）
 - 支持 Markdown 格式（LLM 能理解）
 
 **最佳实践**：
@@ -124,8 +131,8 @@ my-skill.zip
 
 ```python
 # 工具签名
-read_skill_file(skill_name: str, path: str) -> dict
-# 返回: {"path": str, "bytes": bytes}
+read_skill_file(path: str) -> dict
+# 文本返回 text/content_type/size_bytes/truncated；二进制只返回元数据
 ```
 
 示例（在技能正文中使用）：
@@ -138,6 +145,37 @@ read_skill_file(skill_name: str, path: str) -> dict
 ```
 
 **注意**：只有当技能的 `file_count > 0` 时，`read_skill_file` 才会被自动加入 `allowed_tools`。
+多技能同时执行时路径格式为 `skill-id/相对路径`。
+
+### 外部技能兼容预检
+
+```bash
+curl -X POST http://localhost:8000/api/v1/skills/validate \
+  -F "file=@my-skill.zip"
+```
+
+预检不会落盘，会返回规范化名称、工具别名映射、附件/脚本能力、警告和错误。
+`Read`、`Bash`、`Glob`、`Grep`、`WebFetch` 等常见名称会映射到已注册的 Maestro
+工具；映射不会改变安全等级或绕过 ActionGate。
+
+`scripts/` 文件可以随包导入，但导入后默认为 `untrusted`。用户必须明确核对并信任
+当前 `package_sha256`，Agent 才能调用 `run_skill_script(script, args)`。信任不等于免审：
+每一次脚本调用仍经过 ActionGate，并生成前端确认动作。
+
+确认后优先使用 SRT 沙箱执行；SRT 不可用（例如原生 Windows）时，允许在宿主机受控
+执行，并在结果与审计中标记 `execution_mode: guarded_host`。宿主机执行只接受包内声明的
+`.py` / `.js`、结构化参数数组、清理后的环境变量、固定超时和有界输出。平台不会自动
+安装依赖。包内容、脚本或附件变化会改变 hash，使已有信任自动失效。
+
+信任接口：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/skills/my-skill/trust \
+  -H 'Content-Type: application/json' \
+  -d '{"package_sha256":"...","acknowledged_script_execution":true}'
+```
+
+信任操作只接受本机应用来源；当前版本是单用户桌面信任模型，主体固定为 `local-user`。
 
 ### Zip 包限制
 

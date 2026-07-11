@@ -299,6 +299,22 @@ export const handlers = [
     return HttpResponse.json(doc);
   }),
 
+  http.post(url('/skills/:name/trust'), async ({ params, request }) => {
+    const { name } = params as { name: string };
+    const body = (await request.json()) as { package_sha256: string };
+    const skill = SKILLS.find((item) => item.name === name);
+    if (!skill) return HttpResponse.json({ detail: '不存在' }, { status: 404 });
+    const trust = {
+      level: 'user_trusted' as const,
+      valid: true,
+      package_sha256: body.package_sha256,
+      principal_id: 'local-user',
+      trusted_at: new Date().toISOString(),
+    };
+    skill.trust = trust;
+    return HttpResponse.json(trust);
+  }),
+
   http.put(url('/knowledge/:docId'), async ({ params, request }) => {
     const { docId } = params as { docId: string };
     const doc = KNOWLEDGE_DOCS.find((d) => d.doc_id === docId);
@@ -336,6 +352,25 @@ export const handlers = [
     return HttpResponse.json({ skills: SKILLS });
   }),
 
+  http.post(url('/skills/validate'), async ({ request }) => {
+    const fd = await request.formData();
+    const file = fd.get('file') as File | null;
+    if (!file || !/\.(zip|md)$/i.test(file.name)) {
+      return HttpResponse.json({ detail: '仅支持 .md/.zip' }, { status: 415 });
+    }
+    const name = file.name.replace(/\.(zip|md)$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    return HttpResponse.json({
+      compatible: true,
+      normalized_name: name,
+      compatibility_status: 'ready',
+      capabilities: { prompt: true, attachments: /\.zip$/i.test(file.name), scripts: false },
+      tool_mapping: {},
+      normalized_frontmatter: { name },
+      warnings: [],
+      errors: [],
+    });
+  }),
+
   http.post(url('/skills/import'), async ({ request }) => {
     const fd = await request.formData();
     const file = fd.get('file') as File | null;
@@ -355,6 +390,8 @@ export const handlers = [
       file_count: 0,
       bytes: file.size,
       added_at: new Date().toISOString(),
+      package_sha256: `mock-${file.size}`,
+      trust: { level: 'untrusted' as const, valid: false, package_sha256: `mock-${file.size}` },
     };
     SKILLS.push(meta);
     return HttpResponse.json(meta, { status: 201 });

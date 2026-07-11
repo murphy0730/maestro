@@ -4,8 +4,10 @@ import { SkillImportModal } from './SkillImportModal';
 
 vi.mock('@/api', () => ({
   useImportSkill: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false, error: null })),
+  validateSkill: vi.fn(),
+  trustSkill: vi.fn(),
 }));
-import { useImportSkill } from '@/api';
+import { useImportSkill, validateSkill } from '@/api';
 
 afterEach(cleanup);
 
@@ -17,9 +19,21 @@ describe('SkillImportModal', () => {
       isPending: false,
       error: null,
     } as unknown as ReturnType<typeof useImportSkill>);
+    vi.mocked(validateSkill).mockResolvedValue({
+      compatible: true,
+      normalized_name: 'cap',
+      compatibility_status: 'ready',
+      capabilities: { prompt: true, attachments: false, scripts: false },
+      tool_mapping: {},
+      normalized_frontmatter: { name: 'cap' },
+      warnings: [],
+      errors: [],
+    });
     render(<SkillImportModal open onClose={() => {}} onImported={() => {}} />);
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['x'], 'cap.md')] } });
+    await waitFor(() => expect(validateSkill).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
   });
 

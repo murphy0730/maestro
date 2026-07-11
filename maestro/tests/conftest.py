@@ -113,6 +113,7 @@ def settings() -> Settings:
         llm_api_key="",
         mock_data_dir=DATA_DIR,
         audit_log_file=None,
+        pending_actions_db=None,
         patrol_interval_seconds=0.1,
     )
 

@@ -105,11 +105,17 @@ class Settings(BaseSettings):
     react_max_steps: int = 8  # 思考-行动循环最大步数 (防无限循环/绕路)
     react_observation_max_bytes: int = 8192  # 单条工具观察回喂上限，超出离线暂存 (防上下文爆炸)
     react_observation_store_max: int = 200  # 观察离线暂存的全局条数上限 (FIFO 淘汰)
+    execution_output_dir: Path = Field(
+        default_factory=lambda: _runtime_data_root() / "executions"
+    )
 
     # 技能引擎护栏
     skill_body_max_bytes: int = 128 * 1024  # 单个技能包 SKILL.md 正文字节上限 (导入校验)
     skill_prompt_max_bytes: int = 256 * 1024  # 多技能合并后渲染进 system prompt 的总字节上限
     skill_max_depth: int = 2  # invoke_skill 嵌套深度上限 (防无界递归)
+    skill_scripts_enabled: bool = True
+    skill_script_timeout_seconds: int = 15
+    skill_script_max_output_bytes: int = 64 * 1024
 
     # 查询引擎 (RAG)
     rag_top_k: int = 3  # 每次检索返回的知识片段数
@@ -119,6 +125,10 @@ class Settings(BaseSettings):
     # 事件层
     patrol_interval_seconds: float = 30.0
     kitting_lookahead_days: int = 3
+
+    # 待确认动作：窗口内直接执行，超过窗口重新校验，超过有效期拒绝执行。
+    pending_revalidation_seconds: int = 300
+    pending_expiration_seconds: int = 86400
 
     # 数据与日志
     # mock_data_dir / knowledge_dir 为种子数据，随包发布 (只读)，不走 userData。
@@ -136,7 +146,13 @@ class Settings(BaseSettings):
     sessions_dir: Path = Field(
         default_factory=lambda: _runtime_data_root() / "sessions"
     )
+    pending_actions_db: Path | None = Field(
+        default_factory=lambda: _runtime_data_root() / "pending_actions.db"
+    )
     # 技能包落盘目录 (SkillStore 索引 + 各技能包 SKILL.md 与附属文件，运行时数据，不入 git)
     skills_dir: Path = Field(default_factory=lambda: _runtime_data_root() / "skills")
+    skill_execution_dir: Path = Field(
+        default_factory=lambda: _runtime_data_root() / "skill_executions"
+    )
     # Chroma 向量库持久化目录 (vector_backend=chroma 时使用，运行时数据，不入 git)
     chroma_dir: Path = Field(default_factory=lambda: _runtime_data_root() / "chroma")

@@ -13,6 +13,8 @@ describe('Modal', () => {
     );
     expect(screen.getByText('内容')).toBeTruthy();
     expect(screen.getByText('导入')).toBeTruthy();
+    expect(screen.getByRole('dialog').className).toContain('max-w-[420px]');
+    expect(screen.getByRole('dialog').className).toContain('sm:max-h-[min(80vh,760px)]');
   });
 
   it('does not render when closed', () => {

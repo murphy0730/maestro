@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { API_BASE } from '@/api/client';
 import { ModelProviderSection } from './ModelProviderSection';
 import {
@@ -92,12 +93,22 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     <Modal
       open={open}
       onClose={onClose}
-      title="模型"
-      subtitle="（仅支持 OpenAI 兼容协议 API）"
-      widthClassName="w-[720px]"
-      bodyClassName="p-6"
+      title="模型设置"
+      subtitle="配置推理与检索模型。当前仅支持 OpenAI 兼容协议 API。"
+      widthClassName="max-w-[520px]"
+      bodyClassName="p-5"
+      footer={
+        <>
+          <span className="mr-auto text-caption text-text-tertiary">
+            {saving ? '正在应用配置，后端重启中…' : '模型变更保存后即时生效'}
+          </span>
+          <Button variant="primary" size="sm" onClick={onClose}>
+            完成
+          </Button>
+        </>
+      }
     >
-      <div className="space-y-8">
+      <div className="space-y-7">
         {(['llm', 'embedding'] as SectionKey[]).map((section) => (
           <ModelProviderSection
             key={section}
@@ -123,7 +134,6 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             onSave={() => add(section)}
           />
         ))}
-        {saving && <p className="text-caption text-text-tertiary">应用中，后端重启…</p>}
       </div>
     </Modal>
   );

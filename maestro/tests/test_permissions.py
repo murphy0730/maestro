@@ -5,6 +5,9 @@
 2. 非生产写入 (文件/网络) 在完全访问模式下直接执行，默认模式下挂起待确认。
 """
 
+import asyncio
+from datetime import timedelta
+
 import pytest
 
 from maestro.domain.models import ActionResult
@@ -116,6 +119,99 @@ async def test_gate_suspends_mes_write_even_in_auto_mode(gate):
         outcome = await _request(gate, "dispatch_work_order")
     assert outcome.status == "pending"
     assert len(gate.pending.list_pending()) == 1
+
+
+async def test_confirm_within_window_does_not_revalidate(gate):
+    called = 0
+
+    async def revalidate(_params):
+        nonlocal called
+        called += 1
+        return False, "should not run"
+
+    gate.register_revalidator("dispatch_work_order", revalidate)
+    outcome = await _request(gate, "dispatch_work_order")
+    action, result = await gate.confirm(outcome.action.action_id, True)
+    assert action.status == "executed" and result.success
+    assert called == 0
+
+
+async def test_confirm_after_window_revalidates(gate):
+    async def revalidate(_params):
+        return False, "工单状态已变化"
+
+    gate.register_revalidator("dispatch_work_order", revalidate)
+    outcome = await _request(gate, "dispatch_work_order")
+    outcome.action.validated_at -= timedelta(seconds=gate.revalidation_seconds)
+    action, result = await gate.confirm(outcome.action.action_id, True)
+    assert result is None
+    assert action.status == "validation_failed"
+    assert action.failure_reason == "工单状态已变化"
+
+
+async def test_confirm_after_expiration_is_rejected(gate):
+    outcome = await _request(gate, "dispatch_work_order")
+    outcome.action.validated_at -= timedelta(seconds=gate.expiration_seconds)
+    action, result = await gate.confirm(outcome.action.action_id, True)
+    assert result is None
+    assert action.status == "expired"
+
+
+async def test_concurrent_confirm_executes_once(gate):
+    executions = 0
+
+    async def execute():
+        nonlocal executions
+        executions += 1
+        await asyncio.sleep(0)
+        return ActionResult(success=True, action="dispatch_work_order")
+
+    outcome = await gate.request(
+        "dispatch_work_order", "dispatch", executor=execute
+    )
+    results = await asyncio.gather(
+        gate.confirm(outcome.action.action_id, True),
+        gate.confirm(outcome.action.action_id, True),
+        return_exceptions=True,
+    )
+    assert executions == 1
+    assert sum(isinstance(item, ValueError) for item in results) == 1
+
+
+async def test_pending_action_survives_restart(tmp_path):
+    db = tmp_path / "pending.db"
+    first = ActionGate(AuthZ(), PendingActionStore(db), AuditLog(file_path=None))
+    first.register_executor(
+        "dispatch_work_order",
+        lambda params: _persisted_result(params),
+    )
+    outcome = await first.request(
+        "dispatch_work_order", "dispatch", params={"wo_id": "WO-1"}
+    )
+
+    restarted = ActionGate(AuthZ(), PendingActionStore(db), AuditLog(file_path=None))
+    restarted.register_executor(
+        "dispatch_work_order",
+        lambda params: _persisted_result(params),
+    )
+    restored = restarted.pending.get(outcome.action.action_id)
+    assert restored is not None and restored.params == {"wo_id": "WO-1"}
+    action, result = await restarted.confirm(restored.action_id, True)
+    assert action.status == "executed" and result.detail == "WO-1"
+
+
+async def _persisted_result(params):
+    return ActionResult(
+        success=True, action="dispatch_work_order", detail=params["wo_id"]
+    )
+
+
+def test_deny_rule_wins_regardless_of_declaration_order():
+    engine = PermissionEngine(rules=[
+        PermissionRule(effect="allow", action_type="tool:write_file"),
+        PermissionRule(effect="deny", action_type="tool:write_file"),
+    ])
+    assert engine.evaluate_action("tool:write_file").effect == "deny"
 
 
 # ── 动态白名单 ──────────────────────────────────────────────

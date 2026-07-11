@@ -259,6 +259,8 @@ export const SKILLS: SkillMeta[] = [
     file_count: 0,
     bytes: 0,
     added_at: '2026-07-05T00:00:00Z',
+    package_sha256: 'mock-capacity-report',
+    trust: { level: 'untrusted', valid: false, package_sha256: 'mock-capacity-report' },
   },
   {
     name: 'changeover-checklist',
@@ -274,6 +276,8 @@ export const SKILLS: SkillMeta[] = [
     file_count: 0,
     bytes: 0,
     added_at: '2026-07-05T00:00:00Z',
+    package_sha256: 'mock-changeover-checklist',
+    trust: { level: 'untrusted', valid: false, package_sha256: 'mock-changeover-checklist' },
   },
 ];
 

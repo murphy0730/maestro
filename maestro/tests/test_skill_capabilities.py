@@ -2,9 +2,15 @@
 
 import pytest
 
+from conftest import FakeLLM
 from maestro.bootstrap import build_platform
 from maestro.config import Settings
+from maestro.engines.scheduling.agent_loop import AgentLoop
 from maestro.engines.scheduling.run_state import Budget
+from maestro.foundation.audit import AuditLog
+from maestro.foundation.authz import PendingActionStore
+from maestro.foundation.llm import LLMError
+from maestro.foundation.tools.registry import ToolRegistry
 from maestro.skills.context import SkillInvocationContext, reset_context, set_context
 from maestro.skills.parser import parse_skill_md
 from maestro.skills.schemas import SkillMeta, SkillValidationError
@@ -83,6 +89,25 @@ async def test_read_skill_file_scoped_to_allowed(tmp_path, monkeypatch):
         reset_context(tok)
 
 
+async def test_read_skill_file_reports_binary_and_truncation(tmp_path, monkeypatch):
+    p = _platform(tmp_path, monkeypatch)
+    p.skill_store.save(_meta("cap", file_count=2), "b", {
+        "large.txt": b"x" * 70000,
+        "image.png": b"\x89PNG\r\n\x1a\n\x00\xff",
+    })
+    tok = set_context(_ctx({"cap"}))
+    try:
+        large = await p.tools.execute("read_skill_file", {"path": "large.txt"})
+        assert large["truncated"] is True
+        assert len(large["text"]) == 65536
+        binary = await p.tools.execute("read_skill_file", {"path": "image.png"})
+        assert binary["binary"] is True
+        assert "text" not in binary
+        assert binary["content_type"] == "image/png"
+    finally:
+        reset_context(tok)
+
+
 async def test_list_skill_files_scoped(tmp_path, monkeypatch):
     p = _platform(tmp_path, monkeypatch)
     p.skill_store.save(_meta("cap", file_count=1), "b", {"r.md": b"hi"})
@@ -90,6 +115,22 @@ async def test_list_skill_files_scoped(tmp_path, monkeypatch):
     try:
         out = await p.tools.execute("list_skill_files", {})
         assert [f["path"] for f in out["files"]] == ["r.md"]
+    finally:
+        reset_context(tok)
+
+
+async def test_multi_skill_files_are_namespaced(tmp_path, monkeypatch):
+    p = _platform(tmp_path, monkeypatch)
+    p.skill_store.save(_meta("aa", file_count=1), "b", {"reference.md": b"from aa"})
+    p.skill_store.save(_meta("bb", file_count=1), "b", {"reference.md": b"from bb"})
+    tok = set_context(_ctx({"aa", "bb"}))
+    try:
+        files = await p.tools.execute("list_skill_files", {})
+        assert {f["path"] for f in files["files"]} == {"aa/reference.md", "bb/reference.md"}
+        assert (await p.tools.execute("read_skill_file", {"path": "aa/reference.md"}))["text"] == "from aa"
+        assert (await p.tools.execute("read_skill_file", {"path": "bb/reference.md"}))["text"] == "from bb"
+        raw_path = await p.tools.execute("read_skill_file", {"path": "reference.md"})
+        assert "blocked" in raw_path
     finally:
         reset_context(tok)
 
@@ -108,6 +149,59 @@ async def test_budget_atomic_take():
     assert await b.take() is True
     assert await b.take() is True
     assert await b.take() is False  # 耗尽
+
+
+async def _query_ok():
+    return {"ok": True}
+
+
+class _CountingLLM(FakeLLM):
+    def __init__(self, chat_script):
+        super().__init__(chat_script=chat_script)
+        self.calls = 0
+
+    async def chat_turn(self, system, messages, tools=None):
+        self.calls += 1
+        return await super().chat_turn(system, messages, tools)
+
+
+class _FailingLLM:
+    available = True
+
+    def __init__(self):
+        self.calls = 0
+
+    async def chat_turn(self, system, messages, tools=None):
+        self.calls += 1
+        raise LLMError("temporary failure")
+
+
+def _loop_with_budget(llm, budget, max_steps=8):
+    tools = ToolRegistry()
+    tools.register("query_orders", "查询", {"type": "object", "properties": {}}, _query_ok)
+    return AgentLoop(
+        llm, tools, PendingActionStore(), AuditLog(file_path=None), "", ["query_orders"],
+        max_steps, budget=budget,
+    )
+
+
+async def test_budget_counts_forced_final_request():
+    llm = _CountingLLM([[("query_orders", {})], "forced final"])
+    budget = Budget(2)
+    result = await _loop_with_budget(llm, budget, max_steps=1).run("t")
+    assert result.stop_reason == "max_steps"
+    assert result.answer == "forced final"
+    assert llm.calls == 2
+    assert budget.remaining == 0
+
+
+async def test_budget_counts_each_retry_request():
+    llm = _FailingLLM()
+    budget = Budget(2)
+    result = await _loop_with_budget(llm, budget).run("t")
+    assert result.stop_reason == "max_steps"
+    assert llm.calls == 2
+    assert budget.remaining == 0
 
 
 # ── #3 嵌套有界护栏 (无需 LLM: 护栏在 _run 之前) ────────────────

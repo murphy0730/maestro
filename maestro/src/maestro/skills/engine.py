@@ -153,6 +153,8 @@ class SkillEngine:
             for t in ("read_skill_file", "list_skill_files"):
                 if t not in allowed:
                     allowed.append(t)
+        if any(m.scripts for m in metas) and "run_skill_script" not in allowed:
+            allowed.append("run_skill_script")
 
         extra: dict[str, list[Precondition]] = {}
         for m in metas:
@@ -206,8 +208,12 @@ class SkillEngine:
         """把当前技能的附件路径以结构化 (JSON 转义) 形式注入正文，让 agent 无需先
         调 list_skill_files 就知道有哪些文件可读。路径来自技能包，按不可信文本转义。"""
         lines = []
+        multi_skill = len(skill_ids) > 1
         for sid, m in zip(skill_ids, metas):
-            paths = [a["path"] for a in self._store.list_attachments(sid)]
+            paths = [
+                a["path"] if not multi_skill else f"{sid}/{a['path']}"
+                for a in self._store.list_attachments(sid)
+            ]
             if paths:
                 lines.append(
                     f"- 技能「{m.effective_display_name}」附带文件: "
@@ -217,5 +223,6 @@ class SkillEngine:
             return ""
         return (
             "\n\n---\n\n以下附件可用 `read_skill_file(path)` 按需读取"
-            "（`list_skill_files()` 亦可列出）:\n" + "\n".join(lines)
+            "（多技能执行时 path 为 `skill_id/相对路径`；`list_skill_files()` 亦可列出）:\n"
+            + "\n".join(lines)
         )

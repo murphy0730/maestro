@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./client', () => ({
   apiGet: vi.fn(),
+  apiPost: vi.fn(),
   apiUpload: vi.fn(),
   apiDelete: vi.fn(),
 }));
 
-import { apiGet, apiUpload, apiDelete } from './client';
-import { listSkills, importSkill, deleteSkill } from './skills';
+import { apiGet, apiPost, apiUpload, apiDelete } from './client';
+import { listSkills, importSkill, validateSkill, trustSkill, deleteSkill } from './skills';
 
 describe('skills api', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -25,6 +26,7 @@ describe('skills api', () => {
       file_count: 1,
       bytes: 1,
       added_at: '',
+      package_sha256: 'hash',
     });
     await importSkill(new File(['x'], 'cap.md'));
     expect(apiUpload).toHaveBeenCalledWith(
@@ -33,6 +35,22 @@ describe('skills api', () => {
       'POST',
       expect.anything(),
     );
+  });
+
+  it('trustSkill binds trust to package hash', async () => {
+    vi.mocked(apiPost).mockResolvedValue({ level: 'user_trusted', valid: true });
+    await trustSkill('cap', 'hash');
+    expect(apiPost).toHaveBeenCalledWith('/skills/cap/trust', {
+      package_sha256: 'hash',
+      acknowledged_script_execution: true,
+    });
+  });
+
+  it('validateSkill posts file to /skills/validate', async () => {
+    vi.mocked(apiUpload).mockResolvedValue({ compatible: true });
+    const file = new File(['x'], 'cap.md');
+    await validateSkill(file);
+    expect(apiUpload).toHaveBeenCalledWith('/skills/validate', expect.any(FormData));
   });
 
   it('deleteSkill calls DELETE /skills/:name', async () => {

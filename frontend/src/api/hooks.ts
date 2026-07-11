@@ -20,7 +20,7 @@ import {
   replaceKnowledge,
   uploadKnowledge,
 } from './knowledge';
-import { deleteSkill, importSkill, listSkills } from './skills';
+import { deleteSkill, importSkill, listSkills, trustSkill } from './skills';
 import { createSession, deleteSession, listSessions, renameSession } from './sessions';
 import type { SessionInfo } from '@/stores/sessionStore';
 
@@ -240,6 +240,15 @@ export function useImportSkill() {
   const qc = useQueryClient();
   return useMutation<SkillMeta, Error, { file: File; opts?: UploadOptions }>({
     mutationFn: ({ file, opts }) => importSkill(file, opts?.onProgress),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.skills.list() }),
+  });
+}
+
+export function useTrustSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, packageSha256 }: { name: string; packageSha256: string }) =>
+      trustSkill(name, packageSha256),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.skills.list() }),
   });
 }

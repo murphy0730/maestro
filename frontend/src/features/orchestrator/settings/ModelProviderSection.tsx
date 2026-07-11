@@ -46,7 +46,7 @@ export function ModelProviderSection({
             <li key={provider.id}>
               <button
                 onClick={() => provider.id && onActivate(provider.id)}
-                className={`group flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors duration-fast ease-out ${
+                className={`group flex w-full items-center gap-3 rounded-md border px-4 py-3 text-left transition-colors duration-fast ease-out ${
                   active
                     ? 'border-accent-border bg-accent-bg'
                     : 'border-border-subtle bg-surface-1 hover:bg-surface-3'
@@ -97,7 +97,7 @@ export function ModelProviderSection({
         )}
       </ul>
       {adding ? (
-        <div className="space-y-4 rounded-xl border border-border-subtle bg-surface-2 p-5">
+        <div className="space-y-4 rounded-md border border-border-subtle bg-surface-2 p-5">
           <Field label="名称">
             <input
               className={inputClassName}
@@ -177,7 +177,7 @@ export function ModelProviderSection({
 }
 
 const inputClassName =
-  'w-full rounded-lg border border-border-default bg-surface-1 px-3 py-2 text-body-sm text-text-primary outline-none transition-shadow focus:ring-2 focus:ring-accent-border placeholder:text-text-tertiary';
+  'w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body-sm text-text-primary outline-none transition-shadow focus:ring-2 focus:ring-accent-border placeholder:text-text-tertiary';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (

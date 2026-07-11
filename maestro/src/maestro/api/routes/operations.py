@@ -54,7 +54,7 @@ async def scheduling_execute(req: ExecuteRequest, request: Request):
     return {
         "status": "executed" if ok else "failed",
         "audit_id": action.action_id,
-        "message": (result.detail if result else "") or action.description,
+        "message": (result.detail if result else action.failure_reason) or action.description,
     }
 
 

@@ -61,6 +61,7 @@ interface ComposerToolbarProps {
   mode: ComposerMode;
   onClearSkills: () => void;
   onImportSkill: () => void;
+  onTrustSkill?: (skill: SkillMeta) => void;
   onModeChange: (mode: ComposerMode) => void;
   onRouteChange: (route: ComposerRoute) => void;
   onStop?: () => void;
@@ -76,6 +77,7 @@ export function ComposerToolbar({
   mode,
   onClearSkills,
   onImportSkill,
+  onTrustSkill,
   onModeChange,
   onRouteChange,
   onStop,
@@ -222,6 +224,7 @@ export function ComposerToolbar({
         onToggleSkill={onToggleSkill}
         onClear={onClearSkills}
         onImportSkill={onImportSkill}
+        onTrustSkill={onTrustSkill}
         open={openMenu === 'skill'}
         onToggle={() => setOpenMenu(openMenu === 'skill' ? null : 'skill')}
       />

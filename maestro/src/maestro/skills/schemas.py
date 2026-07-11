@@ -1,6 +1,9 @@
 from __future__ import annotations
 import re
-from pydantic import BaseModel, field_validator, model_validator, ValidationError
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 
@@ -20,6 +23,11 @@ class SkillFrontmatter(BaseModel):
     tool_preconditions: dict[str, list[str]] = {}
     version: str | None = None
     author: str | None = None
+    license: str | None = None
+    compatibility: str | None = None
+    argument_hint: str | None = None
+    extensions: dict[str, Any] = Field(default_factory=dict)
+    scripts: list[str] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
@@ -82,3 +90,30 @@ class SkillMeta(SkillFrontmatter):
     file_count: int = 0
     bytes: int = 0
     added_at: str = ""
+    compatibility_status: Literal["ready", "degraded", "not_ready", "disabled"] = "ready"
+    warnings: list[str] = Field(default_factory=list)
+    package_sha256: str = ""
+
+
+class SkillTrustRecord(BaseModel):
+    skill_name: str
+    package_sha256: str
+    principal_id: str = "local-user"
+    trusted_at: datetime = Field(default_factory=datetime.now)
+
+
+class SkillCapabilityReport(BaseModel):
+    prompt: bool = True
+    attachments: bool = False
+    scripts: bool = False
+
+
+class SkillValidationReport(BaseModel):
+    compatible: bool
+    normalized_name: str | None = None
+    compatibility_status: Literal["ready", "degraded", "not_ready", "disabled"] = "ready"
+    capabilities: SkillCapabilityReport = Field(default_factory=SkillCapabilityReport)
+    tool_mapping: dict[str, str] = Field(default_factory=dict)
+    normalized_frontmatter: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)

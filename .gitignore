@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+node_modules/
 
 # ── Virtual environments ──
 .venv/
@@ -28,6 +29,7 @@ maestro/data/sessions/
 maestro/data/knowledge_uploads/
 maestro/data/chroma/
 maestro/data/skills/
+maestro/data/executions/
 
 # ── OS / editor ──
 .DS_Store

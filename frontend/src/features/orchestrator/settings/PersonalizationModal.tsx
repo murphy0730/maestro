@@ -37,9 +37,21 @@ export function PersonalizationModal({ open, onClose }: { open: boolean; onClose
     <Modal
       open={open}
       onClose={onClose}
-      title="个性化"
-      widthClassName="w-[560px]"
-      bodyClassName="p-6"
+      title="个性化设置"
+      subtitle="这些偏好会用于后续会话中的称呼与回复风格。"
+      widthClassName="max-w-[480px]"
+      bodyClassName="p-5"
+      footer={
+        <>
+          <span className="mr-auto text-caption text-text-tertiary">仅保存在当前设备</span>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            取消
+          </Button>
+          <Button variant="primary" size="sm" onClick={save}>
+            保存设置
+          </Button>
+        </>
+      }
     >
       <div className="space-y-6">
         <Field label="如何称呼你">
@@ -79,22 +91,13 @@ export function PersonalizationModal({ open, onClose }: { open: boolean; onClose
             onChange={(e) => setRequirements(e.target.value)}
           />
         </Field>
-
-        <div className="flex justify-end gap-3 pt-1">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button variant="primary" size="sm" onClick={save}>
-            确认
-          </Button>
-        </div>
       </div>
     </Modal>
   );
 }
 
 const inputCls =
-  'w-full rounded-lg border border-border-default bg-surface-1 px-3 py-2 text-body-sm text-text-primary outline-none transition-shadow focus:ring-2 focus:ring-accent-border placeholder:text-text-tertiary';
+  'w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body-sm text-text-primary outline-none transition-shadow focus:ring-2 focus:ring-accent-border placeholder:text-text-tertiary';
 
 function Field({
   label,
