@@ -7,7 +7,7 @@
  */
 export * from './api';
 
-import type { PendingActionPayload } from './api';
+import type { ChatAttachment, PendingActionPayload } from './api';
 
 export type RouteEngine = 'planning' | 'scheduling' | 'query' | 'uncertain' | 'skill';
 
@@ -44,6 +44,8 @@ export interface UserMessage extends BaseMessage {
   kind: 'user';
   text: string;
   author?: string;
+  skills?: string[];
+  attachments?: Pick<ChatAttachment, 'name' | 'size'>[];
 }
 
 export interface AgentMessage extends BaseMessage {

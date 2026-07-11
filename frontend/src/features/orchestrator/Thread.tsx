@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, FileText, Sparkles } from 'lucide-react';
 import type { ChatMessageData, RouteEngine } from '@/types';
 import { ROUTE_META } from '@/lib/routes';
 import { ChatMessage } from './ChatMessage';
@@ -57,7 +57,17 @@ export function Thread({
           if (m.kind === 'user') {
             return (
               <ChatMessage key={m.id} role="user" author={m.author ?? author} timestamp={m.time}>
-                {m.text}
+                <div>{m.text}</div>
+                {((m.skills?.length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-caption text-text-secondary">
+                    {m.skills?.map((skill) => (
+                      <span key={skill} className="inline-flex items-center gap-1 rounded-sm bg-accent-bg px-2 py-1"><Sparkles size={11} />{skill}</span>
+                    ))}
+                    {m.attachments?.map((file) => (
+                      <span key={file.name} className="inline-flex items-center gap-1 rounded-sm bg-surface-2 px-2 py-1"><FileText size={11} />{file.name}</span>
+                    ))}
+                  </div>
+                )}
               </ChatMessage>
             );
           }

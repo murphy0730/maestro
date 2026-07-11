@@ -95,12 +95,13 @@ export function Workspace() {
 
   const composer = (
     <Composer
-      onSend={(text) =>
+      onSend={(text, attachments) =>
         send(
           text,
           route === 'auto' ? null : route,
           selectedSkills.map((skill) => skill.name),
           mode,
+          attachments,
         )
       }
       route={route}

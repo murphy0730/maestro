@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ApiErrorBody,
+  ChatAttachment,
   ChatContextEvent,
   ChatStreamEvent,
   ClarifyPayload,
@@ -110,6 +111,11 @@ export function useStreamingChat(sessionId: string) {
             break;
         }
       }
+      // A valid HTTP stream may close without a final `done` frame (proxy,
+      // older backend, or an empty assistant reply). Never leave the UI busy.
+      if (mountedRef.current) {
+        setState((s) => (s.phase === 'streaming' ? { ...s, phase: 'done' } : s));
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (!mountedRef.current) return;
@@ -145,6 +151,7 @@ export function useStreamingChat(sessionId: string) {
       currentEngine: EngineType | null = null,
       skillIds: string[] = [],
       mode: ComposerMode = 'plan',
+      attachments: ChatAttachment[] = [],
     ) => {
       start(
         (signal) =>
@@ -154,6 +161,7 @@ export function useStreamingChat(sessionId: string) {
               message,
               current_engine: currentEngine,
               skill_ids: skillIds,
+              attachments,
               mode,
             },
             signal,

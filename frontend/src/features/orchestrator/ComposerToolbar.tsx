@@ -57,6 +57,7 @@ const MODE_OPTIONS: {
 ];
 
 interface ComposerToolbarProps {
+  onAddAttachment: () => void;
   isStreaming: boolean;
   mode: ComposerMode;
   onClearSkills: () => void;
@@ -73,6 +74,7 @@ interface ComposerToolbarProps {
 }
 
 export function ComposerToolbar({
+  onAddAttachment,
   isStreaming,
   mode,
   onClearSkills,
@@ -124,6 +126,8 @@ export function ComposerToolbar({
   return (
     <div ref={toolbarRef} className="flex items-center gap-2 px-[10px] py-2">
       <button
+        type="button"
+        onClick={onAddAttachment}
         title="添加文件"
         aria-label="添加文件"
         className="grid h-[30px] w-[30px] flex-none cursor-pointer place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary"

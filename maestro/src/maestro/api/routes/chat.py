@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from maestro.foundation.exec_context import ExecMode
 from maestro.orchestrator.schemas import ChatResponse
@@ -19,12 +19,20 @@ router = APIRouter()
 EngineName = Literal["planning", "scheduling", "query"]
 
 
+class ChatAttachment(BaseModel):
+    name: str = Field(max_length=255)
+    content_type: str = Field(default="text/plain", max_length=100)
+    content: str = Field(max_length=1_048_576)
+    size: int = Field(ge=0, le=1_048_576)
+
+
 class ChatRequest(BaseModel):
     session_id: str = "default"
     message: str
     route: Literal["auto", "planning", "scheduling", "query"] = "auto"
     skill_id: str | None = None
     skill_ids: list[str] | None = None
+    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=10)
     mode: ExecMode = "plan"
 
 
@@ -34,6 +42,7 @@ class ChatStreamRequest(BaseModel):
     current_engine: EngineName | None = None
     skill_id: str | None = None
     skill_ids: list[str] | None = None
+    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=10)
     mode: ExecMode = "plan"
 
 
@@ -50,12 +59,26 @@ class ConfirmRequest(BaseModel):
     approved: bool
 
 
+def _message_with_attachments(message: str, attachments: list[ChatAttachment]) -> str:
+    if not attachments:
+        return message
+    blocks = []
+    for item in attachments:
+        safe_name = item.name.replace("\n", " ").replace("\r", " ")
+        blocks.append(
+            f"<attachment name={json.dumps(safe_name, ensure_ascii=False)}>\n"
+            f"{item.content}\n</attachment>"
+        )
+    prefix = f"{message}\n\n用户同时提供了以下附件，请把它们作为参考资料：\n"
+    return prefix + "\n\n".join(blocks)
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest, request: Request):
     """统一对话入口。route 指定引擎时跳过意图路由，直达该引擎。"""
     response = await request.app.state.platform.orchestrator.handle(
         req.session_id,
-        req.message,
+        _message_with_attachments(req.message, req.attachments),
         route=req.route,
         skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
         mode=req.mode,
@@ -180,7 +203,7 @@ async def chat_stream(req: ChatStreamRequest, request: Request):
         handle_task = asyncio.create_task(
             platform.orchestrator.handle(
                 req.session_id,
-                req.message,
+                _message_with_attachments(req.message, req.attachments),
                 route=req.current_engine or "auto",
                 on_progress=progress_q.put,
                 skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
@@ -190,12 +213,18 @@ async def chat_stream(req: ChatStreamRequest, request: Request):
         try:
             async for frame in _progress_frames(handle_task, progress_q):
                 yield frame
-                yield frame
             resp = await handle_task
             if title_task is not None:
-                title = await title_task
-                if title:
-                    store.update_title(req.session_id, title)
+                # Title generation is auxiliary. It must never delay delivery of
+                # the actual answer when the title-model call is slow.
+                def apply_title(task: asyncio.Task[str | None]) -> None:
+                    if task.cancelled() or task.exception() is not None:
+                        return
+                    title = task.result()
+                    if title:
+                        store.update_title(req.session_id, title)
+
+                title_task.add_done_callback(apply_title)
             async for frame in _sse_from_response(resp):
                 yield frame
         except Exception as e:  # noqa: BLE001 — 编排失败也要以 error 帧收口，不断流

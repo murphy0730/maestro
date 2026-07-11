@@ -4,12 +4,20 @@ import type { ApiErrorResponse, EngineType, IntentType, RouteDecision } from './
 
 export type ComposerMode = 'plan' | 'auto';
 
+export interface ChatAttachment {
+  name: string;
+  content_type: string;
+  content: string;
+  size: number;
+}
+
 export interface ChatStreamRequest {
   session_id: string;
   message: string;
   current_engine: EngineType | null;
   skill_id?: string | null;
   skill_ids?: string[];
+  attachments?: ChatAttachment[];
   mode?: ComposerMode;
 }
 

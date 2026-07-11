@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ChatMessageData, ComposerMode, EngineType, IntentType, RouteEngine } from '@/types';
+import type {
+  ChatAttachment,
+  ChatMessageData,
+  ComposerMode,
+  EngineType,
+  IntentType,
+  RouteEngine,
+} from '@/types';
 import { confirmChatAction, useStreamingChat } from '@/api';
 import { ROUTE_META } from '@/lib/routes';
 import { useConversationStore } from '@/stores';
@@ -94,12 +101,20 @@ export function useOrchestrator(sessionId: string) {
       currentEngine: EngineType | null,
       skillIds: string[] = [],
       mode: ComposerMode = 'plan',
+      attachments: ChatAttachment[] = [],
     ) => {
       turnIdRef.current = `a-${Date.now()}`;
       turnTimeRef.current = nowHM();
       pendingRef.current = true;
-      addMessage({ id: `u-${Date.now()}`, kind: 'user', time: nowHM(), text });
-      chatRef.current.send(text, currentEngine, skillIds, mode);
+      addMessage({
+        id: `u-${Date.now()}`,
+        kind: 'user',
+        time: nowHM(),
+        text,
+        skills: skillIds,
+        attachments: attachments.map(({ name, size }) => ({ name, size })),
+      });
+      chatRef.current.send(text, currentEngine, skillIds, mode, attachments);
     },
     [addMessage],
   );
