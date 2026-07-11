@@ -28,3 +28,12 @@ it('renders the resolved status line instead of buttons', () => {
   expect(screen.getByText('已确认执行')).toBeTruthy();
   expect(screen.queryByText('确认执行')).toBeNull();
 });
+
+it('shows an executing state (spinner + label) while the action runs', () => {
+  render(
+    <PendingActionsCard actions={[{ ...action, status: 'executing' }]} onConfirm={() => {}} />,
+  );
+  expect(screen.getByText('正在执行工具…')).toBeTruthy();
+  expect(screen.queryByText('确认执行')).toBeNull();
+  expect(screen.queryByText('已确认执行')).toBeNull();
+});

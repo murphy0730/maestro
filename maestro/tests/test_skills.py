@@ -37,7 +37,7 @@ def test_frontmatter_description_length():
     with pytest.raises(Exception):
         SkillFrontmatter(**_base(description=""))
     with pytest.raises(Exception):
-        SkillFrontmatter(**_base(description="x" * 201))
+        SkillFrontmatter(**_base(description="x" * 1025))
 
 
 def test_frontmatter_when_to_use_limits():
@@ -252,7 +252,8 @@ def test_store_persist_reload(tmp_path):
     s = SkillStore(tmp_path)
     s.save(_meta("cap", file_count=1), "正文", {"docs/r.md": b"# r"})
     s2 = SkillStore(tmp_path)  # 重启重载
-    assert s2.get("cap").file_count == 1
+    # v1 metadata counts SKILL.md plus every attachment.
+    assert s2.get("cap").file_count == 2
     assert s2.get_body("cap") == "正文"
     attachment = s2.read_attachment("cap", "docs/r.md")
     assert attachment["path"] == "docs/r.md"
@@ -341,7 +342,7 @@ def _client(tmp_path, monkeypatch):
     s = Settings(llm_api_key="", audit_log_file=None,
                  sessions_dir=tmp_path / "sessions", skills_dir=tmp_path / "skills")
     app.state.platform = build_platform(settings=s)
-    return TestClient(app)
+    return TestClient(app, headers={"Authorization": f"Bearer {s.privileged_api_token}"})
 
 
 _DEMO_MD = """---

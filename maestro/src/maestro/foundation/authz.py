@@ -173,10 +173,17 @@ class ActionGate:
         params: dict | None = None,
         executor: Executor | None = None,
         actor: str = "system",
+        min_level: ActionLevel | None = None,
     ) -> GateOutcome:
         params = params or {}
         # 执行模式由 Orchestrator.handle 经 contextvar 注入; 事件驱动/CLI 取默认 "plan"
         level = self.authz.decide(action_type, current_mode())
+        # 调用方可抬高最低门级 (如命令级风险判定为 ask 时强制 requires_confirmation)，
+        # 使确认要求不依赖按工具名维护的策略表。
+        if min_level is not None:
+            order = {"auto": 0, "requires_confirmation": 1, "deny": 2}
+            if order[min_level] > order[level]:
+                level = min_level
         if level == "deny":
             self.audit.record(actor, action_type, params, "deny", {"status": "denied"})
             return GateOutcome(status="denied")

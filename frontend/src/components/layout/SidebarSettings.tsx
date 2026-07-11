@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Cpu,
+  Cable,
   Moon,
   Palette,
   Settings,
@@ -37,6 +38,8 @@ interface SidebarSettingsProps {
   role: string;
   theme: Theme;
   user: string;
+  onOpenSkills?: () => void;
+  onOpenConnectors?: () => void;
 }
 
 export function SidebarSettings({
@@ -47,6 +50,8 @@ export function SidebarSettings({
   role,
   theme,
   user,
+  onOpenSkills,
+  onOpenConnectors,
 }: SidebarSettingsProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsView, setSettingsView] = useState<'root' | 'engine'>('root');
@@ -162,6 +167,13 @@ export function SidebarSettings({
                     }}
                   >
                     个性化
+                  </PopoverItem>
+                  <div className="my-1 border-t border-border-subtle" />
+                  <PopoverItem icon={<Sparkles size={15} />} onClick={() => { setSettingsOpen(false); onOpenSkills?.(); }}>
+                    技能
+                  </PopoverItem>
+                  <PopoverItem icon={<Cable size={15} />} onClick={() => { setSettingsOpen(false); onOpenConnectors?.(); }}>
+                    连接器
                   </PopoverItem>
                 </>
               )}

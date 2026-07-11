@@ -16,6 +16,7 @@ export interface SkillMeta {
   scripts?: string[];
   file_count: number;
   bytes: number;
+  archive_bytes?: number;
   added_at: string;
   compatibility_status?: 'ready' | 'degraded' | 'not_ready' | 'disabled';
   warnings?: string[];

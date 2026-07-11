@@ -40,6 +40,25 @@ export {
   revokeSkillTrust,
   deleteSkill,
 } from './skills';
+export {
+  listConnectors,
+  createConnector,
+  deleteConnector,
+  connectConnector,
+  disconnectConnector,
+  testConnector,
+} from './connectors';
+export {
+  addCatalogConnector,
+  getCatalogStatus,
+  installCatalogSkill,
+  listCatalogConnectors,
+  listCatalogSkills,
+  listCatalogSources,
+  previewCatalogConnectorUpdate,
+  syncCatalog,
+  updateCatalogConnector,
+} from './extensionCatalog';
 
 // Query keys + TanStack Query hooks
 export { queryKeys } from './queryKeys';

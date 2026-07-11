@@ -4,6 +4,7 @@ import { Workspace } from '@/pages/Workspace';
 import { DesignTokens } from '@/pages/DesignTokens';
 
 const Tasks = lazy(async () => ({ default: (await import('@/pages/Tasks')).Tasks }));
+const ExtensionCenterPage = lazy(async () => ({ default: (await import('@/features/extensions/ExtensionCenterPage')).ExtensionCenterPage }));
 
 /**
  * Routes. `/` is the main workspace; `/tasks` is the task list for a planning
@@ -17,6 +18,10 @@ const isElectron =
 const createRouter = isElectron ? createHashRouter : createBrowserRouter;
 
 export const router = createRouter([
+  {
+    path: '/settings/:section',
+    element: <Suspense fallback={<div className="p-6 text-text-tertiary">加载扩展中心…</div>}><ExtensionCenterPage /></Suspense>,
+  },
   {
     path: '/',
     element: <Workspace />,

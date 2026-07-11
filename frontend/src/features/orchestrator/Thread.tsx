@@ -26,14 +26,16 @@ function hasSubstantiveThinking(lines: string[]): boolean {
 interface ThreadProps {
   messages: ChatMessageData[];
   author?: string;
+  userAvatar?: string;
   onClarifySelect?: (messageId: string, optionId: string, routeTo: RouteEngine) => void;
-  /** Approve/reject a pending write action (wired to `POST /chat/confirm`). */
+  /** Approve/reject a single-step business action in the conversation. */
   onActionConfirm?: (messageId: string, actionId: string, approved: boolean) => void;
 }
 
 export function Thread({
   messages,
   author = '李工',
+  userAvatar,
   onClarifySelect,
   onActionConfirm,
 }: ThreadProps) {
@@ -56,15 +58,27 @@ export function Thread({
           }
           if (m.kind === 'user') {
             return (
-              <ChatMessage key={m.id} role="user" author={m.author ?? author} timestamp={m.time}>
+              <ChatMessage
+                key={m.id}
+                role="user"
+                author={m.author ?? author}
+                timestamp={m.time}
+                avatar={userAvatar}
+              >
                 <div>{m.text}</div>
                 {((m.skills?.length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0) && (
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-caption text-text-secondary">
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-white/15 pt-2 text-[11px] leading-4 text-white/80">
                     {m.skills?.map((skill) => (
-                      <span key={skill} className="inline-flex items-center gap-1 rounded-sm bg-accent-bg px-2 py-1"><Sparkles size={11} />{skill}</span>
+                      <span key={skill} className="inline-flex min-w-0 items-center gap-1">
+                        <Sparkles size={11} className="shrink-0" />
+                        <span className="truncate">{skill}</span>
+                      </span>
                     ))}
                     {m.attachments?.map((file) => (
-                      <span key={file.name} className="inline-flex items-center gap-1 rounded-sm bg-surface-2 px-2 py-1"><FileText size={11} />{file.name}</span>
+                      <span key={file.name} className="inline-flex min-w-0 items-center gap-1">
+                        <FileText size={11} className="shrink-0" />
+                        <span className="max-w-[220px] truncate">{file.name}</span>
+                      </span>
                     ))}
                   </div>
                 )}

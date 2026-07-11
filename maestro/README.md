@@ -83,6 +83,9 @@ uvicorn maestro.main:app --reload
 | GET | `/audit` | 审计日志 (`?action=&limit=`) |
 | GET | `/pending` | 待确认动作 |
 | GET | `/health` | 健康检查 |
+| GET | `/extension-catalog/skills` | Skill Hub 远程目录（搜索、来源、更新状态） |
+| GET | `/extension-catalog/connectors` | MCP 连接器市场 |
+| POST | `/extension-catalog/sync` | 手动增量同步（Bearer 管理凭证） |
 
 ```bash
 # 注入缺料事件，观察调度引擎被自动唤醒 (服务端日志可见催料动作)

@@ -50,6 +50,13 @@ class MCPServerSettings(BaseModel):
     args: list[str] = Field(default_factory=list)
     url: str | None = None
     env: dict[str, str] = Field(default_factory=dict)
+    display_name: str | None = None
+    description: str = ""
+    secret_env_keys: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    catalog_id: str | None = None
+    catalog_version: str | None = None
+    catalog_template_sha256: str | None = None
 
 
 class Settings(BaseSettings):
@@ -95,6 +102,16 @@ class Settings(BaseSettings):
     # MCP servers are connected during FastAPI lifespan startup.  Empty is a
     # safe default and keeps CLI/tests free of external processes.
     mcp_servers: list[MCPServerSettings] = Field(default_factory=list)
+    privileged_api_token: str = ""
+    cors_allowed_origins: list[str] = Field(
+        default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]
+    )
+    extension_catalog_sync_enabled: bool = True
+    extension_catalog_sync_time: str = "03:00"
+    extension_catalog_sync_timezone: str = "Asia/Shanghai"
+    extension_catalog_data_dir: Path = Field(
+        default_factory=lambda: _runtime_data_root() / "extensions"
+    )
 
     # 路由 / 策略选择 置信度门控
     route_confidence_threshold: float = 0.8

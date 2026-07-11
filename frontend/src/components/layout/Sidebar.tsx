@@ -15,6 +15,8 @@ interface SidebarProps {
   onSelect: (id: string) => void;
   onNewConversation: () => void;
   onOpenTasks?: () => void;
+  onOpenSkills?: () => void;
+  onOpenConnectors?: () => void;
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
   onCollapse: () => void;
@@ -34,6 +36,8 @@ export function Sidebar({
   onSelect,
   onNewConversation,
   onOpenTasks,
+  onOpenSkills,
+  onOpenConnectors,
   onRenameSession,
   onDeleteSession,
   onCollapse,
@@ -97,6 +101,8 @@ export function Sidebar({
         onSetTheme={onSetTheme}
         defaultEngine={defaultEngine}
         onSetDefaultEngine={onSetDefaultEngine}
+        onOpenSkills={onOpenSkills}
+        onOpenConnectors={onOpenConnectors}
       />
     </aside>
   );

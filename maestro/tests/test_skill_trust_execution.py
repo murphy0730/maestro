@@ -72,6 +72,42 @@ async def test_trusted_script_runs_guarded_on_host_when_srt_unavailable(tmp_path
     assert result["stdout"].strip() == "hello trusted"
 
 
+def test_srt_wrap_keeps_command_args_out_of_srt_options(tmp_path):
+    runtime = SrtRuntime(executable=tmp_path / "srt")
+    argv, settings = runtime.wrap(
+        ["python", "run.py", "--help"], tmp_path, []
+    )
+    settings.unlink(missing_ok=True)
+    assert argv[-4:] == ["--", "python", "run.py", "--help"]
+
+
+@pytest.mark.asyncio
+async def test_script_artifacts_survive_run_cleanup(tmp_path):
+    store = SkillStore(tmp_path / "skills")
+    store.save(
+        _meta(),
+        "body",
+        {"scripts/run.py": b"open('out.pptx', 'w').write('deck')"},
+    )
+    meta = store.get("script-skill")
+    store.trust(meta.name, meta.package_sha256)
+    service = SkillScriptExecutionService(
+        store, tmp_path / "runs", tmp_path / "skills", srt=_NoSrt()
+    )
+    result = await service.execute({
+        "skill_id": meta.name,
+        "script": "scripts/run.py",
+        "args": [],
+        "package_sha256": meta.package_sha256,
+    })
+    assert result["status"] == "completed"
+    assert len(result["artifacts"]) == 1
+    artifact = result["artifacts"][0]
+    assert artifact.endswith("out.pptx")
+    with open(artifact) as handle:
+        assert handle.read() == "deck"
+
+
 @pytest.mark.asyncio
 async def test_untrusted_script_is_rejected_before_execution(tmp_path):
     store = SkillStore(tmp_path / "skills")

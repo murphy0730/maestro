@@ -11,11 +11,11 @@
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 from maestro.config import runtime_data_root
+from maestro.foundation.settings_json_store import SettingsJsonStore
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +48,7 @@ def save_model_providers(cfg: dict) -> None:
     """原子写: 把 providers 结构落到 settings.json 的 `model_providers` 键，
     保留文件中其它既有键 (如可能由 .env 预置的扁平键)。"""
     p = settings_json_path()
-    data: dict = {}
-    if p.exists():
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
-    data[MODELS_KEY] = cfg
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, p)
+    SettingsJsonStore(p).update_section(MODELS_KEY, cfg)
     logger.info("已写入模型配置到 %s", p)
 
 

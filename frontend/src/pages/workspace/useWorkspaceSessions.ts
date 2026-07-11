@@ -21,26 +21,46 @@ export function useWorkspaceSessions({ onFreshConversation }: UseWorkspaceSessio
   const renameSession = useRenameSession();
   const deleteSession = useDeleteSession();
   const [isLoading, setIsLoading] = useState(false);
+  const [isSessionReady, setIsSessionReady] = useState(false);
+  const loadRequestRef = useRef(0);
 
   const fallbackIdRef = useRef(crypto.randomUUID().replace(/-/g, ''));
   const currentSessionId = activeSessionId ?? fallbackIdRef.current;
 
   const loadSession = useCallback(
     async (sessionId: string) => {
+      const requestId = ++loadRequestRef.current;
+      const messagesBeforeLoad = useConversationStore.getState().messages;
       setIsLoading(true);
       try {
         const stored = await getSessionMessages(sessionId);
+        if (
+          requestId !== loadRequestRef.current ||
+          useConversationStore.getState().messages !== messagesBeforeLoad
+        ) {
+          return;
+        }
         resetThread(storedToThread(stored));
       } catch {
+        if (
+          requestId !== loadRequestRef.current ||
+          useConversationStore.getState().messages !== messagesBeforeLoad
+        ) {
+          return;
+        }
         resetThread();
       } finally {
-        setIsLoading(false);
+        if (requestId === loadRequestRef.current) setIsLoading(false);
       }
     },
     [resetThread],
   );
 
   const initializedRef = useRef(false);
+  useEffect(() => {
+    if (sessionsQuery.isError) setIsSessionReady(true);
+  }, [sessionsQuery.isError]);
+
   useEffect(() => {
     if (initializedRef.current || !sessionsQuery.isSuccess) return;
     initializedRef.current = true;
@@ -59,7 +79,7 @@ export function useWorkspaceSessions({ onFreshConversation }: UseWorkspaceSessio
         resetThread();
       }
     };
-    void initialize();
+    void initialize().finally(() => setIsSessionReady(true));
   }, [
     createSession,
     loadSession,
@@ -70,19 +90,23 @@ export function useWorkspaceSessions({ onFreshConversation }: UseWorkspaceSessio
   ]);
 
   const handleNewConversation = useCallback(async () => {
+    setIsSessionReady(false);
     const newSession = await createSession.mutateAsync('新对话').catch(() => null);
     if (newSession) {
       setActiveSessionId(newSession.session_id);
     }
     resetThread();
     onFreshConversation();
+    setIsSessionReady(true);
   }, [createSession, onFreshConversation, resetThread, setActiveSessionId]);
 
   const handleSelectSession = useCallback(
     async (id: string) => {
       if (id === activeSessionId) return;
+      setIsSessionReady(false);
       setActiveSessionId(id);
       await loadSession(id);
+      setIsSessionReady(true);
     },
     [activeSessionId, loadSession, setActiveSessionId],
   );
@@ -155,6 +179,7 @@ export function useWorkspaceSessions({ onFreshConversation }: UseWorkspaceSessio
     handleRenameSession,
     handleSelectSession,
     isLoading,
+    isSessionReady,
     refetchSessions: sessionsQuery.refetch,
     sidebarConversations,
   };

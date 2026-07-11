@@ -8,6 +8,7 @@ import { ContextPanelHost } from '@/components/ContextPanelHost';
 import { Thread } from '@/features/orchestrator/Thread';
 import { Composer } from '@/features/orchestrator/Composer';
 import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModal';
+import { Modal } from '@/components/ui/Modal';
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
 import { useConversationStore, useDefaultEngineStore, useThemeStore } from '@/stores';
 import { useSkills, useTrustSkill } from '@/api';
@@ -27,17 +28,18 @@ export function Workspace() {
   const defaultEngine = useDefaultEngineStore((state) => state.defaultEngine);
   const setDefaultEngine = useDefaultEngineStore((state) => state.setDefaultEngine);
 
-  const [route, setRoute] = useState<ComposerRoute>(defaultEngine);
+  const [route, setRoute] = useState<ComposerRoute>('auto');
   const [selectedSkills, setSelectedSkills] = useState<SkillMeta[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [mode, setMode] = useState<ComposerMode>('plan');
   const [clock, setClock] = useState('--:--:--');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [skillAwaitingTrust, setSkillAwaitingTrust] = useState<SkillMeta | null>(null);
 
   const resetComposer = useCallback(() => {
-    setRoute(defaultEngine);
-    if (defaultEngine !== 'auto') setSelectedSkills([]);
-  }, [defaultEngine]);
+    setRoute('auto');
+    setSelectedSkills([]);
+  }, []);
 
   const {
     activeSession,
@@ -48,6 +50,7 @@ export function Workspace() {
     handleRenameSession,
     handleSelectSession,
     isLoading,
+    isSessionReady,
     refetchSessions,
     sidebarConversations,
   } = useWorkspaceSessions({ onFreshConversation: resetComposer });
@@ -98,7 +101,9 @@ export function Workspace() {
       onSend={(text, attachments) =>
         send(
           text,
-          route === 'auto' ? null : route,
+          // A selected skill owns this turn. Never leak a sticky/default engine
+          // into the request, even if the route state has not rendered "auto" yet.
+          selectedSkills.length > 0 || route === 'auto' ? null : route,
           selectedSkills.map((skill) => skill.name),
           mode,
           attachments,
@@ -106,6 +111,7 @@ export function Workspace() {
       }
       route={route}
       mode={mode}
+      disabled={!isSessionReady}
       onRouteChange={handleRouteChange}
       onModeChange={setMode}
       isStreaming={isStreaming}
@@ -117,21 +123,61 @@ export function Workspace() {
       onImportSkill={() => setImportOpen(true)}
       onTrustSkill={(skill) => {
         if (!skill.package_sha256) return;
-        const accepted = window.confirm(
-          `信任技能「${skill.display_name ?? skill.name}」当前版本？\n\n脚本每次执行仍会请求确认；SRT 不可用时，确认后可能在宿主机执行。\n\nHash: ${skill.package_sha256}`,
-        );
-        if (accepted) {
-          void trustSkillMutation.mutateAsync({
-            name: skill.name,
-            packageSha256: skill.package_sha256,
-          });
-        }
+        setSkillAwaitingTrust(skill);
       }}
     />
   );
 
   return (
     <>
+      <Modal
+        open={skillAwaitingTrust !== null}
+        onClose={() => setSkillAwaitingTrust(null)}
+        title="信任这个技能版本？"
+        subtitle="信任仅适用于当前文件版本；脚本每次执行仍会单独请求授权。"
+        widthClassName="max-w-[520px]"
+        footer={
+          <div className="flex w-full justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setSkillAwaitingTrust(null)}
+              className="h-control rounded-sm px-4 text-body-sm font-medium text-text-secondary hover:bg-surface-3"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={trustSkillMutation.isPending}
+              onClick={() => {
+                if (!skillAwaitingTrust?.package_sha256) return;
+                void trustSkillMutation
+                  .mutateAsync({
+                    name: skillAwaitingTrust.name,
+                    packageSha256: skillAwaitingTrust.package_sha256,
+                  })
+                  .then(() => setSkillAwaitingTrust(null));
+              }}
+              className="h-control rounded-sm bg-auth-confirm px-4 text-body-sm font-semibold text-white disabled:opacity-50"
+            >
+              {trustSkillMutation.isPending ? '正在处理…' : '确认信任'}
+            </button>
+          </div>
+        }
+      >
+        {skillAwaitingTrust && (
+          <div className="space-y-3 text-body text-text-secondary">
+            <p className="m-0 text-text-primary">
+              {skillAwaitingTrust.display_name ?? skillAwaitingTrust.name}
+            </p>
+            <p className="m-0 leading-relaxed">
+              SRT 不可用时，获准执行的脚本可能在宿主机运行。请仅信任来源可靠且内容已审查的技能。
+            </p>
+            <p className="m-0 break-all font-mono text-micro text-text-tertiary">
+              SHA-256 · {skillAwaitingTrust.package_sha256}
+            </p>
+          </div>
+        )}
+      </Modal>
       <SkillImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -152,9 +198,14 @@ export function Workspace() {
               role="排产调度员"
               conversations={sidebarConversations}
               activeId={activeSessionId ?? ''}
-              onSelect={handleSelectSession}
+              onSelect={(id) => {
+                resetComposer();
+                void handleSelectSession(id);
+              }}
               onNewConversation={handleNewConversation}
               onOpenTasks={() => navigate('/tasks')}
+              onOpenSkills={() => navigate('/settings/skills')}
+              onOpenConnectors={() => navigate('/settings/connectors')}
               onRenameSession={handleRenameSession}
               onDeleteSession={handleDeleteSession}
               onCollapse={() => setSidebarCollapsed(true)}
@@ -200,6 +251,7 @@ export function Workspace() {
               <Thread
                 messages={thread}
                 author="周文涛"
+                userAvatar="Z"
                 onClarifySelect={(messageId, optionId, routeTo) =>
                   selectClarification(messageId, optionId, routeTo, mode)
                 }

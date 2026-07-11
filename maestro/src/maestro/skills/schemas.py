@@ -39,8 +39,8 @@ class SkillFrontmatter(BaseModel):
     @field_validator("description")
     @classmethod
     def _desc(cls, v: str) -> str:
-        if not (1 <= len(v) <= 200):
-            raise ValueError("description 长度需 1~200 字符")
+        if not (1 <= len(v) <= 1024):
+            raise ValueError("description 长度需 1~1024 字符")
         return v
 
     @field_validator("display_name")
@@ -89,6 +89,7 @@ class SkillFrontmatter(BaseModel):
 class SkillMeta(SkillFrontmatter):
     file_count: int = 0
     bytes: int = 0
+    archive_bytes: int | None = None
     added_at: str = ""
     compatibility_status: Literal["ready", "degraded", "not_ready", "disabled"] = "ready"
     warnings: list[str] = Field(default_factory=list)

@@ -21,11 +21,17 @@ def _isolate_runtime_data(tmp_path_factory):
     ~/.maestro；同时使 settings.json 源指向不存在的临时文件,不读真实用户模型配置。"""
     prev = os.environ.get("MAESTRO_DATA_DIR")
     os.environ["MAESTRO_DATA_DIR"] = str(tmp_path_factory.mktemp("maestro_runtime"))
+    previous_token = os.environ.get("PRIVILEGED_API_TOKEN")
+    os.environ["PRIVILEGED_API_TOKEN"] = "test-privileged-token"
     yield
     if prev is None:
         os.environ.pop("MAESTRO_DATA_DIR", None)
     else:
         os.environ["MAESTRO_DATA_DIR"] = prev
+    if previous_token is None:
+        os.environ.pop("PRIVILEGED_API_TOKEN", None)
+    else:
+        os.environ["PRIVILEGED_API_TOKEN"] = previous_token
 
 
 # 确定性假嵌入的判别词表: 子串命中即该维度为 1，使余弦相似度对测试语句有意义。

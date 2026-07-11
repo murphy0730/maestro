@@ -67,7 +67,7 @@ export interface AgentMessage extends BaseMessage {
   progress?: string;
   /** Full thinking/progress trace for this turn (rendered as a collapsible log). */
   thinking?: string[];
-  /** Write actions awaiting human confirmation (rendered as confirm cards). */
+  /** Pending actions: business actions render inline; tool/script execution uses a dialog. */
   pendingActions?: PendingActionPayload[];
 }
 

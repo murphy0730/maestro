@@ -57,14 +57,16 @@ it('consumes progress / token / actions / done frames into state', async () => {
   expect(result.current.messageId).toBe('m1');
 });
 
-it('finishes when the server closes a stream without a done frame', async () => {
+it('reports an error when the server closes without any valid SSE frame', async () => {
   const { result } = renderHook(() => useStreamingChat('s1'));
   act(() => result.current.send('你是谁'));
 
-  await waitFor(() => expect(result.current.phase).toBe('done'));
+  await waitFor(() => expect(result.current.phase).toBe('error'));
+  expect(result.current.error?.code).toBe('STREAM_EMPTY');
 });
 
 it('sends selected skills and attachments in the same request', async () => {
+  script.push({ event: 'done', data: { message_id: 'm2' } });
   const attachment = {
     name: 'work-orders.csv',
     content_type: 'text/csv',

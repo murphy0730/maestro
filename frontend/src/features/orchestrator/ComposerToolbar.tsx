@@ -57,6 +57,7 @@ const MODE_OPTIONS: {
 ];
 
 interface ComposerToolbarProps {
+  disabled?: boolean;
   onAddAttachment: () => void;
   isStreaming: boolean;
   mode: ComposerMode;
@@ -74,6 +75,7 @@ interface ComposerToolbarProps {
 }
 
 export function ComposerToolbar({
+  disabled = false,
   onAddAttachment,
   isStreaming,
   mode,
@@ -244,10 +246,11 @@ export function ComposerToolbar({
       ) : (
         <button
           type="button"
+          disabled={disabled}
           onClick={onSubmit}
           title="发送消息"
           aria-label="发送消息"
-          className="grid h-[30px] w-[30px] flex-none cursor-pointer place-items-center rounded-sm bg-blue-solid text-on-solid shadow-elev-1 transition-colors duration-fast ease-out hover:bg-blue-solid-hover"
+          className="grid h-[30px] w-[30px] flex-none cursor-pointer place-items-center rounded-sm bg-blue-solid text-on-solid shadow-elev-1 transition-colors duration-fast ease-out hover:bg-blue-solid-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           <SendIcon size={15} />
         </button>

@@ -87,6 +87,10 @@ class ToolRegistry:
             raise ValueError(f"工具 {name} 非写操作 (kind={tool.kind})，无需前置断言")
         tool.precondition = precondition
 
+    def unregister(self, name: str) -> bool:
+        """Remove a dynamically owned tool without disturbing built-ins."""
+        return self._tools.pop(name, None) is not None
+
     def get(self, name: str) -> Tool:
         if name not in self._tools:
             raise KeyError(f"工具 {name} 未注册")

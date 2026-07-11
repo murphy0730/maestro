@@ -49,11 +49,29 @@ class SkillScriptExecutionService:
         if not self._store.is_trusted(skill_id, package_hash):
             raise SkillValidationError("技能当前版本未被本地用户信任")
         if script not in meta.scripts:
-            raise SkillValidationError("只能执行 SKILL.md 声明或 scripts/ 下已识别的脚本")
+            # LLM 常省略 scripts/ 前缀，先按声明列表归一化再拒绝
+            prefixed = f"scripts/{script}"
+            if prefixed in meta.scripts:
+                script = prefixed
+            else:
+                raise SkillValidationError("只能执行 SKILL.md 声明或 scripts/ 下已识别的脚本")
         path = Path(script)
         if path.is_absolute() or ".." in path.parts or path.suffix.lower() not in {".py", ".js"}:
             raise SkillValidationError("仅允许包内 .py/.js 脚本")
         return skill_id, script, list(args)
+
+    def _collect_artifacts(self, workspace: Path, pre_existing: set[Path], run_id: str) -> list[str]:
+        # 工作区随 run_root 一起删除，脚本产物（如生成的 .pptx）必须先拷到持久目录才能交付用户
+        saved: list[str] = []
+        keep_dir = self._output_dir / "artifacts" / run_id
+        for path in sorted(workspace.rglob("*")):
+            if not path.is_file() or path in pre_existing:
+                continue
+            target = keep_dir / path.relative_to(workspace)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            saved.append(str(target))
+        return saved
 
     async def execute(self, params: dict) -> dict:
         skill_id, script, args = self._validate(params)
@@ -62,6 +80,9 @@ class SkillScriptExecutionService:
         run_root = Path(tempfile.mkdtemp(prefix=f"skill-{skill_id}-", dir=self._output_dir))
         workspace = run_root / "workspace"
         workspace.mkdir()
+        # HOME 指向 workspace，脚本写 ~/Desktop 等常见目录时需要它们真实存在
+        for home_dir in ("Desktop", "Documents", "Downloads"):
+            (workspace / home_dir).mkdir()
         snapshot = workspace / "input"
         snapshot.mkdir()
         try:
@@ -72,6 +93,7 @@ class SkillScriptExecutionService:
             script_path = (snapshot / script).resolve()
             if not script_path.is_relative_to(snapshot.resolve()) or not script_path.is_file():
                 raise SkillValidationError("脚本文件不存在于可信快照")
+            pre_existing = {path for path in workspace.rglob("*") if path.is_file()}
             interpreter = sys.executable if script_path.suffix.lower() == ".py" else shutil.which("node")
             if not interpreter:
                 raise SkillValidationError("未安装 Node.js，无法执行 JavaScript Skill 脚本")
@@ -146,6 +168,7 @@ class SkillScriptExecutionService:
                 "stderr": captured["stderr"].decode("utf-8", "replace"),
                 "output_truncated": truncated,
                 "run_id": run_root.name,
+                "artifacts": self._collect_artifacts(workspace, pre_existing, run_root.name),
             }
         finally:
             # Keep only the bounded JSON result in audit; never retain executable snapshots.
@@ -154,3 +177,31 @@ class SkillScriptExecutionService:
 
 def result_detail(result: dict) -> str:
     return json.dumps(result, ensure_ascii=False)
+
+
+def format_skill_result_markdown(result: dict) -> str:
+    """把技能脚本执行结果 dict 渲染成可读 Markdown，用于确认后的用户回复。
+
+    ``result_detail`` 保持机器可解析的 JSON（供 ReAct 观察与审计），
+    面向用户的确认回复则走本函数，避免把裸 JSON 抛给前台。
+    """
+    ok = result.get("status") == "completed" and result.get("exit_code", 0) == 0
+    icon = "✅" if ok else "⚠️"
+    mode = result.get("execution_mode", "?")
+    exit_code = result.get("exit_code", "?")
+    duration = result.get("duration_ms", "?")
+    parts = [
+        f"{icon} 脚本执行{'完成' if ok else '结束'}"
+        f"（{mode} · 退出码 {exit_code} · 耗时 {duration}ms）"
+    ]
+    stdout = (result.get("stdout") or "").strip()
+    if stdout:
+        parts.append(f"\n```\n{stdout}\n```")
+    stderr = (result.get("stderr") or "").strip()
+    if stderr:
+        parts.append(f"\n**stderr**\n```\n{stderr}\n```")
+    artifacts = result.get("artifacts") or []
+    if artifacts:
+        listed = "\n".join(f"- `{a}`" for a in artifacts)
+        parts.append(f"\n**产物**\n{listed}")
+    return "\n".join(parts)

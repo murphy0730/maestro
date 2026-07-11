@@ -1,3 +1,4 @@
+import functools
 from pathlib import Path
 from typing import Literal
 
@@ -24,7 +25,10 @@ class ReadOutputArgs(BaseModel):
     limit: int = Field(default=8192, ge=1, le=65536)
 
 
+@functools.lru_cache(maxsize=1)
 def _runtime() -> tuple[ShellExecutionService, FileOutputStore]:
+    # 进程内单例: 避免每次工具调用都重解析 Settings、重建 store/service 和
+    # 重新发现 srt 二进制 (原先每步 ReAct 都在 async 循环里做这些同步开销)。
     settings = Settings()
     store = FileOutputStore(
         settings.execution_output_dir,
@@ -43,7 +47,7 @@ def _runtime() -> tuple[ShellExecutionService, FileOutputStore]:
     return service, store
 
 
-async def _execute_shell(shell: str, args: ShellArgs, on_progress=None) -> ToolResult:
+async def _execute_shell(shell: str, args: ShellArgs, authorized: bool, on_progress=None) -> ToolResult:
     service, _ = _runtime()
     result = await service.execute(
         command=args.command,
@@ -51,6 +55,7 @@ async def _execute_shell(shell: str, args: ShellArgs, on_progress=None) -> ToolR
         cwd=project_root() / Path(args.cwd),
         timeout_ms=args.timeout_ms,
         session_id="agent",
+        authorized=authorized,
         on_progress=on_progress,
     )
     status = ToolResultStatus.ERROR if result["status"] in ("failed", "blocked") else ToolResultStatus.SUCCESS
@@ -58,11 +63,11 @@ async def _execute_shell(shell: str, args: ShellArgs, on_progress=None) -> ToolR
 
 
 async def bash_execute(args: ShellArgs, context: dict, on_progress=None) -> ToolResult:
-    return await _execute_shell("bash", args, on_progress)
+    return await _execute_shell("bash", args, bool(context.get("shell_authorized")), on_progress)
 
 
 async def powershell_execute(args: ShellArgs, context: dict, on_progress=None) -> ToolResult:
-    return await _execute_shell("powershell", args, on_progress)
+    return await _execute_shell("powershell", args, bool(context.get("shell_authorized")), on_progress)
 
 
 async def read_output_execute(args: ReadOutputArgs, context: dict, on_progress=None) -> ToolResult:
@@ -75,6 +80,8 @@ async def read_output_execute(args: ReadOutputArgs, context: dict, on_progress=N
 
 
 def _shell_tool(name: str, execute):
+    from maestro.execution.risk import classify_command
+
     return build_tool(ToolDef(
         name=name,
         description=(
@@ -88,6 +95,9 @@ def _shell_tool(name: str, execute):
         is_destructive=True,
         should_defer=True,
         search_hint=f"execute code command script shell {name}",
+        risk_classifier=lambda kwargs, shell=name: classify_command(
+            str(kwargs.get("command", "")), shell
+        ),
     ))
 
 

@@ -78,6 +78,7 @@ async def test_bash_execution_streams_to_output_reference(tmp_path):
         cwd=tmp_path,
         timeout_ms=5_000,
         session_id="session-a",
+        authorized=True,
         force_mode=ExecutionMode.GUARDED,
     )
 
@@ -86,6 +87,23 @@ async def test_bash_execution_streams_to_output_reference(tmp_path):
     assert result["output_ref"].startswith("out-")
     page = store.read(result["output_ref"], "session-a", "stdout", 0, 20)
     assert page["data"] == "123456"
+
+
+@pytest.mark.asyncio
+async def test_service_blocks_ask_command_without_authorization(tmp_path):
+    # 硬底线: 未经确认授权的 ask 级命令, 即便直连 service (绕过桥接/ActionGate) 也不执行。
+    store = FileOutputStore(tmp_path)
+    service = ShellExecutionService(store=store, allowed_roots=[tmp_path])
+    result = await service.execute(
+        command="rm important.txt",
+        shell="bash",
+        cwd=tmp_path,
+        timeout_ms=5_000,
+        session_id="session-a",
+        force_mode=ExecutionMode.GUARDED,
+    )
+    assert result["status"] == "blocked"
+    assert result["risk"]["effect"] == "ask"
 
 
 @pytest.mark.asyncio
@@ -98,6 +116,7 @@ async def test_timeout_terminates_command(tmp_path):
         cwd=tmp_path,
         timeout_ms=50,
         session_id="session-a",
+        authorized=True,
         force_mode=ExecutionMode.GUARDED,
     )
     assert result["status"] == "timed_out"

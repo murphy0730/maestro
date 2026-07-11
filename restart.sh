@@ -17,6 +17,7 @@ mkdir -p "$LOG_DIR"
 
 BACKEND_PORT=8000
 FRONTEND_PORT=5173
+DEV_PRIVILEGED_TOKEN="${PRIVILEGED_API_TOKEN:-maestro-local-dev}"
 
 kill_port() {
   local port="$1" name="$2"
@@ -35,7 +36,7 @@ start_backend() {
   kill_port "$BACKEND_PORT" "后端"
   echo "启动后端 → http://localhost:$BACKEND_PORT (日志: logs/backend.log)"
   cd "$ROOT/maestro"
-  nohup .venv/bin/uvicorn maestro.main:app --reload --port "$BACKEND_PORT" \
+  PRIVILEGED_API_TOKEN="$DEV_PRIVILEGED_TOKEN" nohup .venv/bin/uvicorn maestro.main:app --reload --port "$BACKEND_PORT" \
     > "$LOG_DIR/backend.log" 2>&1 &
   cd "$ROOT"
 }

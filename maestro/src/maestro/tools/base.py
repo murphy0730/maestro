@@ -58,6 +58,7 @@ class Tool(Protocol):
     should_defer: bool
     always_load: bool
     search_hint: Optional[str]
+    risk_classifier: Optional[Callable[[Dict[str, Any]], Any]]
 
     async def execute(
         self,
@@ -94,6 +95,9 @@ class ToolDef:
     should_defer: bool = False
     always_load: bool = False
     search_hint: Optional[str] = None
+    # 命令级风险分类器 (可选): 接收调用参数, 返回带 .effect(allow/ask/deny) 的风险对象。
+    # 桥接层据此判定是否需要 ActionGate 确认, 取代按工具名硬编码 (如 bash/powershell)。
+    risk_classifier: Optional[Callable[[Dict[str, Any]], Any]] = None
     validate_input: Optional[Callable[[Any, Dict[str, Any]], Optional[str]]] = None
     get_tool_use_summary: Optional[Callable[[Optional[Dict[str, Any]]], Optional[str]]] = None
     get_activity_description: Optional[Callable[[Optional[Dict[str, Any]]], Optional[str]]] = None
@@ -116,6 +120,7 @@ class BaseTool(ABC):
     should_defer: bool = False
     always_load: bool = False
     search_hint: Optional[str] = None
+    risk_classifier: Optional[Callable[[Dict[str, Any]], Any]] = None
 
     @abstractmethod
     async def execute(
@@ -167,6 +172,13 @@ def build_tool(definition: ToolDef) -> Tool:
         should_defer = definition.should_defer
         always_load = definition.always_load
         search_hint = definition.search_hint
+        # staticmethod 包装, 否则作为类属性的可调用对象会被描述符协议绑定成方法
+        # (访问时把实例塞进第一个参数)。
+        risk_classifier = (
+            staticmethod(definition.risk_classifier)
+            if definition.risk_classifier is not None
+            else None
+        )
 
         async def execute(
             self,

@@ -21,6 +21,7 @@ const DEV_URL = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:5173';
 let backend = null; // { child, port }
 let splash = null;
 let quitting = false;
+const privilegedToken = require('node:crypto').randomBytes(32).toString('hex');
 
 function userDataDir() {
   return app.getPath('userData');
@@ -49,6 +50,7 @@ function buildBackendEnv(port) {
     ...process.env,
     MAESTRO_BACKEND_PORT: String(port),
     MAESTRO_DATA_DIR: userDataDir(),
+    PRIVILEGED_API_TOKEN: privilegedToken,
   };
   // 把「当前生效」供应商解析为扁平 LLM_*/EMBED_* (兼容旧 providers.json)
   const cfg = bc.readProviders(userDataDir());
@@ -159,7 +161,7 @@ function createWindow(port) {
     win.loadURL(DEV_URL);
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { bp: String(port) } });
+    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { bp: String(port), pt: privilegedToken } });
   }
 }
 
@@ -178,7 +180,7 @@ async function restartBackend() {
   await startBackend();
   for (const w of BrowserWindow.getAllWindows()) {
     w.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
-      query: { bp: String(backend.port) },
+      query: { bp: String(backend.port), pt: privilegedToken },
     });
   }
 }

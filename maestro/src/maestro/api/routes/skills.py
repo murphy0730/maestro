@@ -1,15 +1,15 @@
 """Skill package management endpoints."""
 
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from maestro.api.routes.knowledge import _MAX_UPLOAD_BYTES
 from maestro.foundation.tools.builtin import QUERY_READONLY_TOOLS
 from maestro.skills.parser import validate_skill_package
 from maestro.skills.schemas import SkillMeta, SkillValidationError
+from maestro.api.security import require_privileged
 
 router = APIRouter()
 
@@ -17,16 +17,6 @@ router = APIRouter()
 class TrustSkillRequest(BaseModel):
     package_sha256: str
     acknowledged_script_execution: bool = False
-
-
-def _require_local_origin(request: Request) -> None:
-    """Trust is a privileged local-desktop action; reject arbitrary web origins."""
-    origin = request.headers.get("origin")
-    if not origin or origin == "null":
-        return
-    host = urlparse(origin).hostname
-    if host not in {"localhost", "127.0.0.1", "::1"}:
-        raise HTTPException(status_code=403, detail="技能信任操作仅允许来自本机应用")
 
 
 def _now_iso() -> str:
@@ -46,7 +36,7 @@ async def list_skills(request: Request):
 
 
 @router.post("/skills/import", status_code=201)
-async def import_skill(request: Request, file: UploadFile = File(...)):
+async def import_skill(request: Request, file: UploadFile = File(...), principal: str = Depends(require_privileged)):
     """导入技能包（.md / .zip）。"""
     platform = request.app.state.platform
     data = await file.read()
@@ -70,8 +60,9 @@ async def import_skill(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     meta = SkillMeta(
         **frontmatter.model_dump(),
-        file_count=len(attachments),
-        bytes=len(data),
+        file_count=1 + len(attachments),
+        bytes=len(body.encode("utf-8")) + sum(len(content) for content in attachments.values()),
+        archive_bytes=len(data),
         added_at=_now_iso(),
         compatibility_status=report.compatibility_status,
         warnings=report.warnings,
@@ -80,6 +71,7 @@ async def import_skill(request: Request, file: UploadFile = File(...)):
         platform.skill_store.save(meta, body, attachments)
     except KeyError:
         raise HTTPException(status_code=409, detail=f"技能 {meta.name} 已存在") from None
+    platform.audit.record(principal, "skill.import", {"name": meta.name, "package_sha256": meta.package_sha256}, "allowed")
     return meta
 
 
@@ -114,12 +106,13 @@ async def get_skill_trust(name: str, request: Request):
 
 @router.post("/skills/{name}/trust")
 async def trust_skill(name: str, payload: TrustSkillRequest, request: Request):
-    _require_local_origin(request)
+    principal = require_privileged(request)
     if not payload.acknowledged_script_execution:
         raise HTTPException(status_code=422, detail="必须明确确认将允许当前版本脚本进入权限执行流程")
     store = request.app.state.platform.skill_store
     try:
-        store.trust(name, payload.package_sha256, principal_id="local-user")
+        store.trust(name, payload.package_sha256, principal_id=principal)
+        request.app.state.platform.audit.record(principal, "skill.trust", {"name": name, "package_sha256": payload.package_sha256}, "allowed")
         return store.trust_status(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"技能 {name} 不存在") from None
@@ -129,16 +122,19 @@ async def trust_skill(name: str, payload: TrustSkillRequest, request: Request):
 
 @router.delete("/skills/{name}/trust")
 async def revoke_skill_trust(name: str, request: Request):
-    _require_local_origin(request)
+    principal = require_privileged(request)
     store = request.app.state.platform.skill_store
     if store.get(name) is None:
         raise HTTPException(status_code=404, detail=f"技能 {name} 不存在")
-    return {"revoked": store.revoke_trust(name), **store.trust_status(name)}
+    revoked = store.revoke_trust(name)
+    request.app.state.platform.audit.record(principal, "skill.trust.revoke", {"name": name}, "allowed")
+    return {"revoked": revoked, **store.trust_status(name)}
 
 
 @router.delete("/skills/{name}")
-async def delete_skill(name: str, request: Request):
+async def delete_skill(name: str, request: Request, principal: str = Depends(require_privileged)):
     """删除技能包。不存在 → 404。"""
     if not request.app.state.platform.skill_store.delete(name):
         raise HTTPException(status_code=404, detail=f"技能 {name} 不存在")
+    request.app.state.platform.audit.record(principal, "skill.delete", {"name": name}, "allowed")
     return {"deleted": True, "name": name}

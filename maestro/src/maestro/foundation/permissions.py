@@ -49,9 +49,6 @@ PRODUCTION_WRITE_ACTIONS: frozenset[str] = frozenset(
 # 写动作授权策略配置表 (action_type → 级别)，未知写动作默认需确认 (保守)。
 # 生产写入已由 PRODUCTION_WRITE_ACTIONS 无条件兜底，此表供外部注入非生产动作用。
 DEFAULT_POLICIES: dict[str, ActionLevel] = {
-    # Shell 风险分类为 ask 时，即便完全访问模式也必须显式确认。
-    "tool:bash": "requires_confirmation",
-    "tool:powershell": "requires_confirmation",
     # 即使 Skill 包 hash 已被信任，每一次脚本执行仍需经过 ActionGate。
     "run_skill_script": "requires_confirmation",
 }

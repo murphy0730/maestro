@@ -73,9 +73,11 @@ export function useStreamingChat(sessionId: string) {
   }, []);
 
   const consume = useCallback(async (gen: AsyncGenerator<ChatStreamEvent>) => {
+    let receivedEvent = false;
     try {
       for await (const evt of gen) {
         if (!mountedRef.current) return;
+        receivedEvent = true;
         switch (evt.event) {
           case 'route':
             setState((s) => ({ ...s, route: evt.data, phase: 'streaming' }));
@@ -114,7 +116,15 @@ export function useStreamingChat(sessionId: string) {
       // A valid HTTP stream may close without a final `done` frame (proxy,
       // older backend, or an empty assistant reply). Never leave the UI busy.
       if (mountedRef.current) {
-        setState((s) => (s.phase === 'streaming' ? { ...s, phase: 'done' } : s));
+        setState((s) => {
+          if (s.phase !== 'streaming') return s;
+          if (receivedEvent) return { ...s, phase: 'done' };
+          return {
+            ...s,
+            phase: 'error',
+            error: { code: 'STREAM_EMPTY', message: '未收到有效的流式响应' },
+          };
+        });
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;

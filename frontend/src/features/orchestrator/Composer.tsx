@@ -9,6 +9,7 @@ interface ComposerProps {
   mode: ComposerMode;
   onRouteChange: (route: ComposerRoute) => void;
   onModeChange: (mode: ComposerMode) => void;
+  disabled?: boolean;
   isStreaming?: boolean;
   onStop?: () => void;
   skills: SkillMeta[];
@@ -32,6 +33,7 @@ export function Composer({
   mode,
   onRouteChange,
   onModeChange,
+  disabled = false,
   isStreaming = false,
   onStop,
   skills,
@@ -49,12 +51,13 @@ export function Composer({
   const routeLabel = ROUTE_LABELS[route];
 
   const submit = () => {
-    if (isStreaming) return;
+    if (isStreaming || disabled) return;
     const text = draft.trim();
     if (!text) return;
     onSend(text, attachments);
     setDraft('');
     setAttachments([]);
+    onClearSkills();
   };
 
   const addFiles = async (files: FileList | null) => {
@@ -139,19 +142,26 @@ export function Composer({
             }}
           />
           <textarea
+            disabled={disabled}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
+                if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
                 event.preventDefault();
                 submit();
               }
             }}
             rows={1}
-            placeholder="描述排产 / 调度 / 查询需求，输入 / 调用斜杠命令，或粘贴工单号 WO-…"
+            placeholder={
+              disabled
+                ? '正在加载会话…'
+                : '描述排产 / 调度 / 查询需求，输入 / 调用斜杠命令，或粘贴工单号 WO-…'
+            }
             className="block max-h-[120px] w-full resize-none border-none bg-transparent px-[15px] pb-[7px] pt-[13px] font-sans text-body leading-normal text-text-primary outline-none placeholder:text-text-tertiary"
           />
           <ComposerToolbar
+            disabled={disabled}
             isStreaming={isStreaming}
             mode={mode}
             onClearSkills={onClearSkills}

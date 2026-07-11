@@ -1,4 +1,4 @@
-import { Check, TriangleAlert, X } from 'lucide-react';
+import { Check, Loader2, TriangleAlert, X } from 'lucide-react';
 import type { PendingActionPayload } from '@/types';
 import { AuthAction } from '@/components/ui/AuthAction';
 import { ShieldIcon } from '@/components/ui/Icon';
@@ -14,7 +14,7 @@ interface PendingActionsCardProps {
 }
 
 const RESOLVED_LABEL: Record<
-  Exclude<PendingActionPayload['status'], 'pending'>,
+  Exclude<PendingActionPayload['status'], 'pending' | 'executing'>,
   { Icon: typeof Check; label: string }
 > = {
   executed: { Icon: Check, label: '已确认执行' },
@@ -31,10 +31,20 @@ export function PendingActionsCard({ actions, onConfirm }: PendingActionsCardPro
           className="rounded-md border border-l-[3px] border-auth-confirm-border border-l-auth-confirm bg-auth-confirm-bg px-3 py-[10px]"
         >
           {/* The 3px stripe + uppercase tag + shield carry the authorization
-              level, so the button below need not encode it a fourth time. */}
+              level, so the button below need not encode it a fourth time.
+              While executing, the eyebrow flips to a live "正在执行工具" state. */}
           <div className="flex items-center gap-2 text-micro font-medium uppercase tracking-eyebrow text-auth-confirm">
-            <ShieldIcon size={12} className="flex-none" />
-            CONFIRM · {a.action_type}
+            {a.status === 'executing' ? (
+              <>
+                <Loader2 size={12} className="flex-none animate-spin" />
+                正在执行工具 · {a.action_type}
+              </>
+            ) : (
+              <>
+                <ShieldIcon size={12} className="flex-none" />
+                CONFIRM · {a.action_type}
+              </>
+            )}
           </div>
           <p className="m-0 mt-[6px] text-body leading-relaxed text-text-primary">
             {a.description}
@@ -51,6 +61,11 @@ export function PendingActionsCard({ actions, onConfirm }: PendingActionsCardPro
                 <X size={14} />
                 拒绝
               </button>
+            </div>
+          ) : a.status === 'executing' ? (
+            <div className="mt-2 flex items-center gap-[6px] text-caption font-semibold text-auth-confirm">
+              <Loader2 size={13} className="flex-none animate-spin" />
+              正在执行工具…
             </div>
           ) : (
             (() => {

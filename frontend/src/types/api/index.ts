@@ -5,3 +5,5 @@ export * from './query';
 export * from './scheduling';
 export * from './shared';
 export * from './skills';
+export * from './connectors';
+export * from './extensions';

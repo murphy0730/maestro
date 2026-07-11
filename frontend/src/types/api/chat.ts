@@ -49,7 +49,9 @@ export interface PendingActionPayload {
   action_type: string;
   description: string;
   params: Record<string, unknown>;
-  status: 'pending' | 'executed' | 'rejected' | 'failed';
+  // 'executing' is a client-only transient set while the confirm request is
+  // in flight; the backend never emits it over the wire.
+  status: 'pending' | 'executing' | 'executed' | 'rejected' | 'failed';
 }
 
 export interface ConfirmActionRequest {

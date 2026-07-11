@@ -54,7 +54,7 @@ def register_framework_tools(
 
         if gate is not None and (
             tool.permission_level == ToolPermissionLevel.REQUIRES_CONFIRM
-            or tool.name in ("bash", "powershell")
+            or getattr(tool, "risk_classifier", None) is not None
         ):
             gate.register_executor(
                 f"tool:{tool.name}",
@@ -66,10 +66,8 @@ def register_framework_tools(
                 # The scheduling path has one policy source: PermissionEngine for
                 # admission and ActionGate for confirmations.  Do not run the
                 # framework's independent PermissionChecker a second time.
-                if tool_name in ("bash", "powershell"):
-                    from maestro.execution.risk import classify_command
-
-                    risk = classify_command(str(kwargs.get("command", "")), tool_name)
+                if framework_tool.risk_classifier is not None:
+                    risk = framework_tool.risk_classifier(kwargs)
                     if risk.effect == "deny":
                         return {
                             "blocked_by_permission": True,
@@ -88,6 +86,7 @@ def register_framework_tools(
                             description=f"执行 {tool_name} 命令: {kwargs.get('description') or kwargs.get('command')}",
                             params=kwargs,
                             executor=_make_direct_executor(manager, tool_name, kwargs),
+                            min_level="requires_confirmation",
                         )
                         if outcome.status == "pending" and outcome.action:
                             return {
@@ -192,8 +191,10 @@ def _make_direct_executor(manager: ToolManager, tool_name: str, kwargs: dict):
     """
 
     async def _execute() -> ActionResult:
+        # shell_authorized: 该动作已过 ActionGate 确认，允许 ShellExecutionService
+        # 执行 ask 级命令 (服务层硬底线只对未授权入口拦截)。
         result = await manager.execute_tool(
-            tool_name, kwargs, context={}, skip_permission=True
+            tool_name, kwargs, context={"shell_authorized": True}, skip_permission=True
         )
         ok = result.status == ToolResultStatus.SUCCESS
         detail = (

@@ -67,12 +67,17 @@ class ShellExecutionService:
         cwd: Path,
         timeout_ms: int,
         session_id: str,
+        authorized: bool = False,
         force_mode: ExecutionMode | None = None,
         on_progress=None,
     ) -> dict:
         cwd = self._cwd(cwd)
         risk = classify_command(command, shell)
+        # 硬性底线: deny 永不执行; ask 级命令只有经确认授权 (authorized=True) 才放行，
+        # 使任何入口 (含未经桥接/ActionGate 的调用) 都无法绕过人工确认执行高危命令。
         if risk.effect == "deny":
+            return {"status": "blocked", "risk": risk.to_dict()}
+        if risk.effect == "ask" and not authorized:
             return {"status": "blocked", "risk": risk.to_dict()}
         if force_mode is not None:
             mode = force_mode

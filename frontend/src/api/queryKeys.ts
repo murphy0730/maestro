@@ -21,6 +21,11 @@ export const queryKeys = {
   skills: {
     list: () => ['skills', 'list'] as const,
   },
+  extensions: {
+    connectors: () => ['extensions', 'connectors', 'servers'] as const,
+    catalog: (kind: 'skills' | 'connectors', q = '') => ['extensions', 'catalog', kind, q] as const,
+    catalogStatus: () => ['extensions', 'catalog', 'status'] as const,
+  },
   sessions: {
     list: () => ['sessions', 'list'] as const,
   },

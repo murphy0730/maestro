@@ -276,10 +276,28 @@ class Orchestrator:
             return ChatResponse(reply=f"确认失败: {e}")
         if not approved:
             reply = f"已取消动作: {action.description}"
+            self._memory.append(session_id, "assistant", reply, kind="system")
         elif result and result.success:
-            reply = f"已执行: {action.description} — {result.detail}"
+            detail = self._format_confirm_detail(action.action_type, result.detail)
+            reply = f"**已执行** · {action.description}\n\n{detail}"
+            # kind=normal → 前台渲染为 Markdown 气泡（非居中细行），脚本输出/产物可读。
+            self._memory.append(session_id, "assistant", reply, kind="normal")
         else:
             detail = result.detail if result else action.failure_reason or "未知错误"
             reply = f"执行失败: {action.description} — {detail}"
-        self._memory.append(session_id, "assistant", reply, kind="system")
+            self._memory.append(session_id, "assistant", reply, kind="system")
         return ChatResponse(reply=reply, pending_actions=[action])
+
+    @staticmethod
+    def _format_confirm_detail(action_type: str, raw_detail: str) -> str:
+        """把动作执行结果格式化为面向用户的文本。技能脚本的 JSON detail 转 Markdown。"""
+        if action_type == "run_skill_script":
+            import json
+
+            from maestro.skills.script_execution import format_skill_result_markdown
+
+            try:
+                return format_skill_result_markdown(json.loads(raw_detail))
+            except (json.JSONDecodeError, TypeError):
+                return raw_detail
+        return raw_detail

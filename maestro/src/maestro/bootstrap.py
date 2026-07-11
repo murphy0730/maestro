@@ -50,6 +50,7 @@ from maestro.foundation.memory import ConversationMemory
 from maestro.foundation.observation_store import ObservationStore
 from maestro.foundation.permissions import PermissionEngine
 from maestro.foundation.session_store import SessionStore
+from maestro.foundation.mcp_config_store import MCPConfigStore
 from maestro.foundation.tools.builtin import (
     QUERY_READONLY_TOOLS,
     FollowupStore,
@@ -71,6 +72,9 @@ from maestro.skills.engine import SkillEngine
 from maestro.skills.schemas import SkillValidationError
 from maestro.skills.script_execution import SkillScriptExecutionService, result_detail
 from maestro.skills.store import SkillStore
+from maestro.extensions.store import ExtensionCatalogStore
+from maestro.extensions.service import ExtensionCatalogService
+from maestro.extensions.scheduler import CatalogScheduler
 
 
 @dataclass
@@ -99,10 +103,20 @@ class Platform:
     skill_scripts: SkillScriptExecutionService
     named_preconditions: dict[str, Precondition]
     mcp: IntegratedToolManager
+    mcp_config_store: MCPConfigStore
+    bridged_mcp_names: set[str]
+    catalog_store: ExtensionCatalogStore | None
+    catalog_service: ExtensionCatalogService | None
+    catalog_scheduler: CatalogScheduler | None
 
     async def connect_mcp(self) -> None:
         """Connect configured MCP servers, bridge discovered tools, and refresh ReAct."""
-        for server in self.settings.mcp_servers:
+        file_servers, _ = self.mcp_config_store.list()
+        effective = {server.name: server for server in file_servers}
+        effective.update({server.name: server for server in self.settings.mcp_servers})
+        for server in effective.values():
+            if not server.enabled:
+                continue
             await self.mcp.mcp_manager.add_server(
                 MCPServerConfig(
                     name=server.name,
@@ -120,13 +134,15 @@ class Platform:
         await self.mcp.mcp_manager.disconnect_all()
 
     async def refresh_mcp_tools(self) -> None:
+        for name in self.bridged_mcp_names:
+            self.tools.unregister(name)
         await self.mcp.refresh_mcp_tools()
-        register_framework_tools(
+        self.bridged_mcp_names = set(register_framework_tools(
             self.tools,
             tool_manager=self.mcp.tool_manager,
             gate=self.gate,
             framework_tools=self.mcp.registry,
-        )
+        ))
         self.scheduling_engine.refresh_tools(scheduling_tools(self.tools))
 
 
@@ -515,7 +531,7 @@ def build_platform(
     register_event_handlers(bus, scheduling_engine)
     patrol = PatrolScheduler(adapter, bus, kitting, settings)
 
-    return Platform(
+    platform = Platform(
         settings=settings,
         adapter=adapter,
         audit=audit,
@@ -540,4 +556,13 @@ def build_platform(
         skill_scripts=skill_scripts,
         named_preconditions=named_preconditions,
         mcp=mcp,
+        mcp_config_store=MCPConfigStore(),
+        bridged_mcp_names=set(),
+        catalog_store=None,
+        catalog_service=None,
+        catalog_scheduler=None,
     )
+    platform.catalog_store = ExtensionCatalogStore(settings.extension_catalog_data_dir)
+    platform.catalog_service = ExtensionCatalogService(platform.catalog_store, platform)
+    platform.catalog_scheduler = CatalogScheduler(platform.catalog_service, settings)
+    return platform

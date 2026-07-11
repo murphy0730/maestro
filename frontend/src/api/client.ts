@@ -12,6 +12,19 @@ function resolveApiBase(): string {
 }
 export const API_BASE = resolveApiBase();
 
+function privilegedToken(): string | undefined {
+  if (typeof window !== 'undefined') {
+    const token = new URLSearchParams(window.location.search).get('pt');
+    if (token) return token;
+  }
+  return import.meta.env.VITE_PRIVILEGED_API_TOKEN || undefined;
+}
+
+function authHeaders(): Record<string, string> {
+  const token = privilegedToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 /** Thrown for any non-2xx response; carries the contract's structured error. */
 export class ApiError extends Error {
   readonly status: number;
@@ -71,7 +84,7 @@ interface RequestOptions {
 export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...authHeaders() },
     signal: opts.signal,
   });
   if (!res.ok) throw await toApiError(res);
@@ -86,7 +99,7 @@ export async function apiPost<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
     signal: opts.signal,
   });
@@ -102,7 +115,7 @@ export async function apiPatch<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
     signal: opts.signal,
   });
@@ -111,10 +124,18 @@ export async function apiPatch<T>(
 }
 
 /** JSON DELETE. Throws {@link ApiError} on non-2xx. */
-export async function apiDelete<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+export async function apiDelete<T>(
+  path: string,
+  opts: RequestOptions & { body?: unknown } = {},
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      ...authHeaders(),
+      ...(opts.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     signal: opts.signal,
   });
   if (!res.ok) throw await toApiError(res);
@@ -141,6 +162,8 @@ export function apiUpload<T>(
     const xhr = new XMLHttpRequest();
     xhr.open(method, `${API_BASE}${path}`);
     xhr.setRequestHeader('Accept', 'application/json');
+    const token = privilegedToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.responseType = 'text';
 
     if (opts.onProgress) {

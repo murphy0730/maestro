@@ -40,8 +40,6 @@ class SkillStore:
             self._index = [SkillMeta(**m) for m in data]
             migrated = False
             for meta in self._index:
-                if meta.package_sha256:
-                    continue
                 directory = self._skill_dir(meta.name)
                 body_path = directory / "SKILL.md"
                 if not body_path.is_file():
@@ -51,8 +49,16 @@ class SkillStore:
                     for path in directory.rglob("*")
                     if path.is_file() and path.name != "SKILL.md"
                 }
-                meta.package_sha256 = package_sha256(body_path.read_text("utf-8"), attachments)
-                migrated = True
+                body = body_path.read_text("utf-8")
+                expected_hash = package_sha256(body, attachments)
+                file_count = 1 + len(attachments)
+                unpacked_bytes = len(body.encode("utf-8")) + sum(len(value) for value in attachments.values())
+                if (meta.package_sha256 != expected_hash or meta.file_count != file_count
+                        or meta.bytes != unpacked_bytes):
+                    meta.package_sha256 = expected_hash
+                    meta.file_count = file_count
+                    meta.bytes = unpacked_bytes
+                    migrated = True
             if migrated:
                 self._save_index()
 
@@ -115,6 +121,40 @@ class SkillStore:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
             self._index.append(meta)
+            self._save_index()
+
+    def replace(self, meta: SkillMeta, body: str, attachments: dict[str, bytes]) -> None:
+        """Atomically replace an installed skill while preserving no old trust."""
+        import tempfile
+        with self._lock:
+            index = next((i for i, item in enumerate(self._index) if item.name == meta.name), None)
+            if index is None:
+                raise KeyError(meta.name)
+            current_hash = package_sha256(body, attachments)
+            meta.package_sha256 = current_hash
+            target = self._skill_dir(meta.name)
+            temp = Path(tempfile.mkdtemp(prefix=f".{meta.name}-", dir=self._base))
+            backup = self._base / f".{meta.name}.old"
+            try:
+                (temp / "SKILL.md").write_text(body, "utf-8")
+                for rel, content in attachments.items():
+                    path = temp / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(content)
+                if backup.exists():
+                    shutil.rmtree(backup)
+                target.replace(backup)
+                temp.replace(target)
+                shutil.rmtree(backup)
+            except Exception:
+                if temp.exists():
+                    shutil.rmtree(temp)
+                if backup.exists() and not target.exists():
+                    backup.replace(target)
+                raise
+            self._index[index] = meta
+            if self._trust.pop(meta.name, None) is not None:
+                self._save_trust()
             self._save_index()
 
     def delete(self, name: str) -> bool:

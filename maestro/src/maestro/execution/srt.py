@@ -11,6 +11,7 @@ from pathlib import Path
 class SrtRuntime:
     def __init__(self, executable: Path | None = None):
         self.executable = executable or self._discover()
+        self._usable_cache: dict[tuple[str, tuple[str, ...]], bool] = {}
 
     @staticmethod
     def _discover() -> Path | None:
@@ -45,12 +46,20 @@ class SrtRuntime:
         with handle:
             json.dump(config, handle)
         settings_path = Path(handle.name)
-        return [str(self.executable), "--settings", str(settings_path), *argv], settings_path
+        # "--" 终止 srt 自身的选项解析，否则命令里的 --help/--topic 等会被 srt 吃掉
+        return [str(self.executable), "--settings", str(settings_path), "--", *argv], settings_path
 
     async def check_usable(self, cwd: Path, protected_paths: list[Path]) -> bool:
-        """验证运行时，而不把“二进制存在”误报为“沙箱可用”。"""
+        """验证运行时，而不把“二进制存在”误报为“沙箱可用”。
+
+        探针结果按 (cwd, protected) 记忆化: 沙箱可用性对同一目录是稳定的，
+        无需每条命令都 spawn 一个探针子进程。
+        """
         if self.executable is None:
             return False
+        cache_key = (str(cwd), tuple(sorted(str(p) for p in protected_paths)))
+        if cache_key in self._usable_cache:
+            return self._usable_cache[cache_key]
         probe = ["cmd.exe", "/d", "/c", "exit", "0"] if os.name == "nt" else ["/bin/sh", "-c", ":"]
         argv, settings = self.wrap(probe, cwd, protected_paths)
         try:
@@ -60,8 +69,11 @@ class SrtRuntime:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            return await asyncio.wait_for(process.wait(), timeout=15) == 0
+            usable = await asyncio.wait_for(process.wait(), timeout=15) == 0
         except (OSError, TimeoutError):
-            return False
+            usable = False
+        else:
+            self._usable_cache[cache_key] = usable
         finally:
             settings.unlink(missing_ok=True)
+        return usable

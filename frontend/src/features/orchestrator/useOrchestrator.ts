@@ -5,6 +5,7 @@ import type {
   ComposerMode,
   EngineType,
   IntentType,
+  PendingActionPayload,
   RouteEngine,
 } from '@/types';
 import { confirmChatAction, useStreamingChat } from '@/api';
@@ -170,6 +171,19 @@ export function useOrchestrator(sessionId: string) {
   /** Approve/reject a pending write action; reflect the outcome in-thread. */
   const confirmPending = useCallback(
     async (messageId: string, actionId: string, approved: boolean) => {
+      const setActionStatus = (status: PendingActionPayload['status']) => {
+        const msg = useConversationStore.getState().messages.find((m) => m.id === messageId);
+        if (msg?.kind === 'agent' && msg.pendingActions) {
+          updateMessage(messageId, {
+            pendingActions: msg.pendingActions.map((a) =>
+              a.action_id === actionId ? { ...a, status } : a,
+            ),
+          });
+        }
+      };
+      // Approving runs the tool server-side (may take seconds); flip to the
+      // "executing" state right away so the card animates instead of freezing.
+      if (approved) setActionStatus('executing');
       try {
         const resp = await confirmChatAction({
           session_id: sessionId,
@@ -177,18 +191,17 @@ export function useOrchestrator(sessionId: string) {
           approved,
         });
         const resolved = resp.pending_actions.find((a) => a.action_id === actionId);
-        const msg = useConversationStore.getState().messages.find((m) => m.id === messageId);
-        if (msg?.kind === 'agent' && msg.pendingActions) {
-          updateMessage(messageId, {
-            pendingActions: msg.pendingActions.map((a) =>
-              a.action_id === actionId
-                ? { ...a, status: resolved?.status ?? (approved ? 'executed' : 'rejected') }
-                : a,
-            ),
-          });
-        }
-        addMessage({ id: `sys-${Date.now()}`, kind: 'system', time: nowHM(), text: resp.reply });
+        const status = resolved?.status ?? (approved ? 'executed' : 'rejected');
+        setActionStatus(status);
+        // A successful run carries script output / artifacts as Markdown — render
+        // it as an agent bubble; cancels/failures stay a terse system line.
+        addMessage(
+          status === 'executed'
+            ? { id: `a-${Date.now()}`, kind: 'agent', time: nowHM(), text: resp.reply }
+            : { id: `sys-${Date.now()}`, kind: 'system', time: nowHM(), text: resp.reply },
+        );
       } catch (err) {
+        if (approved) setActionStatus('pending');
         addMessage({
           id: `err-${Date.now()}`,
           kind: 'system',
