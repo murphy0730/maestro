@@ -75,6 +75,7 @@ from maestro.skills.store import SkillStore
 from maestro.extensions.store import ExtensionCatalogStore
 from maestro.extensions.service import ExtensionCatalogService
 from maestro.extensions.scheduler import CatalogScheduler
+from maestro.extensions.catalog_tools import register_catalog_tools
 
 
 @dataclass
@@ -271,6 +272,13 @@ def build_platform(
         "dispatch_ready": dispatch_precondition,
         "expedite_valid": expedite_precondition,
     }
+
+    # 扩展目录 (SkillHub / 连接器市场) 工具: 让调度 ReAct 与查询引擎能搜索/安装技能、添加连接器。
+    # catalog_service 延迟绑定 platform (此时 platform 尚未构造)，仅在运行期方法调用时需要；
+    # 须在 AgentLoop/QueryEngine 构造前注册，使其进入 scheduling_tools() 全集与只读白名单。
+    catalog_store = ExtensionCatalogStore(settings.extension_catalog_data_dir)
+    catalog_service = ExtensionCatalogService(catalog_store, platform=None)
+    register_catalog_tools(tools, catalog_service, gate)
 
     # 技能包仓库 + read_skill_file 工具 (kind="read"。不进 QUERY_READONLY_TOOLS；
     # 调度白名单取注册表全集故含之，但仅在技能执行体内被显式调用时才有意义)。
@@ -562,7 +570,9 @@ def build_platform(
         catalog_service=None,
         catalog_scheduler=None,
     )
-    platform.catalog_store = ExtensionCatalogStore(settings.extension_catalog_data_dir)
-    platform.catalog_service = ExtensionCatalogService(platform.catalog_store, platform)
-    platform.catalog_scheduler = CatalogScheduler(platform.catalog_service, settings)
+    # 回填 catalog_service 的 platform 引用 (工具闭包已在上方注册时捕获同一 service 实例)。
+    catalog_service.platform = platform
+    platform.catalog_store = catalog_store
+    platform.catalog_service = catalog_service
+    platform.catalog_scheduler = CatalogScheduler(catalog_service, settings)
     return platform

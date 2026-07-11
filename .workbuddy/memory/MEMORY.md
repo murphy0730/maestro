@@ -11,7 +11,15 @@
 - **探活**：本沙箱 `lsof -ti tcp:PORT` 偶发返回空（假阴性），以 `curl` 为准——后端 `http://localhost:8000/docs` → 200，前端 `http://127.0.0.1:5173/` → 200。macOS 无 `setsid`，勿用。
 
 ## 架构 · 工具注册与引擎白名单（关键）
-- **两套工具系统**：① `maestro/tools/`（新框架，含 `builtins/`：filesystem 的 read/write/edit/list_files、search、todo、web、tool_search、sleep）；② `maestro/foundation/tools/`（调度/查询引擎实际使用的 `ToolRegistry`）。
-- **桥接链路**：`bootstrap.py` 行150-151 调用 `initialize_framework_tools()` + `register_framework_tools(tools, gate)`（见 `tools/bridge.py`），把框架 builtins **桥接进 foundation 共享 registry**（重名跳过，foundation 优先）。→ 所以内置工具**确实注册生效了**。
-- **引擎级白名单（根因）**：`AgentLoop` 用 `allowed_tools` 白名单过滤——`agent_loop.py` 行142 `to_openai_tools(self._allowed)` 只把白名单工具 schema 发给 LLM，行264/284 双重拦截。调度引擎传的是 `SCHEDULING_TOOLS`（`foundation/tools/builtin.py:369`，仅13个生产调度工具，**不含 write_file 等**）；查询引擎传 `QUERY_READONLY_TOOLS`（5个只读）。
-- **结论**：内置文件工具没在调度 agent 生效，不是没注册，而是被 `SCHEDULING_TOOLS` 白名单挡在门外。若要让调度 agent 能写文件 → 把工具名加进 `builtin.py:369 SCHEDULING_TOOLS`；或经「技能」用（技能 `allowed_tools` 可引用桥接工具，走 SkillEngine 而非调度引擎）。
+- **两套工具系统**：① `maestro/tools/`（新框架，含 `builtins/`：filesystem 的 read/write/edit/list_files、search、todo、web、tool_search、sleep、bash 等）；② `maestro/foundation/tools/`（调度/查询引擎实际使用的 `ToolRegistry`）。
+- **桥接链路**：`bootstrap.py` 调 `initialize_framework_tools()` + `register_framework_tools(tools, gate)`（见 `tools/bridge.py`），把框架 builtins **桥接进 foundation 共享 registry**（重名跳过，foundation 优先）。
+- **引擎级白名单（已更新）**：调度引擎 `scheduling_tools(registry)` = `registry.names()` **全集**（`builtin.py:383`，非旧版 13 个硬编码）；查询引擎用 `QUERY_READONLY_TOOLS`（`builtin.py:395`，只读列表，现含 5 个调度只读 + `search_catalog_skills`/`search_catalog_connectors`）。`AgentLoop` 用 `allowed_tools` 过滤；非 deferred(should_defer=False) 工具会预加载进 `active_tools`，可直接调，无需 tool_search。
+- **写工具 + ActionGate 范式**：`async def handler` 内调 `gate.request(action_type, description, params, executor)`，executor 须是 **async 返回 ActionResult**（`execute_claimed` 会 `await executor(params)`）；返回 `_gate_outcome_dict(outcome)`。未知 action_type 在 plan 模式→ask(需确认)、auto 模式→allow。`evaluate_tool` 对工具默认 allow（不阻塞），写操作的实际门控在 handler 的 gate.request。
+
+## 扩展目录工具（SkillHub / 连接器市场）
+- `extensions/catalog_tools.py` 提供 4 个工具：`search_catalog_skills`/`search_catalog_connectors`(read)、`install_catalog_skill`/`add_catalog_connector`(write，走 ActionGate)。在 bootstrap 早期（AgentLoop/QueryEngine 构造前）注册；`ExtensionCatalogService.__init__` 接受 `platform=None` 延迟绑定，Platform 构造后回填。
+- **find-skills 技能是"查找技能"请求的拦截点**：编排器把"find a skill/查找技能"路由到已安装的 `find-skills` 技能（intent=skill），而非直接进调度/查询引擎。该技能的正文 + `allowed_tools` 决定行为。已把它从"建议 npx skills find"改成用 `search_catalog_skills`。改技能用 `skill_store.replace(meta, body, {})`（同时更新 allowed_tools 与正文，会清信任）。
+
+## 后端重启（venv shebang 仍坏）
+- `.venv/bin/uvicorn` shebang 可能仍指向旧路径，**用 `python -m uvicorn` 绕开**：`cd maestro && PRIVILEGED_API_TOKEN=maestro-local-dev PYTHONPATH=src .venv/bin/python -m uvicorn maestro.main:app --port 8000`（用 run_in_background 起后台）。restart.sh 的 `.venv/bin/uvicorn` 方式可能因 shebang 失败且日志为空。
+- 重启后 SkillStore 在内存，改技能/工具代码后需重启后端才生效。

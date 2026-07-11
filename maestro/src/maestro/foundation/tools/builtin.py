@@ -398,4 +398,6 @@ QUERY_READONLY_TOOLS = [
     "query_work_orders",
     "check_kitting",
     "read_observation",
+    "search_catalog_skills",
+    "search_catalog_connectors",
 ]

@@ -13,7 +13,7 @@ from maestro.skills.schemas import (
 )
 
 _BODY_MAX = 32 * 1024
-_ZIP_MAX_MEMBERS = 50
+_ZIP_MAX_MEMBERS = 200
 _ZIP_MAX_TOTAL = 10 * 1024 * 1024
 _IGNORED_PACKAGE_PARTS = {".DS_Store", "__MACOSX"}
 

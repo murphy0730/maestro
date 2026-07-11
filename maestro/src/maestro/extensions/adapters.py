@@ -27,7 +27,7 @@ async def skill_packages(client: GitHubClient, source: CatalogSource, commit: st
     results = []
     for root in sorted(roots):
         members = [path for path in blobs if path.startswith(root + "/")]
-        if len(members) > 50:
+        if len(members) > 200:  # 与 parser._ZIP_MAX_MEMBERS 对齐；真实技能（含 references/scripts）可达 60+ 文件
             continue
         bio = io.BytesIO()
         total = 0

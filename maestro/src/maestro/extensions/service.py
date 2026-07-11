@@ -25,7 +25,7 @@ LICENSE_ALLOWLIST = {"MIT", "Apache-2.0", "Apache 2.0", "BSD-3-Clause", "CC0-1.0
 
 
 class ExtensionCatalogService:
-    def __init__(self, store: ExtensionCatalogStore, platform):
+    def __init__(self, store: ExtensionCatalogStore, platform=None):
         self.store = store
         self.platform = platform
         self._task: asyncio.Task | None = None
