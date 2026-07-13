@@ -6,6 +6,8 @@ export interface StoredMessage {
   content: string;
   ts: string;
   kind?: 'normal' | 'system';
+  /** 附件元数据（只含名字/大小），content 为用户原文。 */
+  attachments?: { name: string; size: number }[];
 }
 
 export const listSessions = () => apiGet<SessionInfo[]>('/sessions');

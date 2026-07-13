@@ -192,10 +192,9 @@ def _find_skill_md(files: dict[str, bytes]) -> str | None:
 def validate_allowed_tools(
     fm: SkillFrontmatter,
     registered: set[str],
-    default: list[str],
     named: set[str],
 ) -> list[str]:
-    allowed = fm.allowed_tools if fm.allowed_tools is not None else list(default)
+    allowed = fm.allowed_tools if fm.allowed_tools is not None else []
     unknown = [t for t in allowed if t not in registered]
     if unknown:
         raise SkillValidationError(f"allowed_tools 含未注册工具: {unknown}")
@@ -215,7 +214,6 @@ def validate_skill_package(
     data: bytes,
     filename: str,
     registered: set[str],
-    default: list[str],
     named: set[str],
     max_bytes: int = _BODY_MAX,
     tool_aliases: dict[str, str] | None = None,
@@ -239,7 +237,7 @@ def validate_skill_package(
                     warnings.append(f"工具 {tool!r} 已映射为 {target!r}")
                 mapped.append(target)
             fm.allowed_tools = mapped
-        allowed = validate_allowed_tools(fm, registered, default, named)
+        allowed = validate_allowed_tools(fm, registered, named)
         fm.allowed_tools = allowed
         scripts = list(fm.scripts)
         if not scripts:

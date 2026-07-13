@@ -69,6 +69,7 @@ from maestro.orchestrator.orchestrator import Orchestrator
 from maestro.orchestrator.router import IntentRouter
 from maestro.skills.context import current_context
 from maestro.skills.engine import SkillEngine
+from maestro.skills.office_artifacts import OfficeArtifactService
 from maestro.skills.schemas import SkillValidationError
 from maestro.skills.script_execution import SkillScriptExecutionService, result_detail
 from maestro.skills.store import SkillStore
@@ -257,7 +258,10 @@ def build_platform(
     # 新工具框架 (tools/) 桥接: 通用工具 (glob/todo_write/tool_search/web_fetch 等) 注册进
     # 共享工具库，技能 allowed_tools 可按名引用；需确认工具由 bridge 统一交给 ActionGate
     # 生成 PendingAction (随 actions 事件下发前台确认卡片)。
-    framework_tools = initialize_framework_tools(FrameworkToolRegistry())
+    framework_tools = initialize_framework_tools(
+        FrameworkToolRegistry(),
+        workspace_root=settings.execution_output_dir / "workspace",
+    )
     mcp = IntegratedToolManager(mcp_manager=MCPManager(), tool_registry=framework_tools)
     register_framework_tools(
         tools,
@@ -290,6 +294,7 @@ def build_platform(
         timeout_seconds=settings.skill_script_timeout_seconds,
         max_output_bytes=settings.skill_script_max_output_bytes,
     )
+    office_artifacts = OfficeArtifactService(settings.skill_execution_dir)
 
     def _safe_rel(path: str) -> bool:
         """附件相对路径白名单: 非空、限长、无控制字符、无绝对路径/反斜杠/.. 段。"""
@@ -452,6 +457,72 @@ def build_platform(
         parallelizable=False,
     )
 
+    async def _execute_office_artifact(params: dict) -> ActionResult:
+        result = office_artifacts.create(params)
+        return ActionResult(
+            success=result.get("status") == "completed",
+            action="create_office_artifact",
+            detail=json.dumps(result, ensure_ascii=False),
+        )
+
+    gate.register_executor("create_office_artifact", _execute_office_artifact)
+
+    async def _create_office_artifact(**params) -> dict:
+        """Create a structured Office artifact after the normal write gate."""
+        ctx = current_context()
+        if ctx is None or not ctx.allowed_skills:
+            return {"blocked": "create_office_artifact 仅在 Office 技能执行体内可用"}
+        outcome = await gate.request(
+            "create_office_artifact",
+            f"生成 {params.get('filename') or params.get('title') or 'Office 文件'}",
+            params=params,
+            actor="local-user",
+        )
+        if outcome.status == "pending" and outcome.action:
+            return {"pending_confirmation": True, "action_id": outcome.action.action_id}
+        if outcome.status == "denied":
+            return {"blocked": "Office 文件生成被权限策略拒绝"}
+        if not outcome.result:
+            return {"error": "生成器未返回结果"}
+        try:
+            return json.loads(outcome.result.detail)
+        except json.JSONDecodeError:
+            return {"error": outcome.result.detail}
+
+    tools.register(
+        name="create_office_artifact",
+        description=(
+            "从结构化内容直接生成可下载的 Word(.docx) 或 PowerPoint(.pptx)。"
+            "新建 Office 文件时必须优先使用此工具，不要临时编写代码，也不要把代码当脚本路径。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["docx", "pptx"]},
+                "filename": {"type": "string", "description": "含正确扩展名的输出文件名"},
+                "title": {"type": "string"},
+                "subtitle": {"type": "string"},
+                "sections": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 30,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "paragraphs": {"type": "array", "items": {"type": "string"}},
+                            "bullets": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                },
+            },
+            "required": ["kind", "filename", "title", "sections"],
+        },
+        handler=_create_office_artifact,
+        kind="write",
+        parallelizable=False,
+    )
+
     # 技能引擎 (按 skill_id 执行单个技能包内的 AgentLoop；不拥有 Context Panel)
     skill_engine = SkillEngine(
         llm, tools, pending, audit, skill_store, settings, named_preconditions,
@@ -572,6 +643,7 @@ def build_platform(
     )
     # 回填 catalog_service 的 platform 引用 (工具闭包已在上方注册时捕获同一 service 实例)。
     catalog_service.platform = platform
+    catalog_service.migrate_installed_localizations()
     platform.catalog_store = catalog_store
     platform.catalog_service = catalog_service
     platform.catalog_scheduler = CatalogScheduler(catalog_service, settings)

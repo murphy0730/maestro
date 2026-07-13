@@ -324,6 +324,19 @@ POST /extension-catalog/connectors/{catalog_id}/add|update
 **SSE `context` 帧**：调度回合结束前，若有工具轨迹，`POST /chat/stream` 先发一帧
 `{ event: "context", data: { engine: "scheduling", payload: { steps, stop_reason } } }`，
 前端 Context Panel 据此渲染轨迹并按 `observation_ref` 懒加载。
+技能回合的轨迹帧为 `{ engine: "skill", payload: { steps, stop_reason, skill_ids, skill_names } }`，
+前端渲染 SkillPanel（标题取 `skill_names`）。
+
+### 会话附件与生成产物
+
+`POST /chat` 与 `POST /chat/stream` 的 `attachments[]` 支持文本以及 `.docx` / `.pptx`：
+`{ name, content_type, content, size, encoding }`。文本使用 `encoding: "utf-8"`；Office
+文件使用 `encoding: "base64"`，单文件最大 10 MB、单次总计最大 20 MB。后端只向模型注入
+有界的 OOXML 文本提取结果，不把二进制或 base64 放进上下文。
+
+技能生成的文件以 Markdown 链接 `/artifacts/{run_id}/{filename}` 返回。`GET` 该地址会以
+附件方式下载文件；接口只允许访问 `skill_execution_dir/artifacts/` 内的实际文件，不暴露
+服务器绝对路径。
 
 ## 未实现端点的前端处理
 

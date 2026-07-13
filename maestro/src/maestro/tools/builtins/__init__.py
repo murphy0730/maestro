@@ -19,9 +19,9 @@ from .web import WebFetchTool, register_web_tools
 from ..registry import ToolRegistry
 
 
-def register_all_builtins(tool_registry: ToolRegistry | None = None):
-    """注册所有内置工具。"""
-    register_filesystem_tools(tool_registry)
+def register_all_builtins(tool_registry: ToolRegistry | None = None, workspace_root=None):
+    """注册所有内置工具。workspace_root 为文件工具的可写工作区根 (bootstrap 注入)。"""
+    register_filesystem_tools(tool_registry, workspace_root=workspace_root)
     register_search_tools(tool_registry)
     register_todo_tools(tool_registry)
     register_web_tools(tool_registry)

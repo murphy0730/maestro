@@ -35,7 +35,13 @@ import {
   useSkills,
   useTrustSkill,
 } from '@/api';
-import type { CatalogConnector, CatalogSkill, ConnectorInput, ConnectorServer, SkillMeta } from '@/types';
+import type {
+  CatalogConnector,
+  CatalogSkill,
+  ConnectorInput,
+  ConnectorServer,
+  SkillMeta,
+} from '@/types';
 import { useDefaultEngineStore, useThemeStore } from '@/stores';
 import { useWorkspaceSessions } from '@/pages/workspace/useWorkspaceSessions';
 
@@ -161,8 +167,14 @@ function SkillsView() {
     queryFn: () => listCatalogSkills(q),
     enabled: tab !== 'installed',
   });
-  const catalogStatus = useQuery({ queryKey: queryKeys.extensions.catalogStatus(), queryFn: getCatalogStatus });
-  const sync = useMutation({ mutationFn: () => syncCatalog(), onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.extensions.catalogStatus() }) });
+  const catalogStatus = useQuery({
+    queryKey: queryKeys.extensions.catalogStatus(),
+    queryFn: getCatalogStatus,
+  });
+  const sync = useMutation({
+    mutationFn: () => syncCatalog(),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.extensions.catalogStatus() }),
+  });
   const install = useMutation({
     mutationFn: (item: CatalogSkill) => installCatalogSkill(item),
     onSuccess: () => {
@@ -173,7 +185,7 @@ function SkillsView() {
   const skills = useMemo(() => {
     const q = (params.get('q') ?? '').toLowerCase();
     return (data?.skills ?? []).filter((s) =>
-      `${s.name} ${s.display_name ?? ''} ${s.description} ${s.author ?? ''}`
+      `${s.name} ${s.display_name ?? ''} ${s.summary_zh ?? ''} ${s.description_zh ?? ''} ${s.description} ${s.author ?? ''}`
         .toLowerCase()
         .includes(q),
     );
@@ -187,8 +199,19 @@ function SkillsView() {
       />
       <div className="animate-[fadeIn_180ms_ease-out] overflow-auto px-7 py-6">
         <div className="mb-4 flex items-center rounded-sm border border-border-subtle bg-surface-1 px-4 py-2 text-caption text-text-tertiary">
-          <span>最后同步：{catalogStatus.data?.latest?.completed_at ? new Date(catalogStatus.data.latest.completed_at).toLocaleString() : '尚未同步'}</span>
-          <button onClick={() => sync.mutate()} disabled={sync.isPending} className="ml-auto text-planning hover:underline disabled:opacity-50">{sync.isPending ? '同步中…' : '立即同步'}</button>
+          <span>
+            最后同步：
+            {catalogStatus.data?.latest?.completed_at
+              ? new Date(catalogStatus.data.latest.completed_at).toLocaleString()
+              : '尚未同步'}
+          </span>
+          <button
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending}
+            className="ml-auto text-planning hover:underline disabled:opacity-50"
+          >
+            {sync.isPending ? '同步中…' : '立即同步'}
+          </button>
         </div>
         <div className="mb-5 flex gap-5 border-b border-border-subtle text-body-sm">
           {(
@@ -209,51 +232,67 @@ function SkillsView() {
         </div>
         {tab !== 'installed' ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
-            {(tab === 'recommended' ? (catalog.data?.items ?? []).filter((item) => item.installable).slice(0, 12) : catalog.data?.items ?? [])
-              .map((item) => {
-                const installed = item.installed;
-                return (
-                  <article
-                    key={item.catalog_id}
-                    className="flex min-h-40 flex-col rounded-md border border-border-subtle bg-surface-1 p-5 shadow-elev-1 transition-[border-color,transform] duration-150 hover:-translate-y-px hover:border-border-default"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-planning-bg text-planning">
-                        <Sparkles size={17} />
+            {(tab === 'recommended'
+              ? (catalog.data?.items ?? []).filter((item) => item.installable).slice(0, 12)
+              : (catalog.data?.items ?? [])
+            ).map((item) => {
+              const installed = item.installed;
+              const isInstalling =
+                install.isPending && install.variables?.catalog_id === item.catalog_id;
+              return (
+                <article
+                  key={item.catalog_id}
+                  className="flex min-h-40 flex-col rounded-md border border-border-subtle bg-surface-1 p-5 shadow-elev-1 transition-[border-color,transform] duration-150 hover:-translate-y-px hover:border-border-default"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-planning-bg text-planning">
+                      <Sparkles size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-body font-medium text-text-primary">
+                        {item.display_name}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body font-medium text-text-primary">
-                          {item.display_name}
-                        </span>
-                        <span
-                          title={item.description_zh ?? item.description}
-                          className="mt-1 block line-clamp-2 text-body-sm text-text-secondary"
-                        >
-                          {cardDescription(item.summary_zh ?? item.description)}
-                        </span>
+                      <span
+                        title={item.description_zh ?? item.description}
+                        className="mt-1 block line-clamp-2 text-body-sm text-text-secondary"
+                      >
+                        {cardDescription(item.summary_zh ?? item.description)}
                       </span>
-                    </div>
-                    <div className="mt-auto flex items-center border-t border-border-subtle pt-4">
-                      <span className="mr-3 text-caption text-planning-fg">{item.source_name}</span>
-                      <a
-                        href={item.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-caption text-text-tertiary hover:text-text-secondary"
-                      >
-                        查看来源
-                      </a>
-                      <button
-                        disabled={(installed && !item.update_available) || !item.installable || install.isPending}
-                        onClick={() => install.mutate(item)}
-                        className="ml-auto h-control rounded-sm border border-border-default px-4 text-body-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {!item.installable ? '不可安装' : item.update_available ? '更新' : installed ? '已安装' : install.isPending ? '安装中…' : '添加'}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    </span>
+                  </div>
+                  <div className="mt-auto flex items-center border-t border-border-subtle pt-4">
+                    <span className="mr-3 text-caption text-planning-fg">{item.source_name}</span>
+                    <a
+                      href={item.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-caption text-text-tertiary hover:text-text-secondary"
+                    >
+                      查看来源
+                    </a>
+                    <button
+                      disabled={
+                        (installed && !item.update_available) ||
+                        !item.installable ||
+                        install.isPending
+                      }
+                      onClick={() => install.mutate(item)}
+                      className="ml-auto h-control rounded-sm border border-border-default px-4 text-body-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {!item.installable
+                        ? '不可安装'
+                        : item.update_available
+                          ? '更新'
+                          : installed
+                            ? '已安装'
+                            : isInstalling
+                              ? '安装中…'
+                              : '添加'}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
             {install.error && (
               <p className="mt-4 text-body-sm text-status-error">{install.error.message}</p>
             )}
@@ -285,10 +324,10 @@ function SkillsView() {
                       {skill.display_name ?? skill.name}
                     </span>
                     <span
-                      title={skill.description}
+                      title={skill.description_zh ?? skill.description}
                       className="mt-1 block line-clamp-2 text-body-sm text-text-secondary"
                     >
-                      {cardDescription(skill.description)}
+                      {cardDescription(skill.summary_zh ?? skill.description)}
                     </span>
                   </span>
                   <ChevronRight
@@ -333,7 +372,9 @@ function SkillsView() {
             </button>
           </div>
           <div className="flex-1 overflow-auto p-6">
-            <p className="text-body text-text-secondary">{selected.description}</p>
+            <p className="text-body text-text-secondary">
+              {selected.description_zh ?? selected.summary_zh ?? selected.description}
+            </p>
             <h3 className="mt-7 text-body-sm font-semibold text-text-primary">工具与权限</h3>
             <p className="mt-2 text-body-sm text-text-secondary">
               {selected.allowed_tools?.join('、') || '只使用默认只读工具'}
@@ -346,19 +387,42 @@ function SkillsView() {
               <dd>{selected.bytes} bytes</dd>
               <dt className="text-text-tertiary">SHA-256</dt>
               <dd className="truncate font-mono text-caption">{selected.package_sha256}</dd>
+              {selected.trust?.valid && selected.trust.trusted_at ? (
+                <>
+                  <dt className="text-text-tertiary">信任时间</dt>
+                  <dd>{new Date(selected.trust.trusted_at).toLocaleString()}</dd>
+                </>
+              ) : null}
             </dl>
           </div>
           <div className="flex gap-3 border-t border-border-subtle p-4">
             {selected.scripts?.length && !selected.trust?.valid ? (
               <button
+                disabled={trust.isPending}
                 onClick={() =>
-                  trust.mutate({ name: selected.name, packageSha256: selected.package_sha256 })
+                  trust.mutate(
+                    { name: selected.name, packageSha256: selected.package_sha256 },
+                    {
+                      onSuccess: (trustStatus) =>
+                        setSelected((current) =>
+                          current?.name === selected.name
+                            ? { ...current, trust: trustStatus }
+                            : current,
+                        ),
+                    },
+                  )
                 }
-                className="h-control rounded-sm bg-blue-solid px-4 text-body-sm text-on-solid"
+                className="h-control rounded-sm bg-blue-solid px-4 text-body-sm text-on-solid disabled:opacity-50"
               >
                 <ShieldCheck size={14} className="mr-2 inline" />
-                信任当前版本
+                {trust.isPending ? '正在信任…' : '信任当前版本'}
               </button>
+            ) : null}
+            {selected.scripts?.length && selected.trust?.valid ? (
+              <div className="flex min-w-0 items-center gap-2 text-body-sm text-status-success">
+                <ShieldCheck size={15} className="shrink-0" />
+                <span className="font-medium">已信任该技能版本</span>
+              </div>
             ) : null}
             <button
               onClick={() => setSkillToRemove(selected)}
@@ -468,7 +532,12 @@ function ConnectorsView() {
         .filter(([, change]) => JSON.stringify(change.before) !== JSON.stringify(change.after))
         .map(([field]) => field)
         .join('、');
-      if (!confirm(`更新连接器模板${summary ? `（变化：${summary}）` : ''}？环境变量、密钥和启用状态会保留。`)) return;
+      if (
+        !confirm(
+          `更新连接器模板${summary ? `（变化：${summary}）` : ''}？环境变量、密钥和启用状态会保留。`,
+        )
+      )
+        return;
       return updateCatalogConnector(item, preview.revision, preview.catalog_template_sha256);
     },
     onSuccess: () => {
@@ -517,48 +586,78 @@ function ConnectorsView() {
         </div>
         {tab !== 'configured' ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
-            {(tab === 'recommended' ? (catalog.data?.items ?? []).filter((item) => item.installable).slice(0, 12) : catalog.data?.items ?? [])
-              .map((item) => {
-                const configured = item.configured;
-                return (
-                  <article
-                    key={item.catalog_id}
-                    className="flex min-h-40 flex-col rounded-md border border-border-subtle bg-surface-1 p-5 shadow-elev-1 transition-[border-color,transform] duration-150 hover:-translate-y-px hover:border-border-default"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-surface-3 text-text-secondary">
-                        <Cable size={17} />
+            {(tab === 'recommended'
+              ? (catalog.data?.items ?? []).filter((item) => item.installable).slice(0, 12)
+              : (catalog.data?.items ?? [])
+            ).map((item) => {
+              const configured = item.configured;
+              const isAdding =
+                addFromCatalog.isPending &&
+                addFromCatalog.variables?.catalog_id === item.catalog_id;
+              const isUpdating =
+                updateFromCatalog.isPending &&
+                updateFromCatalog.variables?.catalog_id === item.catalog_id;
+              return (
+                <article
+                  key={item.catalog_id}
+                  className="flex min-h-40 flex-col rounded-md border border-border-subtle bg-surface-1 p-5 shadow-elev-1 transition-[border-color,transform] duration-150 hover:-translate-y-px hover:border-border-default"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-surface-3 text-text-secondary">
+                      <Cable size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-body font-medium text-text-primary">
+                        {item.display_name}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body font-medium text-text-primary">
-                          {item.display_name}
-                        </span>
-                        <span title={item.description} className="mt-1 block line-clamp-2 text-body-sm text-text-secondary">
-                          {item.summary_zh ?? item.description}
-                        </span>
+                      <span
+                        title={item.description}
+                        className="mt-1 block line-clamp-2 text-body-sm text-text-secondary"
+                      >
+                        {item.summary_zh ?? item.description}
                       </span>
-                    </div>
-                    <div className="mt-auto flex items-center border-t border-border-subtle pt-4">
-                      <span className="mr-3 text-caption text-planning-fg">{item.source_name}</span>
-                      <a
-                        href={item.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-caption text-text-tertiary hover:text-text-secondary"
-                      >
-                        查看来源
-                      </a>
-                      <button
-                        disabled={(configured && !item.update_available) || !item.installable || addFromCatalog.isPending || updateFromCatalog.isPending}
-                        onClick={() => item.update_available ? updateFromCatalog.mutate(item) : addFromCatalog.mutate(item)}
-                        className="ml-auto h-control rounded-sm border border-border-default px-4 text-body-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {!item.installable ? '不可添加' : item.update_available ? '更新模板' : configured ? '已添加' : addFromCatalog.isPending ? '添加中…' : '添加'}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    </span>
+                  </div>
+                  <div className="mt-auto flex items-center border-t border-border-subtle pt-4">
+                    <span className="mr-3 text-caption text-planning-fg">{item.source_name}</span>
+                    <a
+                      href={item.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-caption text-text-tertiary hover:text-text-secondary"
+                    >
+                      查看来源
+                    </a>
+                    <button
+                      disabled={
+                        (configured && !item.update_available) ||
+                        !item.installable ||
+                        addFromCatalog.isPending ||
+                        updateFromCatalog.isPending
+                      }
+                      onClick={() =>
+                        item.update_available
+                          ? updateFromCatalog.mutate(item)
+                          : addFromCatalog.mutate(item)
+                      }
+                      className="ml-auto h-control rounded-sm border border-border-default px-4 text-body-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {!item.installable
+                        ? '不可添加'
+                        : item.update_available
+                          ? '更新模板'
+                          : configured
+                            ? '已添加'
+                            : isUpdating
+                              ? '更新中…'
+                              : isAdding
+                                ? '添加中…'
+                                : '添加'}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
             {(addFromCatalog.error || updateFromCatalog.error) && (
               <p className="mt-4 text-body-sm text-status-error">
                 {(addFromCatalog.error ?? updateFromCatalog.error)?.message}

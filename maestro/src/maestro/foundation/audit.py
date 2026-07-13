@@ -24,11 +24,42 @@ class AuditEntry(BaseModel):
 
 
 class AuditLog:
-    def __init__(self, file_path: Path | None = None):
+    def __init__(self, file_path: Path | None = None, rehydrate_max: int = 2000):
         self._entries: list[AuditEntry] = []
         self._file_path = file_path
         if file_path is not None:
             file_path.parent.mkdir(parents=True, exist_ok=True)
+            self._entries = self._rehydrate(file_path, rehydrate_max)
+
+    @staticmethod
+    def _rehydrate(file_path: Path, max_lines: int) -> list[AuditEntry]:
+        """启动时回灌 jsonl 尾部，使 /audit 查询跨重启可追溯 (内存为主、文件为源)。
+
+        只取尾部 max_lines 行 (文件长期增长，反向按块读避免全量加载)；坏行跳过。"""
+        if max_lines <= 0 or not file_path.exists():
+            return []
+        try:
+            with file_path.open("rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                data = b""
+                while size > 0 and data.count(b"\n") <= max_lines:
+                    step = min(65536, size)
+                    size -= step
+                    f.seek(size)
+                    data = f.read(step) + data
+        except OSError as e:
+            logger.warning("审计日志回灌读取失败，从空历史启动: %s", e)
+            return []
+        entries: list[AuditEntry] = []
+        for line in data.splitlines()[-max_lines:]:
+            if not line.strip():
+                continue
+            try:
+                entries.append(AuditEntry.model_validate_json(line))
+            except Exception as e:  # noqa: BLE001 — 单行损坏不拖垮回灌
+                logger.warning("审计日志存在损坏行，已跳过: %s", e)
+        return entries
 
     def record(
         self,
@@ -62,8 +93,16 @@ class AuditLog:
                 logger.warning("审计日志写文件失败: %s", e)
         return entry
 
-    def query(self, action: str | None = None, limit: int = 100) -> list[AuditEntry]:
+    def query(
+        self,
+        action: str | None = None,
+        limit: int = 100,
+        actor_in: set[str] | None = None,
+    ) -> list[AuditEntry]:
         entries = self._entries
         if action:
             entries = [e for e in entries if action in e.action]
+        if actor_in is not None:
+            # 在截断 limit 之前过滤，避免目标 actor 的旧条目被系统噪音挤出窗口
+            entries = [e for e in entries if e.actor in actor_in]
         return entries[-limit:]

@@ -74,12 +74,20 @@ class Orchestrator:
         on_progress: ProgressFn | None = None,
         skill_ids: list[str] | None = None,
         mode: ExecMode = "plan",
+        display_message: str | None = None,
+        attachments_meta: list[dict] | None = None,
     ) -> ChatResponse:
         """三个引擎 + 技能引擎的唯一入口，故在此把执行模式注入 contextvar，
         由下游 ActionGate.request 读取。不经 HTTP 的调用 (CLI/事件) 取默认 "plan"。
+
+        display_message: 持久化到会话历史的用户原文 (带附件时 message 是包装后
+        的模型输入，不适合回读展示)；attachments_meta 为 [{name, size}] 元数据。
         """
         with use_mode(mode):
-            return await self._handle(session_id, message, route, on_progress, skill_ids)
+            return await self._handle(
+                session_id, message, route, on_progress, skill_ids,
+                display_message=display_message, attachments_meta=attachments_meta,
+            )
 
     async def _handle(
         self,
@@ -88,8 +96,11 @@ class Orchestrator:
         route: str = "auto",
         on_progress: ProgressFn | None = None,
         skill_ids: list[str] | None = None,
+        display_message: str | None = None,
+        attachments_meta: list[dict] | None = None,
     ) -> ChatResponse:
         state = self._memory.get(session_id)
+        stored_user_message = display_message or message
 
         # ── 前端选定技能 (skill_ids 非空)：跳过路由，直接派发到 SkillEngine ──
         if skill_ids:
@@ -102,7 +113,9 @@ class Orchestrator:
                 reason="前端选定技能",
                 route_method="forced",
             )
-            self._memory.append(session_id, "user", message)
+            self._memory.append(
+                session_id, "user", stored_user_message, attachments=attachments_meta
+            )
             self._record_route(session_id, message, decision)
             resp = await self._dispatch(decision, message, session_id, state, on_progress)
             return self._finish(session_id, decision, resp)
@@ -116,7 +129,9 @@ class Orchestrator:
                 reason="前端指定引擎，直接路由",
                 route_method="forced",
             )
-            self._memory.append(session_id, "user", message)
+            self._memory.append(
+                session_id, "user", stored_user_message, attachments=attachments_meta
+            )
             self._record_route(session_id, message, decision)
             resp = await self._dispatch(decision, message, session_id, state, on_progress)
             return self._finish(session_id, decision, resp)
@@ -140,7 +155,9 @@ class Orchestrator:
         decision = await self._router.route(
             message, state.history, state.current_engine, skip_embedding=skip_embedding
         )
-        self._memory.append(session_id, "user", message)
+        self._memory.append(
+            session_id, "user", stored_user_message, attachments=attachments_meta
+        )
         self._record_route(session_id, message, decision)
         return await self._gate_and_dispatch(session_id, message, decision, state, on_progress)
 
@@ -210,7 +227,7 @@ class Orchestrator:
                 on_progress=on_progress,
             )
         if decision.intent == "skill":
-            # 技能不拥有 Context Panel，不调 set_engine；历史去掉末条作上下文。
+            # 技能不调 set_engine (Context Panel 由 chat 层 engine="skill" 帧驱动)；历史去掉末条作上下文。
             # 前端强制指定 (forced) 受 user_invocable 约束，路由命中不受。
             return await self._skills.handle(
                 decision.skill_ids or ([decision.skill_id] if decision.skill_id else []),
@@ -298,6 +315,15 @@ class Orchestrator:
 
             try:
                 return format_skill_result_markdown(json.loads(raw_detail))
+            except (json.JSONDecodeError, TypeError):
+                return raw_detail
+        if action_type == "create_office_artifact":
+            import json
+
+            from maestro.skills.office_artifacts import format_office_result_markdown
+
+            try:
+                return format_office_result_markdown(json.loads(raw_detail))
             except (json.JSONDecodeError, TypeError):
                 return raw_detail
         return raw_detail

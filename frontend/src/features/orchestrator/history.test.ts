@@ -33,4 +33,18 @@ describe('storedToThread', () => {
     const t = storedToThread([msg({ role: 'assistant', content: '旧数据' })]);
     expect(t[1].kind).toBe('agent');
   });
+
+  it('user 消息回读时携带附件元数据 (DEF-4)', () => {
+    const t = storedToThread([
+      msg({
+        role: 'user',
+        content: '分析附件',
+        attachments: [{ name: 'orders.csv', size: 7 }],
+      }),
+    ]);
+    const user = t[1] as { kind: string; text: string; attachments?: { name: string }[] };
+    expect(user.kind).toBe('user');
+    expect(user.text).toBe('分析附件');
+    expect(user.attachments).toEqual([{ name: 'orders.csv', size: 7 }]);
+  });
 });

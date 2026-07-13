@@ -37,3 +37,19 @@ it('shows an executing state (spinner + label) while the action runs', () => {
   expect(screen.queryByText('确认执行')).toBeNull();
   expect(screen.queryByText('已确认执行')).toBeNull();
 });
+
+it('shows only the first open action when multiple are pending (sequential confirm)', () => {
+  const second: PendingActionPayload = { ...action, action_id: 'a2', description: '第二个动作' };
+  render(<PendingActionsCard actions={[action, second]} onConfirm={() => {}} />);
+  expect(screen.getByText('下发任务令 WO-104')).toBeTruthy();
+  expect(screen.queryByText('第二个动作')).toBeNull();
+});
+
+it('reveals the next pending action after the first resolves', () => {
+  const second: PendingActionPayload = { ...action, action_id: 'a2', description: '第二个动作' };
+  render(
+    <PendingActionsCard actions={[{ ...action, status: 'executed' }, second]} onConfirm={() => {}} />,
+  );
+  expect(screen.getByText('已确认执行')).toBeTruthy();
+  expect(screen.getByText('第二个动作')).toBeTruthy();
+});

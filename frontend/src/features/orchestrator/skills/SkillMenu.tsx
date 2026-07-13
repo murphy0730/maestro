@@ -26,7 +26,10 @@ export function SkillMenu({
   const [q, setQ] = useState('');
   const visible = skills.filter((s) => s.user_invocable !== false);
   const filtered = visible.filter((s) =>
-    [s.name, s.display_name, s.description].join(' ').toLowerCase().includes(q.toLowerCase()),
+    [s.name, s.display_name, s.summary_zh, s.description_zh, s.description]
+      .join(' ')
+      .toLowerCase()
+      .includes(q.toLowerCase()),
   );
   const isSel = (s: SkillMeta) => selected.some((x) => x.name === s.name);
 
@@ -96,7 +99,9 @@ export function SkillMenu({
                     <span className="truncate text-body-sm font-semibold text-text-primary">
                       {s.display_name ?? s.name}
                     </span>
-                    <span className="truncate text-[11px] text-text-tertiary">{s.description}</span>
+                    <span className="truncate text-[11px] text-text-tertiary">
+                      {s.summary_zh ?? s.description}
+                    </span>
                   </span>
                   {s.scripts?.length && !s.trust?.valid ? (
                     <button

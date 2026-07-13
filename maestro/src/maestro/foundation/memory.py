@@ -42,10 +42,19 @@ class ConversationMemory:
             self._sessions[session_id] = state
         return self._sessions[session_id]
 
-    def append(self, session_id: str, role: str, content: str, kind: str = "normal") -> None:
+    def append(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        kind: str = "normal",
+        attachments: list | None = None,
+    ) -> None:
         self.get(session_id).history.append({"role": role, "content": content})
         if self._store:
-            self._store.append_message(session_id, role, content, kind=kind)
+            self._store.append_message(
+                session_id, role, content, kind=kind, attachments=attachments
+            )
 
     def recent(self, session_id: str, n: int = 6) -> list[dict]:
         return self.get(session_id).history[-n:]

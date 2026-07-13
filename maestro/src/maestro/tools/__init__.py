@@ -42,8 +42,8 @@ __all__ = [
 ]
 
 
-def initialize_tools(tool_registry: ToolRegistry | None = None) -> ToolRegistry:
-    """初始化工具模块，注册所有内置工具。"""
+def initialize_tools(tool_registry: ToolRegistry | None = None, workspace_root=None) -> ToolRegistry:
+    """初始化工具模块，注册所有内置工具。workspace_root 为文件工具的可写工作区根。"""
     target = tool_registry or registry
-    register_all_builtins(target)
+    register_all_builtins(target, workspace_root=workspace_root)
     return target

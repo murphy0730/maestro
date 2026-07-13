@@ -1,8 +1,9 @@
 """Model-provider configuration and health endpoints."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from maestro.api.security import require_privileged
 from maestro.foundation import model_config as mc
 
 router = APIRouter()
@@ -48,25 +49,34 @@ async def health(request: Request):
 
 @router.get("/models")
 async def get_models(request: Request):
-    """返回当前已持久化的模型供应商配置。"""
+    """返回当前已持久化的模型供应商配置 (api_key 脱敏，附 api_key_set)。"""
     _platform(request)
-    data = mc.load_model_providers()
-    return data if data is not None else mc.EMPTY_PROVIDERS
+    return mc.redact_providers(mc.load_model_providers())
 
 
 @router.put("/models")
-async def put_models(cfg: ModelsConfigModel, request: Request):
-    """保存模型配置并热更新运行中的 LLM 客户端。"""
+async def put_models(
+    cfg: ModelsConfigModel, request: Request, principal: str = Depends(require_privileged)
+):
+    """保存模型配置并热更新运行中的 LLM 客户端。空 api_key 保留已存密钥。"""
     platform = _platform(request)
-    payload = cfg.model_dump()
+    payload = mc.merge_preserving_secrets(cfg.model_dump(), mc.load_model_providers())
     mc.save_model_providers(payload)
     _apply_model_config(platform, payload)
+    platform.audit.record(
+        principal,
+        "models.update",
+        {"llm_active": payload["llm"].get("active_id"),
+         "embedding_active": payload["embedding"].get("active_id")},
+        "allowed",
+    )
     return {"ok": True, "available": platform.llm.available}
 
 
 @router.post("/admin/reload-model")
-async def reload_model(request: Request):
+async def reload_model(request: Request, principal: str = Depends(require_privileged)):
     """重读模型配置并热更新运行中的 LLM 客户端。"""
     platform = _platform(request)
     _apply_model_config(platform, mc.load_model_providers())
+    platform.audit.record(principal, "models.reload", {}, "allowed")
     return {"ok": True, "available": platform.llm.available}

@@ -17,7 +17,7 @@ class SkillFrontmatter(BaseModel):
     display_name: str | None = None
     description: str
     when_to_use: list[str] = []
-    allowed_tools: list[str] | None = None  # None 哨兵:校验时填 QUERY_READONLY_TOOLS
+    allowed_tools: list[str] | None = None  # None = 不授予任何引擎工具 (文件/脚本工具由 SkillEngine 按需追加)
     user_invocable: bool = True
     disable_model_invocation: bool = False
     tool_preconditions: dict[str, list[str]] = {}
@@ -87,6 +87,8 @@ class SkillFrontmatter(BaseModel):
 
 
 class SkillMeta(SkillFrontmatter):
+    summary_zh: str | None = None
+    description_zh: str | None = None
     file_count: int = 0
     bytes: int = 0
     archive_bytes: int | None = None

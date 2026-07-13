@@ -3,6 +3,8 @@ import { PanelRight } from 'lucide-react';
 import type { ActiveEngine, SchedulingTraceStep } from '@/types';
 import { PlanningPanel } from '@/features/planning/PlanningPanel';
 import { SchedulingPanel } from '@/features/scheduling/SchedulingPanel';
+import { SkillPanel } from '@/features/orchestrator/skills/SkillPanel';
+import type { SkillContextData } from '@/stores/conversationStore';
 
 const KnowledgeManager = lazy(async () => ({
   default: (await import('@/features/query/KnowledgeManager')).KnowledgeManager,
@@ -29,14 +31,22 @@ interface ContextPanelHostProps {
   engine: ActiveEngine;
   onClose?: () => void;
   schedulingSteps?: SchedulingTraceStep[];
+  skillContext?: SkillContextData | null;
 }
 
-export function ContextPanelHost({ engine, onClose, schedulingSteps }: ContextPanelHostProps) {
+export function ContextPanelHost({
+  engine,
+  onClose,
+  schedulingSteps,
+  skillContext,
+}: ContextPanelHostProps) {
   switch (engine) {
     case 'planning':
       return <PlanningPanel onClose={onClose} />;
     case 'scheduling':
       return <SchedulingPanel onClose={onClose} steps={schedulingSteps} />;
+    case 'skill':
+      return skillContext ? <SkillPanel onClose={onClose} context={skillContext} /> : <EmptyPanel />;
     case 'query':
       return (
         <Suspense fallback={<EmptyPanel />}>

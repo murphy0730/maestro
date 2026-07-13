@@ -27,6 +27,22 @@ const ROUTE_LABELS: Record<ComposerRoute, string> = {
   query: '查询',
 };
 
+const TEXT_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'yaml', 'yml', 'xml', 'html', 'log']);
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+function extension(name: string): string {
+  return name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+}
+
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('读取附件失败'));
+    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '');
+    reader.readAsDataURL(file);
+  });
+}
+
 export function Composer({
   onSend,
   route,
@@ -65,15 +81,17 @@ export function Composer({
     setAttachmentError('');
     const next: ChatAttachment[] = [];
     for (const file of Array.from(files)) {
-      if (file.size > 1024 * 1024) {
-        setAttachmentError(`${file.name} 超过 1 MB，未添加`);
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setAttachmentError(`${file.name} 超过 10 MB，未添加`);
         continue;
       }
+      const isText = file.type.startsWith('text/') || TEXT_EXTENSIONS.has(extension(file.name));
       next.push({
         name: file.name,
-        content_type: file.type || 'text/plain',
-        content: await file.text(),
+        content_type: file.type || (isText ? 'text/plain' : 'application/octet-stream'),
+        content: isText ? await file.text() : await readBase64(file),
         size: file.size,
+        encoding: isText ? 'utf-8' : 'base64',
       });
     }
     setAttachments((current) => {
@@ -134,7 +152,7 @@ export function Composer({
             ref={fileInputRef}
             type="file"
             multiple
-            accept="text/*,.csv,.json,.md,.yaml,.yml,.xml"
+            accept="text/*,.csv,.json,.md,.yaml,.yml,.xml,.docx,.pptx"
             className="hidden"
             onChange={(event) => {
               void addFiles(event.target.files);
@@ -188,7 +206,7 @@ export function Composer({
           <span>
             {route === 'auto' ? '引擎自动分类' : `指定 ${routeLabel}引擎`} ·{' '}
             {mode === 'auto'
-              ? '完全访问模式：Agent 可直接写入 MES'
+              ? '完全访问模式：文件/网络写直接执行，生产系统写仍需确认'
               : '默认模式：写操作需确认后执行'}
           </span>
           <span className="flex-1" />

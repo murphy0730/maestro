@@ -103,7 +103,6 @@ def test_validate_skill_package_maps_common_tools_and_reports_scripts():
         package,
         "common.zip",
         registered={"read_file", "bash"},
-        default=[],
         named=set(),
     )
     assert fm is not None
@@ -119,7 +118,7 @@ def test_validate_skill_package_maps_common_tools_and_reports_scripts():
 
 def test_validate_skill_package_unknown_tool_is_explicit_error():
     data = _md("name: cap\ndescription: x\nallowed_tools: [Mystery]\n").encode()
-    fm, _, _, report = validate_skill_package(data, "cap.md", set(), [], set())
+    fm, _, _, report = validate_skill_package(data, "cap.md", set(), set())
     assert fm is None
     assert report.compatible is False
     assert "Mystery" in report.errors[0]
@@ -194,16 +193,17 @@ def test_extract_package_bad_suffix():
 
 
 def test_validate_allowed_tools_default():
+    # 未声明 allowed-tools = 不授予任何引擎工具 (回归: 曾默认注入制造查询工具)
     fm = SkillFrontmatter(name="cap", description="x")  # allowed_tools None
     out = validate_allowed_tools(fm, registered={"query_orders", "query_work_orders"},
-                                 default=["query_orders"], named={"dispatch_ready"})
-    assert out == ["query_orders"]
+                                 named={"dispatch_ready"})
+    assert out == []
 
 
 def test_validate_allowed_tools_unknown():
     fm = SkillFrontmatter(name="cap", description="x", allowed_tools=["nope"])
     with pytest.raises(SkillValidationError):
-        validate_allowed_tools(fm, registered={"query_orders"}, default=[], named=set())
+        validate_allowed_tools(fm, registered={"query_orders"}, named=set())
 
 
 def test_validate_allowed_tools_precond_key_outside():
@@ -211,7 +211,7 @@ def test_validate_allowed_tools_precond_key_outside():
                           allowed_tools=["query_orders"],
                           tool_preconditions={"dispatch_work_order": ["dispatch_ready"]})
     with pytest.raises(SkillValidationError):
-        validate_allowed_tools(fm, registered={"query_orders"}, default=[], named={"dispatch_ready"})
+        validate_allowed_tools(fm, registered={"query_orders"}, named={"dispatch_ready"})
 
 
 def test_validate_allowed_tools_precond_unknown_assertion():
@@ -220,7 +220,7 @@ def test_validate_allowed_tools_precond_unknown_assertion():
                           tool_preconditions={"dispatch_work_order": ["mystery"]})
     with pytest.raises(SkillValidationError):
         validate_allowed_tools(fm, registered={"dispatch_work_order"},
-                               default=[], named={"dispatch_ready"})
+                               named={"dispatch_ready"})
 
 
 # --- Task 1.3: store.py ---
@@ -260,6 +260,26 @@ def test_store_persist_reload(tmp_path):
     assert attachment["bytes"] == b"# r"
     assert attachment["size_bytes"] == 3
     assert attachment["truncated"] is False
+
+
+def test_store_load_resets_legacy_injected_tools(tmp_path):
+    """历史缺陷回归: 未声明 allowed-tools 的技能曾被注入默认查询工具集，
+    重载时应重置为 []; 自定义声明不受影响; 信任 (按包 hash) 不受影响。"""
+    legacy = ["query_orders", "query_inventory", "query_work_orders",
+              "check_kitting", "read_observation"]
+    s = SkillStore(tmp_path)
+    s.save(_meta("polluted", allowed_tools=list(legacy)), "正文", {})
+    s.save(_meta("declared", allowed_tools=["query_orders"]), "正文", {})
+    sha = s.get("polluted").package_sha256
+    s.trust("polluted", sha, principal_id="local-user")
+
+    s2 = SkillStore(tmp_path)  # 重启重载触发迁移
+    assert s2.get("polluted").allowed_tools == []
+    assert s2.get("declared").allowed_tools == ["query_orders"]
+    assert s2.is_trusted("polluted", sha) is True
+    # 迁移已落盘，三次加载不再改写
+    s3 = SkillStore(tmp_path)
+    assert s3.get("polluted").allowed_tools == []
 
 
 def test_store_delete(tmp_path):

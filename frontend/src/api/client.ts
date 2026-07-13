@@ -20,7 +20,7 @@ function privilegedToken(): string | undefined {
   return import.meta.env.VITE_PRIVILEGED_API_TOKEN || undefined;
 }
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const token = privilegedToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

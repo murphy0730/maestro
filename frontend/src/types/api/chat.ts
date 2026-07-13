@@ -9,6 +9,7 @@ export interface ChatAttachment {
   content_type: string;
   content: string;
   size: number;
+  encoding?: 'utf-8' | 'base64';
 }
 
 export interface ChatStreamRequest {
@@ -42,6 +43,15 @@ export interface ClarifyRequest {
 export type ChatContextEvent =
   | { engine: 'planning'; payload: SolveRun }
   | { engine: 'scheduling'; payload: { steps?: SchedulingTraceStep[]; stop_reason?: string } }
+  | {
+      engine: 'skill';
+      payload: {
+        steps?: SchedulingTraceStep[];
+        stop_reason?: string;
+        skill_ids?: string[];
+        skill_names?: string[];
+      };
+    }
   | { engine: 'query'; payload: Record<string, unknown> };
 
 export interface PendingActionPayload {

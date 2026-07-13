@@ -10,9 +10,11 @@
 """
 
 import asyncio
+import hashlib
+import json as _json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Awaitable, Callable, Literal
 
@@ -52,6 +54,25 @@ class AuthZ:
         return effect_to_level(self.engine.evaluate_action(action_type, mode).effect)
 
 
+# 进入去重指纹的结构化业务键；note/content/description 等自由文本每次措辞不同，
+# 纳入会使指纹失效，故排除。无任何业务键的动作不参与去重 (避免不同意图被误合)。
+_FINGERPRINT_KEYS = (
+    "wo_id", "material_id", "line_id", "recipient", "channel",
+    "status", "skill_id", "script", "file_path",
+)
+
+
+def action_fingerprint(action_type: str, params: dict) -> str | None:
+    """同一事实的写动作指纹: action_type + 结构化业务键。无业务键 → None (不去重)。"""
+    keys = {k: params[k] for k in _FINGERPRINT_KEYS if params.get(k) is not None}
+    if not keys:
+        return None
+    payload = _json.dumps(
+        {"type": action_type, **keys}, sort_keys=True, ensure_ascii=False, default=str
+    )
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
 class PendingActionStore:
     """待确认动作存储。测试可纯内存，运行时可用 SQLite 恢复结构化动作。"""
 
@@ -88,6 +109,12 @@ class PendingActionStore:
     def add(self, action: PendingAction) -> None:
         self._store[action.action_id] = action
         self._save(action)
+
+    def find_pending_by_fingerprint(self, fingerprint: str) -> PendingAction | None:
+        for action in self._store.values():
+            if action.status == "pending" and action.fingerprint == fingerprint:
+                return action
+        return None
 
     def get(self, action_id: str) -> PendingAction | None:
         return self._store.get(action_id)
@@ -197,8 +224,27 @@ class ActionGate:
                 result = ActionResult(success=False, action=action_type, detail=str(e))
             self.audit.record(actor, action_type, params, "auto", result.model_dump())
             return GateOutcome(status="executed", result=result)
-        # requires_confirmation: 不直接执行，挂起等待人确认
-        action = PendingAction(action_type=action_type, description=description, params=params)
+        # requires_confirmation: 不直接执行，挂起等待人确认。
+        # 同指纹 (同事实) 已有未过期 pending 时复用它，防止巡检/事件反复唤醒
+        # 把相同的跟踪/通知动作灌爆确认队列。
+        fingerprint = action_fingerprint(action_type, params)
+        if fingerprint is not None:
+            existing = self.pending.find_pending_by_fingerprint(fingerprint)
+            if existing is not None and datetime.now() - existing.created_at < timedelta(
+                seconds=self.expiration_seconds
+            ):
+                self.audit.record(
+                    actor,
+                    action_type,
+                    params,
+                    "requires_confirmation",
+                    {"status": "dedup_hit", "action_id": existing.action_id},
+                )
+                return GateOutcome(status="pending", action=existing)
+        action = PendingAction(
+            action_type=action_type, description=description, params=params,
+            fingerprint=fingerprint,
+        )
         if executor is None and action_type not in self._executors:
             raise RuntimeError(f"动作 {action_type} 未注册执行器")
         if executor is not None:

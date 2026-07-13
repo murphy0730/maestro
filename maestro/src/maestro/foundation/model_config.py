@@ -52,6 +52,41 @@ def save_model_providers(cfg: dict) -> None:
     logger.info("已写入模型配置到 %s", p)
 
 
+def merge_preserving_secrets(new_cfg: dict, old_cfg: dict | None) -> dict:
+    """PUT 载荷里 api_key 为空的 provider，若旧配置存在同 id 条目则保留旧 key。
+
+    GET /models 出于安全脱敏 api_key；前端"回读-保存"的载荷因此带空 key，
+    不做保留合并会把已存密钥清空。显式提供非空 key 时照常覆盖。"""
+    if not old_cfg:
+        return new_cfg
+    for section in ("llm", "embedding"):
+        old_by_id = {
+            p.get("id"): p
+            for p in (old_cfg.get(section) or {}).get("providers") or []
+            if p.get("id")
+        }
+        for p in (new_cfg.get(section) or {}).get("providers") or []:
+            if not p.get("api_key") and p.get("id") in old_by_id:
+                p["api_key"] = old_by_id[p["id"]].get("api_key", "")
+    return new_cfg
+
+
+def redact_providers(cfg: dict | None) -> dict:
+    """对外响应脱敏: api_key 一律置空，另给 api_key_set 派生标记。"""
+    src = cfg if cfg is not None else EMPTY_PROVIDERS
+    out: dict[str, Any] = {}
+    for section in ("llm", "embedding"):
+        sec = src.get(section) or {}
+        out[section] = {
+            "providers": [
+                {**p, "api_key": "", "api_key_set": bool(p.get("api_key"))}
+                for p in sec.get("providers") or []
+            ],
+            "active_id": sec.get("active_id"),
+        }
+    return out
+
+
 def active_provider(providers: dict | None, section: str) -> dict | None:
     """从 providers 块取某 section 的 active provider (按 active_id 匹配)。"""
     if not providers:

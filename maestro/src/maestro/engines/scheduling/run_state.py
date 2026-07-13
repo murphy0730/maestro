@@ -31,6 +31,7 @@ class AgentStatus(str, Enum):
     MAX_STEPS = "max_steps"
     STUCK = "stuck"
     ERROR = "error"
+    PENDING_CONFIRMATION = "pending_confirmation"
 
 
 @dataclass

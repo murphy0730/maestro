@@ -28,6 +28,9 @@ class StoredMessage(BaseModel):
     content: str
     ts: str
     kind: str = "normal"   # "normal" | "system"（system=动作确认结果等细行）
+    # 附件元数据 [{name, size}]（只存名字/大小不存内容），供前端回读渲染 chip；
+    # content 保持用户原文，不再持久化 <attachment> 包装文本。
+    attachments: list = []
 
 
 class SessionStore:
@@ -113,13 +116,23 @@ class SessionStore:
             self._sessions[session_id].updated_at = self._now()
             self._save_index()
 
-    def append_message(self, session_id: str, role: str, content: str, kind: str = "normal") -> None:
+    def append_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        kind: str = "normal",
+        attachments: list | None = None,
+    ) -> None:
         with self._lock:
             msg_file = self._msg_file(session_id)
             messages = (
                 json.loads(msg_file.read_text(encoding="utf-8")) if msg_file.exists() else []
             )
-            msg = StoredMessage(role=role, content=content, ts=self._now(), kind=kind)
+            msg = StoredMessage(
+                role=role, content=content, ts=self._now(), kind=kind,
+                attachments=attachments or [],
+            )
             messages.append(msg.model_dump())
             msg_file.write_text(
                 json.dumps(messages, ensure_ascii=False, indent=2), encoding="utf-8"

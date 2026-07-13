@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _FORCE_FINAL = "请基于以上工具观察，直接用简洁中文给出结论与后续建议，不要再调用任何工具。"
 _NUDGE = "你没有调用工具，也没有产出内容。请继续：调用工具查证事实，或直接给出结论。"
+_PENDING_ANSWER = "已提交待确认动作，请在对话中确认后继续。"
 _MAX_NUDGES = 2
 _LLM_RETRIES = 2
 
@@ -47,6 +48,7 @@ class AgentLoop:
         validate_input: bool = True,
         observations: ObservationStore | None = None,
         budget: Budget | None = None,
+        stop_on_pending: bool = False,
     ):
         self._llm = llm
         self._tools = tools
@@ -55,6 +57,8 @@ class AgentLoop:
         self._allowed = list(allowed_tools)
         self._termination = TerminationPolicy(max_steps)
         self._budget = budget
+        self._stop_on_pending = stop_on_pending
+        self._pending_before: set[str] = set()
         self._executor = ToolExecutor(
             tools=tools,
             audit=audit,
@@ -86,6 +90,7 @@ class AgentLoop:
             raise LLMError("LLM 未配置，无法运行 ReAct 智能体")
 
         pending_before = {action.action_id for action in self._pending.list_pending()}
+        self._pending_before = pending_before
         initial_tools = []
         for name in self._allowed:
             try:
@@ -117,6 +122,8 @@ class AgentLoop:
         if self._termination.needs_forced_final(state.status):
             await emit_progress(on_progress, "整理结论…")
             state.answer = await self._force_final(state) or state.answer
+        if state.status is AgentStatus.PENDING_CONFIRMATION and not state.answer:
+            state.answer = _PENDING_ANSWER
 
         pending_actions = [
             action for action in self._pending.list_pending() if action.action_id not in pending_before
@@ -152,9 +159,20 @@ class AgentLoop:
             self._executor.parallelizable(call.name) for call in turn.tool_calls
         ):
             await self._step_concurrent(turn.tool_calls, state, turn, on_progress)
+            if self._stop_on_pending and self._new_pending():
+                state.status = AgentStatus.PENDING_CONFIRMATION
             return
         for call in turn.tool_calls:
             await self._step_one(call, state, turn, on_progress)
+            if self._stop_on_pending and self._new_pending():
+                state.status = AgentStatus.PENDING_CONFIRMATION
+                return
+
+    def _new_pending(self) -> bool:
+        return any(
+            action.action_id not in self._pending_before
+            for action in self._pending.list_pending()
+        )
 
     async def _step_one(self, call, state: RunState, turn: AgentTurn, on_progress) -> None:
         await emit_progress(on_progress, f"调用工具 {call.name}")

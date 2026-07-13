@@ -16,7 +16,7 @@ export type AuthLevel = 'auto' | 'confirm';
 export type StatusKind = 'success' | 'warning' | 'error' | 'info';
 
 /** The engine currently driving the right context panel (null = idle). */
-export type ActiveEngine = 'planning' | 'scheduling' | 'query' | null;
+export type ActiveEngine = 'planning' | 'scheduling' | 'query' | 'skill' | null;
 
 /* ============================================================
    Conversation model

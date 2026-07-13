@@ -284,3 +284,33 @@ async def test_agent_progress_reporting(adapter, audit, gate, settings):
     assert result.answer == "WO-104 已齐套。"
     assert any("思考中" in t for t in seen)
     assert any("check_kitting" in t for t in seen)
+
+
+def test_execute_endpoint_rejects_processed_action_even_unconfirmed(tmp_path, monkeypatch):
+    """DEF-7: /scheduling/execute 对已处理动作必须 409，与 confirmed 取值无关。"""
+    from fastapi.testclient import TestClient
+    from maestro.bootstrap import build_platform
+    from maestro.config import Settings
+    from maestro.domain.models import PendingAction
+    from maestro.main import app
+
+    monkeypatch.chdir(tmp_path)
+    s = Settings(llm_api_key="", audit_log_file=None,
+                 sessions_dir=tmp_path / "sessions", skills_dir=tmp_path / "skills")
+    platform = build_platform(settings=s)
+    app.state.platform = platform
+    client = TestClient(app)
+
+    done = PendingAction(action_type="dispatch_work_order",
+                         description="下发任务令 WO-104", status="executed")
+    platform.pending.add(done)
+
+    for confirmed in (False, True):
+        resp = client.post("/scheduling/execute",
+                           json={"action_id": done.action_id, "confirmed": confirmed})
+        assert resp.status_code == 409, (confirmed, resp.json())
+        assert "不可重复处理" in resp.json()["detail"]
+
+    # 不存在的动作仍是 404
+    assert client.post("/scheduling/execute",
+                       json={"action_id": "nope", "confirmed": True}).status_code == 404

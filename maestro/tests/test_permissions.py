@@ -248,7 +248,7 @@ def bridged(monkeypatch, tmp_path, audit):
     from maestro.tools.bridge import register_framework_tools
     import maestro.tools.builtins.filesystem as fs
 
-    monkeypatch.setattr(fs, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(fs, "workspace_root", lambda: tmp_path)
     gate = ActionGate(AuthZ(), PendingActionStore(), audit)
     tools = ToolRegistry()
     initialize_tools()
@@ -286,3 +286,57 @@ async def test_read_file_never_asks(bridged):
             result = await tools.execute("read_file", {"file_path": "a.txt"})
         assert "hello" in str(result)
     assert not gate.pending.list_pending()
+
+
+# ── DEF-6: pending 动作指纹去重 ─────────────────────────────
+
+
+async def _noop_executor() -> ActionResult:
+    return ActionResult(success=True, action="x", detail="ok")
+
+
+async def test_gate_dedups_pending_with_same_business_keys(tmp_path):
+    """同 action_type + 同业务键 (wo_id/material_id) 的第二次请求复用既有 pending。"""
+    pending = PendingActionStore()
+    gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "a.jsonl"))
+    p = {"wo_id": "WO-123", "material_id": "M-002", "note": "第一次措辞"}
+    first = await gate.request("record_followup", "记录跟踪1", p, executor=_noop_executor)
+    p2 = {"wo_id": "WO-123", "material_id": "M-002", "note": "第二次措辞完全不同"}
+    second = await gate.request("record_followup", "记录跟踪2", p2, executor=_noop_executor)
+    assert first.status == second.status == "pending"
+    assert second.action.action_id == first.action.action_id  # 复用，不新建
+    assert len(pending.list_pending()) == 1
+    # 去重命中有审计痕迹
+    hits = [e for e in gate.audit.query() if (e.result or {}).get("status") == "dedup_hit"]
+    assert len(hits) == 1
+
+
+async def test_gate_does_not_dedup_different_business_keys(tmp_path):
+    pending = PendingActionStore()
+    gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "a.jsonl"))
+    a = await gate.request("record_followup", "d", {"wo_id": "WO-101"}, executor=_noop_executor)
+    b = await gate.request("record_followup", "d", {"wo_id": "WO-102"}, executor=_noop_executor)
+    assert a.action.action_id != b.action.action_id
+    assert len(pending.list_pending()) == 2
+
+
+async def test_gate_skips_dedup_when_only_free_text_params(tmp_path):
+    """无结构化业务键 (仅 note 等自由文本) 不去重，避免不同意图被误合。"""
+    pending = PendingActionStore()
+    gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "a.jsonl"))
+    a = await gate.request("record_followup", "d", {"note": "事项甲"}, executor=_noop_executor)
+    b = await gate.request("record_followup", "d", {"note": "事项乙"}, executor=_noop_executor)
+    assert a.action.action_id != b.action.action_id
+    assert len(pending.list_pending()) == 2
+
+
+async def test_gate_dedup_released_after_action_resolved(tmp_path):
+    """既有动作被确认/拒绝后，同指纹请求重新入队 (去重只约束 pending 态)。"""
+    pending = PendingActionStore()
+    gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "a.jsonl"))
+    p = {"wo_id": "WO-123"}
+    first = await gate.request("record_followup", "d", p, executor=_noop_executor)
+    await gate.confirm(first.action.action_id, approved=False)
+    again = await gate.request("record_followup", "d", p, executor=_noop_executor)
+    assert again.action.action_id != first.action.action_id
+    assert len(pending.list_pending()) == 1

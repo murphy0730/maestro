@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ComposerMode, ComposerRoute, SkillMeta } from '@/types';
 import { Layout } from '@/components/layout/Layout';
@@ -8,6 +8,7 @@ import { ContextPanelHost } from '@/components/ContextPanelHost';
 import { Thread } from '@/features/orchestrator/Thread';
 import { Composer } from '@/features/orchestrator/Composer';
 import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModal';
+import { findSkillTrustPrompt } from '@/features/orchestrator/skills/skillTrustPrompt';
 import { Modal } from '@/components/ui/Modal';
 import { useOrchestrator } from '@/features/orchestrator/useOrchestrator';
 import { useConversationStore, useDefaultEngineStore, useThemeStore } from '@/stores';
@@ -19,9 +20,11 @@ export function Workspace() {
   const messages = useConversationStore((state) => state.messages);
   const activeEngine = useConversationStore((state) => state.activeEngine);
   const schedulingSteps = useConversationStore((state) => state.schedulingSteps);
+  const skillContext = useConversationStore((state) => state.skillContext);
   const contextPanelOpen = useConversationStore((state) => state.contextPanelOpen);
   const activateEngine = useConversationStore((state) => state.activateEngine);
   const closeContextPanel = useConversationStore((state) => state.closeContextPanel);
+  const addMessage = useConversationStore((state) => state.addMessage);
 
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -35,6 +38,9 @@ export function Workspace() {
   const [clock, setClock] = useState('--:--:--');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [skillAwaitingTrust, setSkillAwaitingTrust] = useState<SkillMeta | null>(null);
+  const [skillTrustError, setSkillTrustError] = useState<string | null>(null);
+  const skillContextRef = useRef(skillContext);
+  const dismissedTrustHashRef = useRef<string | null>(null);
 
   const resetComposer = useCallback(() => {
     setRoute('auto');
@@ -59,7 +65,20 @@ export function Workspace() {
 
   const skillsQuery = useSkills();
   const trustSkillMutation = useTrustSkill();
-  const skills = skillsQuery.data?.skills ?? [];
+  const skills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data?.skills]);
+
+  useEffect(() => {
+    if (skillContextRef.current !== skillContext) {
+      skillContextRef.current = skillContext;
+      dismissedTrustHashRef.current = null;
+    }
+    if (!skillContext || skillAwaitingTrust) return;
+    const skill = findSkillTrustPrompt(skills, skillContext);
+    if (skill && dismissedTrustHashRef.current !== skill.package_sha256) {
+      setSkillTrustError(null);
+      setSkillAwaitingTrust(skill);
+    }
+  }, [skillAwaitingTrust, skillContext, skills]);
 
   const handleRouteChange = (next: ComposerRoute) => {
     setRoute(next);
@@ -132,7 +151,11 @@ export function Workspace() {
     <>
       <Modal
         open={skillAwaitingTrust !== null}
-        onClose={() => setSkillAwaitingTrust(null)}
+        onClose={() => {
+          dismissedTrustHashRef.current = skillAwaitingTrust?.package_sha256 ?? null;
+          setSkillTrustError(null);
+          setSkillAwaitingTrust(null);
+        }}
         title="信任这个技能版本？"
         subtitle="信任仅适用于当前文件版本；脚本每次执行仍会单独请求授权。"
         widthClassName="max-w-[520px]"
@@ -140,7 +163,11 @@ export function Workspace() {
           <div className="flex w-full justify-end gap-2">
             <button
               type="button"
-              onClick={() => setSkillAwaitingTrust(null)}
+              onClick={() => {
+                dismissedTrustHashRef.current = skillAwaitingTrust?.package_sha256 ?? null;
+                setSkillTrustError(null);
+                setSkillAwaitingTrust(null);
+              }}
               className="h-control rounded-sm px-4 text-body-sm font-medium text-text-secondary hover:bg-surface-3"
             >
               取消
@@ -150,12 +177,26 @@ export function Workspace() {
               disabled={trustSkillMutation.isPending}
               onClick={() => {
                 if (!skillAwaitingTrust?.package_sha256) return;
+                setSkillTrustError(null);
+                const skill = skillAwaitingTrust;
                 void trustSkillMutation
                   .mutateAsync({
-                    name: skillAwaitingTrust.name,
-                    packageSha256: skillAwaitingTrust.package_sha256,
+                    name: skill.name,
+                    packageSha256: skill.package_sha256,
                   })
-                  .then(() => setSkillAwaitingTrust(null));
+                  .then(() => {
+                    dismissedTrustHashRef.current = skill.package_sha256;
+                    setSkillAwaitingTrust(null);
+                    addMessage({
+                      id: `sys-${Date.now()}`,
+                      kind: 'system',
+                      time: new Date().toLocaleTimeString('en-GB').slice(0, 5),
+                      text: `已信任「${skill.display_name ?? skill.name}」当前技能版本。请重新发送刚才的请求以继续。`,
+                    });
+                  })
+                  .catch((error: unknown) => {
+                    setSkillTrustError(error instanceof Error ? error.message : '信任失败，请重试');
+                  });
               }}
               className="h-control rounded-sm bg-auth-confirm px-4 text-body-sm font-semibold text-white disabled:opacity-50"
             >
@@ -175,6 +216,11 @@ export function Workspace() {
             <p className="m-0 break-all font-mono text-micro text-text-tertiary">
               SHA-256 · {skillAwaitingTrust.package_sha256}
             </p>
+            {skillTrustError && (
+              <p className="m-0 text-body-sm text-status-error" role="alert">
+                {skillTrustError}
+              </p>
+            )}
           </div>
         )}
       </Modal>
@@ -274,6 +320,7 @@ export function Workspace() {
               engine={activeEngine}
               onClose={closeContextPanel}
               schedulingSteps={schedulingSteps}
+              skillContext={skillContext}
             />
           ) : undefined
         }

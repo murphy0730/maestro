@@ -23,9 +23,13 @@ const RESOLVED_LABEL: Record<
 };
 
 export function PendingActionsCard({ actions, onConfirm }: PendingActionsCardProps) {
+  // Sequential confirmation: show resolved cards plus only the FIRST still-open
+  // action; the next one appears after the current resolves (确认一次一个).
+  const firstOpen = actions.findIndex((a) => a.status === 'pending' || a.status === 'executing');
+  const visible = firstOpen === -1 ? actions : actions.slice(0, firstOpen + 1);
   return (
     <div className="mt-[11px] flex flex-col gap-2">
-      {actions.map((a) => (
+      {visible.map((a) => (
         <div
           key={a.action_id}
           className="rounded-md border border-l-[3px] border-auth-confirm-border border-l-auth-confirm bg-auth-confirm-bg px-3 py-[10px]"

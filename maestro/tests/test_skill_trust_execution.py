@@ -103,8 +103,10 @@ async def test_script_artifacts_survive_run_cleanup(tmp_path):
     assert result["status"] == "completed"
     assert len(result["artifacts"]) == 1
     artifact = result["artifacts"][0]
-    assert artifact.endswith("out.pptx")
-    with open(artifact) as handle:
+    assert artifact["name"] == "out.pptx"
+    assert artifact["download_url"].endswith("/out.pptx")
+    saved = tmp_path / "runs" / "artifacts" / artifact["download_url"].removeprefix("/artifacts/")
+    with open(saved) as handle:
         assert handle.read() == "deck"
 
 
@@ -161,3 +163,111 @@ async def test_skill_tool_requires_action_gate_confirmation(tmp_path, monkeypatc
     detail = json.loads(result.detail)
     assert detail["execution_mode"] == "guarded_host"
     assert detail["stdout"].strip() == "confirmed"
+
+
+async def test_run_root_lives_in_system_tmp_not_data_root(tmp_path, monkeypatch):
+    """DEF-3: 执行现场建在系统短路径 tmp (长数据根不再撑爆 unix socket 上限)，
+    产物仍归档到数据根 artifacts 目录。"""
+    import os
+    import tempfile as _tempfile
+    import maestro.skills.script_execution as se
+
+    deep_root = tmp_path / ("very-long-data-root-" + "d" * 60)
+    store = SkillStore(deep_root / "skills")
+    store.save(_meta(), "body", {"scripts/run.py": b"open('out.txt','w').write('x')\nprint('ok')"})
+    meta = store.get("script-skill")
+    store.trust(meta.name, meta.package_sha256)
+
+    captured = {}
+    real_mkdtemp = _tempfile.mkdtemp
+
+    def spy_mkdtemp(prefix=None, dir=None):
+        captured["dir"] = dir
+        return real_mkdtemp(prefix=prefix, dir=dir)
+
+    monkeypatch.setattr(se.tempfile, "mkdtemp", spy_mkdtemp)
+    service = SkillScriptExecutionService(
+        store, deep_root / "runs", deep_root / "skills", srt=_NoSrt())
+    result = await service.execute({
+        "skill_id": meta.name, "script": "scripts/run.py",
+        "args": [], "package_sha256": meta.package_sha256,
+    })
+    assert result["status"] == "completed"
+    assert captured["dir"] == ("/tmp" if os.name != "nt" else None)  # 不在数据根下
+    # 产物归档仍在数据根
+    assert result["artifacts"], "脚本产物应被归档"
+    assert (deep_root / "runs" / "artifacts").exists()
+
+
+async def test_srt_infra_failure_falls_back_to_guarded_host(tmp_path, monkeypatch):
+    """DEF-3: SRT 运行期基础设施故障 (mux socket EINVAL) 自动回退宿主机受控执行。"""
+    store = SkillStore(tmp_path / "skills")
+    store.save(_meta(), "body", {"scripts/run.py": b"print('recovered')"})
+    meta = store.get("script-skill")
+    store.trust(meta.name, meta.package_sha256)
+    service = SkillScriptExecutionService(
+        store, tmp_path / "runs", tmp_path / "skills", srt=_NoSrt())
+
+    calls = []
+    orig = SkillScriptExecutionService._run_once
+
+    async def fake(self, skill_id, script, args, files, allow_sandbox):
+        calls.append(allow_sandbox)
+        if allow_sandbox:
+            return {"status": "failed", "execution_mode": "srt", "exit_code": 1, "stdout": "",
+                    "stderr": "Error: listen EINVAL: invalid argument /x/workspace/srt-mux-1-0.sock"}
+        return await orig(self, skill_id, script, args, files, allow_sandbox)
+
+    monkeypatch.setattr(SkillScriptExecutionService, "_run_once", fake)
+    result = await service.execute({
+        "skill_id": meta.name, "script": "scripts/run.py",
+        "args": [], "package_sha256": meta.package_sha256,
+    })
+    assert calls == [True, False]
+    assert result["execution_mode"] == "guarded_host"
+    assert result["status"] == "completed"
+    assert result["stdout"].strip() == "recovered"
+    assert result["fallback_reason"] == "srt_infrastructure_failure"
+
+
+async def test_script_own_failure_is_not_retried(tmp_path, monkeypatch):
+    """脚本自身失败 (非 SRT 基础设施) 不得触发宿主机重跑。"""
+    store = SkillStore(tmp_path / "skills")
+    store.save(_meta(), "body", {"scripts/run.py": b"raise SystemExit(3)"})
+    meta = store.get("script-skill")
+    store.trust(meta.name, meta.package_sha256)
+    service = SkillScriptExecutionService(
+        store, tmp_path / "runs", tmp_path / "skills", srt=_NoSrt())
+
+    calls = []
+    orig = SkillScriptExecutionService._run_once
+
+    async def fake(self, skill_id, script, args, files, allow_sandbox):
+        calls.append(allow_sandbox)
+        if allow_sandbox:
+            return {"status": "failed", "execution_mode": "srt", "exit_code": 3, "stdout": "",
+                    "stderr": "Traceback: ValueError: bad input"}
+        return await orig(self, skill_id, script, args, files, allow_sandbox)
+
+    monkeypatch.setattr(SkillScriptExecutionService, "_run_once", fake)
+    result = await service.execute({
+        "skill_id": meta.name, "script": "scripts/run.py",
+        "args": [], "package_sha256": meta.package_sha256,
+    })
+    assert calls == [True]
+    assert result["status"] == "failed"
+    assert "fallback_reason" not in result
+
+
+async def test_check_usable_rejects_overlong_socket_path(tmp_path):
+    """DEF-3 静态预检: cwd 过长导致 mux socket 必然超限时直接判不可用。"""
+    import os
+    if os.name == "nt":
+        return  # unix socket 上限只在 POSIX 生效
+    from pathlib import Path as _P
+    from maestro.execution.srt import SrtRuntime
+
+    rt = SrtRuntime(executable=_P("/bin/echo"))
+    deep = tmp_path / ("x" * 120)
+    deep.mkdir()
+    assert await rt.check_usable(deep, []) is False

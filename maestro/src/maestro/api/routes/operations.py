@@ -38,8 +38,15 @@ class ExecuteRequest(BaseModel):
 async def scheduling_execute(req: ExecuteRequest, request: Request):
     """执行一个待确认动作。confirmed=false 时不消费动作。"""
     platform = request.app.state.platform
-    if platform.pending.get(req.action_id) is None:
+    existing = platform.pending.get(req.action_id)
+    if existing is None:
         raise HTTPException(status_code=404, detail=f"动作不存在: {req.action_id}")
+    if existing.status != "pending":
+        # 终态动作与 confirmed 取值无关，一律 409（契约 §3「已处理过 → 409」）
+        raise HTTPException(
+            status_code=409,
+            detail=f"动作 {req.action_id} 当前状态为 {existing.status}，不可重复处理",
+        )
     if not req.confirmed:
         return {
             "status": "pending",
@@ -90,9 +97,10 @@ def _timeline_summary(entry) -> str:
 @router.get("/audit/timeline")
 async def audit_timeline(request: Request, session_id: str | None = None, limit: int = 100):
     """返回会话条目与全局系统条目合并后的决策时间线。"""
-    entries = request.app.state.platform.audit.query(limit=limit)
-    if session_id:
-        entries = [entry for entry in entries if entry.actor == session_id or entry.actor in _SYSTEM_ACTORS]
+    entries = request.app.state.platform.audit.query(
+        limit=limit,
+        actor_in=({session_id} | _SYSTEM_ACTORS) if session_id else None,
+    )
     return {
         "events": [
             {

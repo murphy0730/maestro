@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { API_BASE } from '@/api/client';
+import { API_BASE, authHeaders } from '@/api/client';
 import { ModelProviderSection } from './ModelProviderSection';
 import {
   EMPTY_CONFIG,
@@ -52,11 +52,14 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     try {
       const response = await fetch(`${API_BASE}/models`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(next),
       });
       if (!response.ok) throw new Error(`保存失败: ${response.status}`);
-      await fetch(`${API_BASE}/admin/reload-model`, { method: 'POST' }).catch(() => undefined);
+      await fetch(`${API_BASE}/admin/reload-model`, {
+        method: 'POST',
+        headers: authHeaders(),
+      }).catch(() => undefined);
     } catch (error) {
       console.error('保存模型配置失败', error);
     } finally {

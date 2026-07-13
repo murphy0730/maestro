@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from maestro.bootstrap import build_platform
 from maestro.config import Settings
-from maestro.api.routes import chat, extensions, knowledge, mcp, models, operations, sessions, skills
+from maestro.api.routes import artifacts, chat, extensions, knowledge, mcp, models, operations, sessions, skills
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(chat.router)
+    app.include_router(artifacts.router)
     app.include_router(operations.router)
     app.include_router(sessions.router)
     app.include_router(knowledge.router)

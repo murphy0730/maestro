@@ -144,6 +144,8 @@ class PendingAction(BaseModel):
     description: str
     params: dict = Field(default_factory=dict)
     status: PendingActionStatus = "pending"
+    # 结构化业务键指纹 (authz.action_fingerprint)；同指纹 pending 去重用。None=不参与去重
+    fingerprint: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     validated_at: datetime = Field(default_factory=datetime.now)
     started_at: datetime | None = None

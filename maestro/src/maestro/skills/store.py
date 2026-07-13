@@ -7,6 +7,21 @@ import threading
 from pathlib import Path
 from maestro.skills.schemas import SkillMeta, SkillTrustRecord, SkillValidationError
 
+# 历史缺陷: 早期导入曾在 SKILL.md 未声明 allowed-tools 时注入默认查询工具集
+# (先后两个版本)。磁盘 SKILL.md 不含 frontmatter，无法回读原始声明，故按
+# "恰好等于历史注入集" 识别并重置为 [] (自定义声明的技能不受影响)。
+_LEGACY_INJECTED_TOOLSETS = (
+    frozenset({
+        "query_orders", "query_inventory", "query_work_orders",
+        "check_kitting", "read_observation",
+    }),
+    frozenset({
+        "query_orders", "query_inventory", "query_work_orders",
+        "check_kitting", "read_observation",
+        "search_catalog_skills", "search_catalog_connectors",
+    }),
+)
+
 
 def package_sha256(body: str, attachments: dict[str, bytes]) -> str:
     digest = hashlib.sha256()
@@ -59,6 +74,9 @@ class SkillStore:
                     meta.file_count = file_count
                     meta.bytes = unpacked_bytes
                     migrated = True
+                if meta.allowed_tools and frozenset(meta.allowed_tools) in _LEGACY_INJECTED_TOOLSETS:
+                    meta.allowed_tools = []
+                    migrated = True
             if migrated:
                 self._save_index()
 
@@ -95,6 +113,24 @@ class SkillStore:
     def get(self, name: str) -> SkillMeta | None:
         with self._lock:
             return next((m for m in self._index if m.name == name), None)
+
+    def update_localization(
+        self,
+        name: str,
+        summary_zh: str | None,
+        description_zh: str | None,
+    ) -> bool:
+        """Backfill catalog localization without changing the installed package."""
+        with self._lock:
+            meta = next((item for item in self._index if item.name == name), None)
+            if meta is None:
+                raise KeyError(name)
+            if meta.summary_zh == summary_zh and meta.description_zh == description_zh:
+                return False
+            meta.summary_zh = summary_zh
+            meta.description_zh = description_zh
+            self._save_index()
+            return True
 
     def _skill_dir(self, name: str) -> Path:
         return self._base / name

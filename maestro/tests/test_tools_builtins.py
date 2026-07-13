@@ -284,9 +284,9 @@ async def test_bridge_with_gate_creates_pending_and_executes_on_confirm(tmp_path
     from maestro.foundation.audit import AuditLog
     from maestro.foundation.authz import ActionGate, AuthZ, PendingActionStore
 
-    # 把文件工具的根目录指到 tmp_path，避免测试写入项目树
+    # 把文件工具的工作区根指到 tmp_path，避免测试写入真实数据根
     monkeypatch.setattr(
-        "maestro.tools.builtins.filesystem.project_root", lambda: tmp_path)
+        "maestro.tools.builtins.filesystem.workspace_root", lambda: tmp_path)
 
     pending = PendingActionStore()
     gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "audit.jsonl"))
@@ -310,7 +310,7 @@ async def test_bridge_with_gate_reject_does_not_execute(tmp_path, monkeypatch):
     from maestro.foundation.authz import ActionGate, AuthZ, PendingActionStore
 
     monkeypatch.setattr(
-        "maestro.tools.builtins.filesystem.project_root", lambda: tmp_path)
+        "maestro.tools.builtins.filesystem.workspace_root", lambda: tmp_path)
     pending = PendingActionStore()
     gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "audit.jsonl"))
     foundation = FoundationRegistry()
@@ -323,6 +323,47 @@ async def test_bridge_with_gate_reject_does_not_execute(tmp_path, monkeypatch):
     assert not (tmp_path / "probe.txt").exists()
 
 
+async def test_filesystem_tools_confined_to_workspace_root(tmp_path, monkeypatch):
+    """DEF-9: 文件工具锚定运行时工作区，不写源码树；路径穿越仍被拒。"""
+    from maestro.config import project_root
+    from maestro.foundation.audit import AuditLog
+    from maestro.foundation.authz import ActionGate, AuthZ, PendingActionStore
+
+    ws = tmp_path / "data-root" / "executions" / "workspace"
+    monkeypatch.setattr(
+        "maestro.tools.builtins.filesystem.workspace_root", lambda: ws)
+    pending = PendingActionStore()
+    gate = ActionGate(AuthZ(), pending, AuditLog(tmp_path / "audit.jsonl"))
+    foundation = FoundationRegistry()
+    register_framework_tools(foundation, gate=gate)
+
+    result = await foundation.execute(
+        "write_file", {"file_path": "out/kitting.txt", "content": "hello"})
+    action, outcome = await gate.confirm(result["action_id"], approved=True)
+    assert action.status == "executed" and outcome.success
+    assert (ws / "out" / "kitting.txt").read_text(encoding="utf-8") == "hello"
+    assert not (project_root() / "out").exists()  # 源码树不产生文件
+
+    escape = await foundation.execute(
+        "write_file", {"file_path": "../../escape.txt", "content": "x"})
+    action2, outcome2 = await gate.confirm(escape["action_id"], approved=True)
+    assert outcome2 is None or not outcome2.success
+    assert not (tmp_path / "data-root" / "escape.txt").exists()
+
+    listing = await foundation.execute("list_files", {"directory": "out"})
+    assert [f["path"] for f in listing["files"]] == ["out/kitting.txt"]
+
+
+def test_workspace_root_defaults_to_execution_output_dir(monkeypatch):
+    """未注入覆盖时，工作区根来自 Settings.execution_output_dir (随 MAESTRO_DATA_DIR 隔离)。"""
+    from maestro.config import Settings
+    from maestro.tools.builtins.filesystem import workspace_root
+
+    monkeypatch.setattr(
+        "maestro.tools.builtins.filesystem._workspace_root_override", None)
+    assert workspace_root() == Settings().execution_output_dir / "workspace"
+
+
 def test_tool_inspector_skill_validates_against_bridged_registry():
     """演示技能 tool-inspector.md 的 allowed_tools 必须全部是桥接后合法的工具名。"""
     skill_path = (
@@ -333,6 +374,6 @@ def test_tool_inspector_skill_validates_against_bridged_registry():
     foundation = FoundationRegistry()
     register_framework_tools(foundation)
     allowed = validate_allowed_tools(
-        fm, registered=set(foundation.names()), default=[], named=set())
+        fm, registered=set(foundation.names()), named=set())
     assert set(allowed) == {"todo_write", "glob", "read_file", "tool_search", "write_file"}
     assert body.strip()

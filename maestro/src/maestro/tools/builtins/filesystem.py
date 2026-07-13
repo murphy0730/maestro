@@ -1,7 +1,8 @@
 """文件系统工具。
 
 提供 read_file, write_file, edit_file, list_files 等工具。
-所有文件操作限制在项目根目录内。
+所有文件操作限制在 agent 工作区 (运行时数据根下的 executions/workspace) 内，
+不允许触碰源码树 / 冻结包目录。
 """
 
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from maestro.config import project_root
+from maestro.config import Settings
 
 from ..base import (
     BaseTool,
@@ -20,20 +21,32 @@ from ..base import (
     build_tool,
 )
 
+# bootstrap 经 register_filesystem_tools(workspace_root=…) 注入；未注入时按当前
+# Settings 惰性解析，保证 MAESTRO_DATA_DIR 隔离对文件写同样生效。
+_workspace_root_override: Path | None = None
+
+
+def workspace_root() -> Path:
+    """agent 文件工具的可写工作区根 (默认 <数据根>/executions/workspace)。"""
+    if _workspace_root_override is not None:
+        return _workspace_root_override
+    return Settings().execution_output_dir / "workspace"
+
 
 def _resolve_and_validate_path(path_str: str) -> Path:
-    """解析并验证路径在项目根目录内。"""
-    root = project_root()
+    """解析并验证路径在 agent 工作区内。"""
+    root = workspace_root().resolve()
+    root.mkdir(parents=True, exist_ok=True)
     path = (root / path_str).resolve()
-    
+
     if not path.is_relative_to(root):
-        raise ValueError(f"Path '{path_str}' escapes project root directory")
-    
+        raise ValueError(f"Path '{path_str}' escapes agent workspace")
+
     return path
 
 
 class ReadFileArgs(BaseModel):
-    file_path: str = Field(description="Path to the file to read (relative to project root)")
+    file_path: str = Field(description="Path to the file to read (relative to the agent workspace)")
     offset: Optional[int] = Field(default=None, description="Start reading from this line number")
     limit: Optional[int] = Field(default=None, description="Maximum number of lines to read")
 
@@ -74,7 +87,7 @@ async def read_file_execute(
 
 ReadFileTool = build_tool(ToolDef(
     name="read_file",
-    description="Read the contents of a file (path relative to project root)",
+    description="Read the contents of a file (path relative to the agent workspace)",
     input_schema=ReadFileArgs,
     execute=read_file_execute,
     permission_level=ToolPermissionLevel.AUTO,
@@ -86,7 +99,7 @@ ReadFileTool = build_tool(ToolDef(
 
 
 class WriteFileArgs(BaseModel):
-    file_path: str = Field(description="Path to the file to write (relative to project root)")
+    file_path: str = Field(description="Path to the file to write (relative to the agent workspace)")
     content: str = Field(description="Content to write to the file")
 
 
@@ -113,7 +126,7 @@ async def write_file_execute(
 
 WriteFileTool = build_tool(ToolDef(
     name="write_file",
-    description="Write content to a file (path relative to project root)",
+    description="Write content to a file (path relative to the agent workspace)",
     input_schema=WriteFileArgs,
     execute=write_file_execute,
     permission_level=ToolPermissionLevel.REQUIRES_CONFIRM,
@@ -124,7 +137,7 @@ WriteFileTool = build_tool(ToolDef(
 
 
 class EditFileArgs(BaseModel):
-    file_path: str = Field(description="Path to the file to edit (relative to project root)")
+    file_path: str = Field(description="Path to the file to edit (relative to the agent workspace)")
     old_string: str = Field(description="Exact string to replace")
     new_string: str = Field(description="Replacement string")
 
@@ -168,7 +181,7 @@ async def edit_file_execute(
 
 EditFileTool = build_tool(ToolDef(
     name="edit_file",
-    description="Edit a file by replacing an exact string (path relative to project root)",
+    description="Edit a file by replacing an exact string (path relative to the agent workspace)",
     input_schema=EditFileArgs,
     execute=edit_file_execute,
     permission_level=ToolPermissionLevel.REQUIRES_CONFIRM,
@@ -179,7 +192,7 @@ EditFileTool = build_tool(ToolDef(
 
 
 class ListFilesArgs(BaseModel):
-    directory: str = Field(default=".", description="Directory to list files from (relative to project root)")
+    directory: str = Field(default=".", description="Directory to list files from (relative to the agent workspace)")
 
 
 async def list_files_execute(
@@ -196,11 +209,12 @@ async def list_files_execute(
                 error_message=f"Directory not found: {args.directory}"
             )
 
+        root = workspace_root().resolve()
         files = []
         for item in sorted(dir_path.iterdir()):
             files.append({
                 "name": item.name,
-                "path": str(item.relative_to(project_root())),
+                "path": str(item.relative_to(root)),
                 "is_dir": item.is_dir(),
                 "is_file": item.is_file(),
                 "size": item.stat().st_size if item.is_file() else None
@@ -220,7 +234,7 @@ async def list_files_execute(
 
 ListFilesTool = build_tool(ToolDef(
     name="list_files",
-    description="List files and directories in a given directory (path relative to project root)",
+    description="List files and directories in a given directory (path relative to the agent workspace)",
     input_schema=ListFilesArgs,
     execute=list_files_execute,
     permission_level=ToolPermissionLevel.AUTO,
@@ -230,9 +244,12 @@ ListFilesTool = build_tool(ToolDef(
 ))
 
 
-def register_filesystem_tools(tool_registry=None):
+def register_filesystem_tools(tool_registry=None, workspace_root: Path | None = None):
     from ..registry import registry
 
+    if workspace_root is not None:
+        global _workspace_root_override
+        _workspace_root_override = workspace_root
     target = tool_registry or registry
     target.register(ReadFileTool)
     target.register(WriteFileTool)

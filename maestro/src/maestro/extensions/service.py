@@ -9,19 +9,24 @@ from datetime import datetime, timezone
 
 from maestro.config import MCPServerSettings
 from maestro.foundation.llm import LLMError
-from maestro.foundation.tools.builtin import QUERY_READONLY_TOOLS
 from maestro.skills.parser import validate_skill_package
 from maestro.skills.schemas import SkillMeta, SkillValidationError
 from maestro.skills.store import package_sha256
 
-from .adapters import connector_items, skill_packages, stable_hash
+from .adapters import connector_items, skill_package, skill_packages, stable_hash
 from .github import GitHubClient
+from .localization import CONNECTOR_DESCRIPTIONS_ZH, SKILL_SUMMARIES_ZH
 from .schemas import CatalogSkill, SourceState, SyncRun, utcnow
 from .sources import SOURCES, SOURCE_BY_ID
 from .store import ExtensionCatalogStore
 
 
 LICENSE_ALLOWLIST = {"MIT", "Apache-2.0", "Apache 2.0", "BSD-3-Clause", "CC0-1.0"}
+
+
+def _license_ok(license_value: str | None, trust_tier: str) -> bool:
+    # official 来源（OpenAI/Anthropic 官方）免许可证 allowlist；第三方来源仍需名单内或无声明。
+    return trust_tier == "official" or license_value in LICENSE_ALLOWLIST or license_value is None
 
 
 class ExtensionCatalogService:
@@ -34,7 +39,7 @@ class ExtensionCatalogService:
     def validation_fingerprint(self, source_id: str) -> str:
         value = {
             "schema": 1,
-            "adapter": 2,
+            "adapter": 3,
             "source": source_id,
             "tools": sorted(self.platform.tools.names()),
             "preconditions": sorted(self.platform.named_preconditions),
@@ -119,7 +124,7 @@ class ExtensionCatalogService:
     async def _sync_skills(self, client, source, commit, tree, counts) -> None:
         seen = set()
         for fallback_name, root, package, blob_sha in await skill_packages(client, source, commit, tree):
-            fm, body, attachments, report = validate_skill_package(package, f"{fallback_name}.zip", set(self.platform.tools.names()), list(QUERY_READONLY_TOOLS), set(self.platform.named_preconditions), self.platform.settings.skill_body_max_bytes)
+            fm, body, attachments, report = validate_skill_package(package, f"{fallback_name}.zip", set(self.platform.tools.names()), set(self.platform.named_preconditions), self.platform.settings.skill_body_max_bytes)
             name = fm.name if fm else fallback_name
             catalog_id = f"{source.id}:{name}"
             seen.add(catalog_id)
@@ -127,6 +132,9 @@ class ExtensionCatalogService:
             if previous and previous.blob_sha == blob_sha and self.store.package_path(catalog_id).exists():
                 previous.last_checked_at = utcnow()
                 previous.source_commit = commit
+                if not previous.withdrawn and previous.compatibility_status != "not_ready":
+                    previous.installable = _license_ok(previous.license, source.trust_tier)
+                    previous.install_block_reason = None if previous.installable else "许可证未获准"
                 if previous.installable and previous.summary_zh is None:
                     previous.summary_zh, previous.description_zh = await self._translate(previous.description)
                 counts["items_unchanged"] += 1
@@ -135,7 +143,7 @@ class ExtensionCatalogService:
             if fm and body is not None:
                 digest = package_sha256(body, attachments)
                 license_value = fm.license
-                installable = report.compatible and (license_value in LICENSE_ALLOWLIST or license_value is None)
+                installable = report.compatible and _license_ok(license_value, source.trust_tier)
                 reason = None if installable else ("许可证未获准" if report.compatible else "; ".join(report.errors))
                 item = CatalogSkill(catalog_id=catalog_id, name=fm.name, display_name=fm.display_name or fm.name, description=fm.description, author=fm.author, license=license_value, version=fm.version, source_id=source.id, source_name=source.display_name, source_url=f"{source.source_url}/tree/{commit}/{root}", source_ref=source.ref, source_commit=commit, blob_sha=blob_sha, package_sha256=digest, compatibility_status=report.compatibility_status, warnings=report.warnings, has_scripts=bool(fm.scripts), installable=installable, install_block_reason=reason)
                 item.summary_zh, item.description_zh = await self._translate(fm.description)
@@ -196,6 +204,7 @@ class ExtensionCatalogService:
             if source_id is None and preferred.get(original.name) != original.catalog_id:
                 continue
             item = original.model_copy(deep=True)
+            item.summary_zh = item.summary_zh or SKILL_SUMMARIES_ZH.get(item.name)
             local = installed.get(item.name)
             item.installed = local is not None
             item.installed_sha256 = local.package_sha256 if local else None
@@ -212,6 +221,7 @@ class ExtensionCatalogService:
         result = []
         for original in self.store.connectors.values():
             item = original.model_copy(deep=True)
+            item.summary_zh = item.summary_zh or CONNECTOR_DESCRIPTIONS_ZH.get(item.name)
             local = by_catalog.get(item.catalog_id)
             item.configured = local is not None
             item.configured_name = local.name if local else None
@@ -223,6 +233,29 @@ class ExtensionCatalogService:
                 result.append(item)
         return sorted(result, key=lambda item: item.display_name.casefold())
 
+    def migrate_installed_localizations(self) -> int:
+        """Copy SkillHub localization into skills installed before this metadata existed."""
+        migrated = 0
+        for meta in self.platform.skill_store.list_all():
+            catalog_meta = meta.extensions.get("catalog")
+            if not isinstance(catalog_meta, dict):
+                continue
+            catalog_id = catalog_meta.get("catalog_id")
+            item = self.store.skills.get(catalog_id) if isinstance(catalog_id, str) else None
+            if item is None:
+                continue
+            summary_zh = item.summary_zh or SKILL_SUMMARIES_ZH.get(item.name)
+            description_zh = item.description_zh
+            if not summary_zh and not description_zh:
+                continue
+            if self.platform.skill_store.update_localization(
+                meta.name,
+                summary_zh or meta.summary_zh,
+                description_zh or meta.description_zh,
+            ):
+                migrated += 1
+        return migrated
+
     async def install_skill(self, catalog_id: str, expected_hash: str | None = None, update: bool = False):
         item = self.store.skills.get(catalog_id)
         if not item:
@@ -232,19 +265,36 @@ class ExtensionCatalogService:
         if expected_hash and expected_hash != item.package_sha256:
             raise ValueError("目录版本已变化，请重新检查")
         source = SOURCE_BY_ID[item.source_id]
+        marker = f"/tree/{item.source_commit}/"
+        root = item.source_url.split(marker, 1)[-1].rstrip("/") if marker in item.source_url else ""
         client = GitHubClient(os.environ.get("GITHUB_TOKEN", ""))
         try:
+            # 只下载目标技能一个目录（而非整源全部技能），避免大量请求触发限流/断连
             tree = await client.tree(source, item.source_commit)
-            candidates = await skill_packages(client, source, item.source_commit, tree)
-            package = next((data for fallback, _root, data, _blob in candidates if fallback == item.source_url.rstrip("/").rsplit("/", 1)[-1]), None)
+            result = await skill_package(client, source, item.source_commit, tree, root)
+        except SkillValidationError:
+            raise
+        except Exception as exc:  # 网络/限流等底层错误转成可读信息，避免路由 500
+            raise SkillValidationError(f"下载技能包失败，请重试：{exc}") from exc
         finally:
             await client.close()
+        package = result[2] if result else None
         if package is None:
             raise SkillValidationError("固定 commit 中已找不到该技能")
-        fm, body, attachments, report = validate_skill_package(package, f"{item.name}.zip", set(self.platform.tools.names()), list(QUERY_READONLY_TOOLS), set(self.platform.named_preconditions), self.platform.settings.skill_body_max_bytes)
+        fm, body, attachments, report = validate_skill_package(package, f"{item.name}.zip", set(self.platform.tools.names()), set(self.platform.named_preconditions), self.platform.settings.skill_body_max_bytes)
         if not report.compatible or not fm or body is None or package_sha256(body, attachments) != item.package_sha256:
             raise SkillValidationError("缓存包校验失败")
-        meta = SkillMeta(**fm.model_dump(), file_count=1 + len(attachments), bytes=len(body.encode()) + sum(map(len, attachments.values())), archive_bytes=len(package), added_at=datetime.now(timezone.utc).isoformat(), compatibility_status=report.compatibility_status, warnings=report.warnings)
+        meta = SkillMeta(
+            **fm.model_dump(),
+            summary_zh=item.summary_zh or SKILL_SUMMARIES_ZH.get(item.name),
+            description_zh=item.description_zh,
+            file_count=1 + len(attachments),
+            bytes=len(body.encode()) + sum(map(len, attachments.values())),
+            archive_bytes=len(package),
+            added_at=datetime.now(timezone.utc).isoformat(),
+            compatibility_status=report.compatibility_status,
+            warnings=report.warnings,
+        )
         meta.extensions["catalog"] = {"catalog_id": catalog_id, "source_commit": item.source_commit}
         if update:
             self.platform.skill_store.replace(meta, body, attachments)

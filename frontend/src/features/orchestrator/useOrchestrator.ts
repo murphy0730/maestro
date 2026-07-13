@@ -42,6 +42,7 @@ export function useOrchestrator(sessionId: string) {
   const updateMessage = useConversationStore((s) => s.updateMessage);
   const activateEngine = useConversationStore((s) => s.activateEngine);
   const setSchedulingSteps = useConversationStore((s) => s.setSchedulingSteps);
+  const setSkillContext = useConversationStore((s) => s.setSkillContext);
 
   // One assistant turn in flight: its id, start time, and a commit guard.
   const pendingRef = useRef(false);
@@ -69,6 +70,12 @@ export function useOrchestrator(sessionId: string) {
       });
       if (engine) activateEngine(engine);
       if (c.context?.engine === 'scheduling') setSchedulingSteps(c.context.payload.steps ?? []);
+      if (c.context?.engine === 'skill')
+        setSkillContext({
+          steps: c.context.payload.steps ?? [],
+          stopReason: c.context.payload.stop_reason,
+          skillNames: c.context.payload.skill_names ?? [],
+        });
       pendingRef.current = false;
       c.reset();
     } else if (c.phase === 'awaiting_clarification' && c.clarify) {
@@ -92,7 +99,7 @@ export function useOrchestrator(sessionId: string) {
       pendingRef.current = false;
       c.reset();
     }
-  }, [chat.phase, addMessage, activateEngine, setSchedulingSteps]);
+  }, [chat.phase, addMessage, activateEngine, setSchedulingSteps, setSkillContext]);
 
   /** Send a user message; `currentEngine` carries session stickiness, `mode` the
    *  ActionGate posture the backend should run this turn under. */

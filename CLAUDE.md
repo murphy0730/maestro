@@ -36,7 +36,10 @@ npm run lint       # eslint, --max-warnings 0
 npm run format     # prettier
 npm run electron:dev   # desktop shell against the Vite dev server
 ```
-`VITE_API_MOCKING=disabled` is the committed default in `frontend/.env.development`; set it to `enabled` to run offline on MSW mocks. `./restart.sh` at the repo root restarts backend (:8000) + frontend (:5173) in the background.
+`VITE_API_MOCKING=disabled` is the committed default in `frontend/.env.development`; set it to `enabled` to run offline on MSW mocks. `./restart.sh` at the repo root restarts backend (:8000) + frontend (:5173) in the background (Windows: `restart.bat`, same `all|backend|frontend|stop` subcommands).
+
+### Packaging the desktop app
+`./build-mac.sh` (macOS → `frontend/release/*.dmg`) and `build-win.bat` (Windows → `frontend/release/*.exe`) are one-click build scripts: each freezes the backend via PyInstaller (`maestro/maestro_backend.spec`) then runs `npm run electron:build`. The bundled backend is a native binary and **cannot be cross-compiled** — run each script on its own OS to get a working package.
 
 ## Backend architecture
 

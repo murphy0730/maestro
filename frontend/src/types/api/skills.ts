@@ -2,6 +2,8 @@ export interface SkillMeta {
   name: string;
   display_name?: string;
   description: string;
+  summary_zh?: string;
+  description_zh?: string;
   when_to_use?: string[];
   allowed_tools?: string[];
   user_invocable?: boolean;

@@ -7,12 +7,20 @@ import type { ActiveEngine, ChatMessageData, SchedulingTraceStep } from '@/types
  * The in-flight (streaming) assistant turn is NOT kept here — it lives in the
  * `useStreamingChat` hook and is committed to `messages` once finalized.
  */
+export interface SkillContextData {
+  steps: SchedulingTraceStep[];
+  stopReason?: string;
+  skillNames: string[];
+}
+
 interface ConversationState {
   messages: ChatMessageData[];
   activeEngine: ActiveEngine;
   contextPanelOpen: boolean;
   /** Latest scheduling ReAct 工具轨迹 (from the `context` event) for the panel. */
   schedulingSteps: SchedulingTraceStep[];
+  /** Latest skill run trace (from the `context` event with engine "skill"). */
+  skillContext: SkillContextData | null;
 
   /** Append a finalized message. */
   addMessage: (message: ChatMessageData) => void;
@@ -22,6 +30,8 @@ interface ConversationState {
   activateEngine: (engine: ActiveEngine) => void;
   /** Store the scheduling trace carried by a `context` event. */
   setSchedulingSteps: (steps: SchedulingTraceStep[]) => void;
+  /** Store the skill run context carried by a `context` event. */
+  setSkillContext: (ctx: SkillContextData | null) => void;
   setContextPanelOpen: (open: boolean) => void;
   closeContextPanel: () => void;
   resetThread: (initialMessages?: ChatMessageData[]) => void;
@@ -36,10 +46,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
   activeEngine: null,
   contextPanelOpen: false,
   schedulingSteps: [],
+  skillContext: null,
 
   addMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
 
   setSchedulingSteps: (steps) => set({ schedulingSteps: steps }),
+
+  setSkillContext: (ctx) => set({ skillContext: ctx }),
 
   updateMessage: (id, patch) =>
     set((s) => ({
@@ -58,5 +71,6 @@ export const useConversationStore = create<ConversationState>((set) => ({
       activeEngine: null,
       contextPanelOpen: false,
       schedulingSteps: [],
+      skillContext: null,
     }),
 }));

@@ -6,6 +6,7 @@ from conftest import FakeLLM
 from maestro.bootstrap import build_platform
 from maestro.config import Settings
 from maestro.engines.scheduling.agent_loop import AgentLoop
+from maestro.domain.models import PendingAction
 from maestro.engines.scheduling.run_state import Budget
 from maestro.foundation.audit import AuditLog
 from maestro.foundation.authz import PendingActionStore
@@ -204,6 +205,48 @@ async def test_budget_counts_each_retry_request():
     assert budget.remaining == 0
 
 
+# ── 首个待确认动作即停 (stop_on_pending，技能循环专用) ────────────
+
+def _pending_loop(llm, pending, stop_on_pending):
+    tools = ToolRegistry()
+
+    async def _risky(script: str = ""):
+        action = PendingAction(action_type="run_skill_script", description=f"d:{script}")
+        pending.add(action)
+        return {"pending_confirmation": True, "action_id": action.action_id}
+
+    tools.register("risky", "写",
+                   {"type": "object", "properties": {"script": {"type": "string"}}},
+                   _risky, kind="write", parallelizable=False)
+    return AgentLoop(
+        llm, tools, pending, AuditLog(file_path=None), "", ["risky"], 8,
+        stop_on_pending=stop_on_pending,
+    )
+
+
+async def test_stop_on_pending_limits_to_single_action():
+    """技能循环: 单轮连发两个待确认工具调用 → 第一个挂起后立即停步。"""
+    llm = FakeLLM(chat_script=[
+        [("risky", {"script": "a.py"}), ("risky", {"script": "b.py"})], "final",
+    ])
+    pending = PendingActionStore()
+    result = await _pending_loop(llm, pending, stop_on_pending=True).run("t")
+    assert result.stop_reason == "pending_confirmation"
+    assert len(result.pending_actions) == 1
+    assert result.answer  # 有面向用户的说明文案
+
+
+async def test_without_stop_on_pending_collects_multiple():
+    """调度路径回归: 不开启 stop_on_pending 时仍可批量累积待确认动作。"""
+    llm = FakeLLM(chat_script=[
+        [("risky", {"script": "a.py"}), ("risky", {"script": "b.py"})], "final",
+    ])
+    pending = PendingActionStore()
+    result = await _pending_loop(llm, pending, stop_on_pending=False).run("t")
+    assert result.stop_reason == "final"
+    assert len(result.pending_actions) == 2
+
+
 # ── #3 嵌套有界护栏 (无需 LLM: 护栏在 _run 之前) ────────────────
 
 async def test_invoke_nested_no_context(tmp_path, monkeypatch):
@@ -257,3 +300,46 @@ async def test_invoke_nested_missing_skill(tmp_path, monkeypatch):
         assert "不存在" in out["blocked"]
     finally:
         reset_context(tok)
+
+
+async def test_skill_whitelist_always_includes_read_observation(monkeypatch):
+    """DEF-2: 大观察离线暂存的配套工具 read_observation 必须始终进技能白名单，
+    否则暂存 hint 指向一个会被拒绝的工具，超限观察实际不可读。"""
+    from maestro.config import Settings
+    from maestro.skills.engine import SkillEngine
+    from maestro.skills.schemas import SkillMeta
+
+    captured = {}
+
+    class FakeLoop:
+        def __init__(self, llm, tools, pending, audit, prompt, allowed, max_steps, **kwargs):
+            captured["allowed"] = list(allowed)
+
+        async def run(self, message, history=None, on_progress=None):
+            class R:
+                answer = "ok"
+                steps = []
+                stop_reason = "final"
+                pending_actions = []
+            return R()
+
+    monkeypatch.setattr("maestro.skills.engine.AgentLoop", FakeLoop)
+
+    meta = SkillMeta(name="pdf", description="d", allowed_tools=[])
+
+    class Store:
+        def get(self, sid):
+            return meta
+
+        def get_body(self, sid):
+            return "正文"
+
+        def list_attachments(self, sid):
+            return []
+
+    engine = SkillEngine(
+        llm=None, tools=None, pending=None, audit=None,
+        store=Store(), settings=Settings(), named_preconditions={})
+    resp = await engine._run(["pdf"], "hi", None, None, _ctx(["pdf"]))
+    assert resp.data["skill_ids"] == ["pdf"]
+    assert "read_observation" in captured["allowed"]

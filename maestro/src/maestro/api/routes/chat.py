@@ -1,14 +1,20 @@
 """Chat and streaming conversation endpoints."""
 
 import asyncio
+import base64
+import binascii
+import io
 import json
 import logging
+import re
+import zipfile
 from typing import AsyncIterator, Literal
 from uuid import uuid4
+from xml.etree import ElementTree
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from maestro.foundation.exec_context import ExecMode
 from maestro.orchestrator.schemas import ChatResponse
@@ -22,27 +28,36 @@ EngineName = Literal["planning", "scheduling", "query"]
 class ChatAttachment(BaseModel):
     name: str = Field(max_length=255)
     content_type: str = Field(default="text/plain", max_length=100)
-    content: str = Field(max_length=1_048_576)
-    size: int = Field(ge=0, le=1_048_576)
+    content: str = Field(max_length=14_000_000)
+    size: int = Field(ge=0, le=10 * 1024 * 1024)
+    encoding: Literal["utf-8", "base64"] = "utf-8"
 
 
-class ChatRequest(BaseModel):
+class _AttachmentRequest(BaseModel):
+    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def _attachment_total(self):
+        if sum(item.size for item in self.attachments) > 20 * 1024 * 1024:
+            raise ValueError("附件总大小不能超过 20 MB")
+        return self
+
+
+class ChatRequest(_AttachmentRequest):
     session_id: str = "default"
     message: str
     route: Literal["auto", "planning", "scheduling", "query"] = "auto"
     skill_id: str | None = None
     skill_ids: list[str] | None = None
-    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=10)
     mode: ExecMode = "plan"
 
 
-class ChatStreamRequest(BaseModel):
+class ChatStreamRequest(_AttachmentRequest):
     session_id: str = "default"
     message: str
     current_engine: EngineName | None = None
     skill_id: str | None = None
     skill_ids: list[str] | None = None
-    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=10)
     mode: ExecMode = "plan"
 
 
@@ -59,15 +74,65 @@ class ConfirmRequest(BaseModel):
     approved: bool
 
 
+def _office_text(data: bytes, filename: str) -> str:
+    """Extract bounded DOCX/PPTX text using stdlib OOXML parsing."""
+    suffix = filename.lower().rsplit(".", 1)[-1]
+    if suffix not in {"docx", "pptx"}:
+        raise ValueError("不支持的二进制附件格式")
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Office 附件已损坏或不是有效的 OOXML 文件") from exc
+    if suffix == "docx":
+        names = ["word/document.xml"]
+    else:
+        names = sorted(
+            (name for name in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)),
+            key=lambda name: int(re.search(r"\d+", name.rsplit("/", 1)[-1]).group()),
+        )
+    chunks: list[str] = []
+    total_uncompressed = 0
+    for name in names:
+        info = archive.getinfo(name)
+        total_uncompressed += info.file_size
+        if total_uncompressed > 8 * 1024 * 1024:
+            raise ValueError("Office 附件解压后内容过大")
+        root = ElementTree.fromstring(archive.read(name))
+        words = [node.text or "" for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "t"]
+        text = " ".join(value.strip() for value in words if value.strip())
+        if text:
+            chunks.append(text)
+    output = "\n\n".join(chunks)
+    if not output:
+        return "[附件中未提取到可读文字，可能主要由图片或图表组成]"
+    return output[:200_000] + ("\n[内容已截断]" if len(output) > 200_000 else "")
+
+
+def _attachment_text(item: ChatAttachment) -> str:
+    if item.encoding == "utf-8":
+        return item.content
+    try:
+        data = base64.b64decode(item.content, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(f"附件 {item.name} 的 base64 内容无效") from exc
+    if len(data) != item.size:
+        raise ValueError(f"附件 {item.name} 的大小校验失败")
+    return _office_text(data, item.name)
+
+
 def _message_with_attachments(message: str, attachments: list[ChatAttachment]) -> str:
     if not attachments:
         return message
     blocks = []
     for item in attachments:
         safe_name = item.name.replace("\n", " ").replace("\r", " ")
+        try:
+            extracted = _attachment_text(item)
+        except (KeyError, ValueError, ElementTree.ParseError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         blocks.append(
             f"<attachment name={json.dumps(safe_name, ensure_ascii=False)}>\n"
-            f"{item.content}\n</attachment>"
+            f"{extracted}\n</attachment>"
         )
     prefix = f"{message}\n\n用户同时提供了以下附件，请把它们作为参考资料：\n"
     return prefix + "\n\n".join(blocks)
@@ -82,6 +147,8 @@ async def chat(req: ChatRequest, request: Request):
         route=req.route,
         skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
         mode=req.mode,
+        display_message=req.message if req.attachments else None,
+        attachments_meta=[{"name": a.name, "size": a.size} for a in req.attachments] or None,
     )
     return response.model_dump(mode="json")
 
@@ -148,13 +215,27 @@ async def _sse_from_response(resp: ChatResponse) -> AsyncIterator[str]:
 
     steps = resp.data.get("steps")
     if steps:
-        yield _sse(
-            "context",
-            {
-                "engine": "scheduling",
-                "payload": {"steps": steps, "stop_reason": resp.data.get("stop_reason")},
-            },
-        )
+        if resp.data.get("skill_ids"):
+            yield _sse(
+                "context",
+                {
+                    "engine": "skill",
+                    "payload": {
+                        "steps": steps,
+                        "stop_reason": resp.data.get("stop_reason"),
+                        "skill_ids": resp.data["skill_ids"],
+                        "skill_names": resp.data.get("skill_names", []),
+                    },
+                },
+            )
+        else:
+            yield _sse(
+                "context",
+                {
+                    "engine": "scheduling",
+                    "payload": {"steps": steps, "stop_reason": resp.data.get("stop_reason")},
+                },
+            )
 
     for chunk in _reply_chunks(resp.reply):
         yield _sse("token", {"delta": chunk})
@@ -208,6 +289,10 @@ async def chat_stream(req: ChatStreamRequest, request: Request):
                 on_progress=progress_q.put,
                 skill_ids=req.skill_ids or ([req.skill_id] if req.skill_id else None),
                 mode=req.mode,
+                display_message=req.message if req.attachments else None,
+                attachments_meta=(
+                    [{"name": a.name, "size": a.size} for a in req.attachments] or None
+                ),
             )
         )
         try:

@@ -1,7 +1,7 @@
 """SkillEngine — 组装 AgentLoop 执行技能包 (支持有界嵌套)。
 
 不实现 Engine ABC (签名多 skill_id；由 Orchestrator 直接持有，与 QueryEngine 同待遇)。
-技能不拥有 Context Panel，不调 memory.set_engine。
+技能不调 memory.set_engine；Context Panel 由 chat 层以 engine="skill" 帧驱动。
 
 护栏装配:
   - allowed_tools: meta.allowed_tools。file_count>0 时追加 read_skill_file/list_skill_files。
@@ -33,7 +33,9 @@ from maestro.skills.store import SkillStore
 
 SKILL_PREAMBLE = (
     "你是技能执行体。严格按下方 SKILL.md 正文步骤推进，只用允许的工具查证/操作，"
-    "不要臆造数据；写操作被护栏拦截时如实说明原因。\n\n---\n\n"
+    "不要臆造数据；写操作被护栏拦截时如实说明原因。"
+    "如果工具列表中有 create_office_artifact，新建 DOCX/PPTX 时直接提交完整结构化内容，"
+    "不要输出让用户自行运行的代码，不要把代码文本传给 run_skill_script。\n\n---\n\n"
 )
 
 
@@ -155,6 +157,13 @@ class SkillEngine:
                     allowed.append(t)
         if any(m.scripts for m in metas) and "run_skill_script" not in allowed:
             allowed.append("run_skill_script")
+        # 大观察离线暂存的配套读取工具: 任何工具结果超限都会被暂存并回喂
+        # read_observation 分页提示，它是只读基础设施，不要求技能作者声明。
+        if "read_observation" not in allowed:
+            allowed.append("read_observation")
+        office_names = {"docx", "pptx"}
+        if any(m.name in office_names for m in metas):
+            allowed.insert(0, "create_office_artifact")
 
         extra: dict[str, list[Precondition]] = {}
         for m in metas:
@@ -189,6 +198,7 @@ class SkillEngine:
                 extra_preconditions=extra or None,
                 observations=self._observations,
                 budget=ctx.budget,
+                stop_on_pending=True,
             ).run(message, history=history, on_progress=on_progress)
         except LLMError:
             return EngineResponse(reply="LLM 调用失败，技能暂不可用")
@@ -200,6 +210,7 @@ class SkillEngine:
                 "steps": [s.model_dump(mode="json") for s in result.steps],
                 "stop_reason": result.stop_reason,
                 "skill_ids": list(skill_ids),
+                "skill_names": [m.effective_display_name for m in metas],
             },
             pending_actions=result.pending_actions,
         )

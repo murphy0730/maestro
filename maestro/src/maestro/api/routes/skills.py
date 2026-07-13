@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from maestro.api.routes.knowledge import _MAX_UPLOAD_BYTES
-from maestro.foundation.tools.builtin import QUERY_READONLY_TOOLS
 from maestro.skills.parser import validate_skill_package
 from maestro.skills.schemas import SkillMeta, SkillValidationError
 from maestro.api.security import require_privileged
@@ -50,7 +49,6 @@ async def import_skill(request: Request, file: UploadFile = File(...), principal
             data,
             filename,
             set(platform.tools.names()),
-            list(QUERY_READONLY_TOOLS),
             set(platform.named_preconditions.keys()),
             platform.settings.skill_body_max_bytes,
         )
@@ -89,7 +87,6 @@ async def validate_skill(request: Request, file: UploadFile = File(...)):
         data,
         filename,
         set(platform.tools.names()),
-        list(QUERY_READONLY_TOOLS),
         set(platform.named_preconditions.keys()),
         platform.settings.skill_body_max_bytes,
     )

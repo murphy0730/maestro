@@ -57,6 +57,12 @@ class SrtRuntime:
         """
         if self.executable is None:
             return False
+        # unix socket sun_path 上限约 104 (macOS)/108 (Linux) 字节: cwd 过长时
+        # srt 的 mux socket (cwd/srt-mux-<pid>-<n>.sock) 必然 EINVAL，直接判不可用。
+        if os.name != "nt":
+            probe_sock = cwd / f"srt-mux-{os.getpid()}-0.sock"
+            if len(str(probe_sock).encode("utf-8")) > 96:
+                return False
         cache_key = (str(cwd), tuple(sorted(str(p) for p in protected_paths)))
         if cache_key in self._usable_cache:
             return self._usable_cache[cache_key]

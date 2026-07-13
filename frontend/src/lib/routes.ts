@@ -63,8 +63,7 @@ export const ROUTE_META: Record<RouteEngine, RouteMeta> = {
     border: 'border-uncertain-border',
     glow: 'shadow-glow-uncertain',
   },
-  // skill 复用 accent 色族 (技能不拥有 Context Panel，与 uncertain 同属"元路由")。
-  // 令牌已存在 (tailwind.config.ts / index.css)，无需新增设计 token。
+  // skill 复用 accent 色族 (SkillPanel 亦用 accent，令牌已存在，无需新增设计 token)。
   skill: {
     zh: '技能',
     en: 'skill',

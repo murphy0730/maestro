@@ -17,7 +17,14 @@ export function storedToThread(stored: StoredMessage[]): ChatMessageData[] {
       const time = m.ts
         ? new Date(m.ts).toLocaleTimeString('en-GB').slice(0, 5)
         : undefined;
-      if (m.role === 'user') return { id: `hist-${i}`, kind: 'user', text: m.content, time };
+      if (m.role === 'user')
+        return {
+          id: `hist-${i}`,
+          kind: 'user',
+          text: m.content,
+          time,
+          attachments: m.attachments?.length ? m.attachments : undefined,
+        };
       if (m.kind === 'system') return { id: `hist-${i}`, kind: 'system', text: m.content };
       return { id: `hist-${i}`, kind: 'agent', text: m.content, time };
     }),

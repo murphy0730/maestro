@@ -1,6 +1,7 @@
 import type { ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { API_BASE } from '@/api/client';
 
 /**
  * Markdown — renders an agent reply (GFM: headings, bold, lists, tables, hr,
@@ -53,12 +54,16 @@ const components: React.ComponentProps<typeof ReactMarkdown>['components'] = {
   },
   a: ({ node, ...p }) => {
     void node;
+    const href = typeof p.href === 'string' && p.href.startsWith('/artifacts/')
+      ? `${API_BASE}${p.href}`
+      : p.href;
     return (
       <a
         className="text-accent-fg underline underline-offset-2"
         target="_blank"
         rel="noreferrer"
         {...p}
+        href={href}
       />
     );
   },
