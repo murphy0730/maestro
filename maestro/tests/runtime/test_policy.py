@@ -218,3 +218,49 @@ def test_argument_reconfirmation_dominates_confirmation_in_reverse_order() -> No
 
     assert decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION
     assert decision.revalidate_before_execute is True
+
+
+def test_argument_reconfirmation_dominates_organization_confirmation_in_any_order() -> None:
+    spec = CapabilitySpec(name="write", kind=CapabilityKind.TOOL)
+    organization_confirmation = PolicyRule(
+        pattern="write",
+        effect=PolicyEffect.REQUIRE_CONFIRMATION,
+        source="organization",
+    )
+    argument_reconfirmation = PolicyRule(
+        pattern="write",
+        effect=PolicyEffect.REQUIRE_RECONFIRMATION,
+        source="argument",
+    )
+
+    for rules in (
+        [organization_confirmation, argument_reconfirmation],
+        [argument_reconfirmation, organization_confirmation],
+    ):
+        decision = PolicyGate(rules).evaluate(
+            CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1")
+        )
+        assert decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION
+        assert decision.revalidate_before_execute is True
+
+
+def test_argument_reconfirmation_dominates_organization_allow_in_any_order() -> None:
+    spec = CapabilitySpec(name="write", kind=CapabilityKind.TOOL)
+    organization_allow = PolicyRule(
+        pattern="write", effect=PolicyEffect.ALLOW, source="organization"
+    )
+    argument_reconfirmation = PolicyRule(
+        pattern="write",
+        effect=PolicyEffect.REQUIRE_RECONFIRMATION,
+        source="argument",
+    )
+
+    for rules in (
+        [organization_allow, argument_reconfirmation],
+        [argument_reconfirmation, organization_allow],
+    ):
+        decision = PolicyGate(rules).evaluate(
+            CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1")
+        )
+        assert decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION
+        assert decision.revalidate_before_execute is True

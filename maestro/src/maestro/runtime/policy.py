@@ -81,14 +81,14 @@ class PolicyGate:
         argument_rules = [
             rule for rule in self._rules if rule.source != "organization"
         ] + context.argument_rules
-        argument_decision = self._rule_decision(argument_rules, call, "argument")
-        if argument_decision is not None and argument_decision.effect is PolicyEffect.DENY:
-            return argument_decision
-
-        if decision is not None:
-            return decision
-        if argument_decision is not None:
-            return argument_decision
+        explicit_decision = self._rule_decision(
+            organization_rules + argument_rules, call, "policy"
+        )
+        if (
+            explicit_decision is not None
+            and explicit_decision.effect is not PolicyEffect.ALLOW
+        ):
+            return explicit_decision
 
         if spec.writes and spec.risk is RiskLevel.HIGH:
             return PolicyDecision(
@@ -96,6 +96,9 @@ class PolicyGate:
                 reason="high-risk write requires confirmation",
                 revalidate_before_execute=True,
             )
+
+        if explicit_decision is not None:
+            return explicit_decision
 
         return PolicyDecision(effect=PolicyEffect.ALLOW, reason="allowed")
 
