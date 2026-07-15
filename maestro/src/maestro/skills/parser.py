@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from maestro.skills.schemas import (
     SkillCapabilityReport,
     SkillFrontmatter,
+    RuntimeSkillFrontmatter,
     SkillValidationError,
     SkillValidationReport,
 )
@@ -26,6 +27,13 @@ FIELD_ALIASES = {
     "argument-hint": "argument_hint",
 }
 KNOWN_FIELDS = set(SkillFrontmatter.model_fields)
+RUNTIME_FIELD_ALIASES = {
+    "allowed-tools": "allowed_tools",
+    "argument-hint": "argument_hint",
+    "user-invocable": "user_invocable",
+    "disable-model-invocation": "disable_model_invocation",
+}
+RUNTIME_KNOWN_FIELDS = set(RuntimeSkillFrontmatter.model_fields) - {"extensions"}
 DEFAULT_TOOL_ALIASES = {
     "Read": "read_file",
     "Write": "write_file",
@@ -81,6 +89,42 @@ def normalize_frontmatter(data: dict) -> tuple[dict, list[str]]:
     if extensions:
         out["extensions"] = extensions
     return out, warnings
+
+
+def parse_runtime_frontmatter(text: str) -> RuntimeSkillFrontmatter:
+    """Parse the Runtime's strict Claude-compatible metadata contract.
+
+    Unknown keys are retained as inert extensions rather than being treated as
+    legacy SkillEngine execution semantics.
+    """
+    if not text.startswith("---"):
+        raise SkillValidationError("frontmatter 必须以 '---' 开头")
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        raise SkillValidationError("frontmatter 缺少结束 '---'")
+    try:
+        data = yaml.safe_load(parts[1])
+    except yaml.YAMLError as error:
+        raise SkillValidationError(f"frontmatter YAML 解析失败: {error}") from error
+    if not isinstance(data, dict):
+        raise SkillValidationError("frontmatter 必须解析为 dict")
+    normalized: dict[str, Any] = {}
+    extensions: dict[str, Any] = {}
+    for raw_key, value in data.items():
+        key = RUNTIME_FIELD_ALIASES.get(str(raw_key), str(raw_key))
+        if key in RUNTIME_KNOWN_FIELDS:
+            normalized[key] = value
+        else:
+            extensions[str(raw_key)] = value
+    allowed = normalized.get("allowed_tools")
+    if isinstance(allowed, str):
+        normalized["allowed_tools"] = [part for part in re.split(r"[\s,]+", allowed) if part]
+    if extensions:
+        normalized["extensions"] = extensions
+    try:
+        return RuntimeSkillFrontmatter(**normalized)
+    except ValidationError as error:
+        raise SkillValidationError(str(error)) from error
 
 
 def parse_skill_md(

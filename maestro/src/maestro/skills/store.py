@@ -135,6 +135,13 @@ class SkillStore:
     def _skill_dir(self, name: str) -> Path:
         return self._base / name
 
+    def skill_directory(self, name: str) -> Path:
+        """Return an installed package root for Runtime-side read-only loading."""
+        with self._lock:
+            if not any(meta.name == name for meta in self._index):
+                raise KeyError(name)
+            return self._skill_dir(name)
+
     def get_body(self, name: str) -> str:
         with self._lock:
             if not any(m.name == name for m in self._index):
