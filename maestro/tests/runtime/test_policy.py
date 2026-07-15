@@ -114,3 +114,28 @@ def test_organization_confirmation_dominates_allow_regardless_of_rule_order() ->
     )
 
     assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION
+
+
+def test_argument_deny_precedes_high_risk_write_confirmation() -> None:
+    spec = CapabilitySpec(
+        name="write_record",
+        kind=CapabilityKind.MCP,
+        risk=RiskLevel.HIGH,
+        writes=True,
+    )
+    decision = PolicyGate(
+        [
+            PolicyRule(
+                pattern="write_*",
+                effect=PolicyEffect.DENY,
+                source="argument",
+                argument_constraints={"environment": "production"},
+            )
+        ]
+    ).evaluate(
+        CapabilityCall(name=spec.name, arguments={"environment": "production"}),
+        spec,
+        PolicyContext(principal_id="u1"),
+    )
+
+    assert decision.effect is PolicyEffect.DENY
