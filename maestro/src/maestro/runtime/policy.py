@@ -118,12 +118,13 @@ class PolicyGate:
         rule = max(matches, key=lambda item: priorities[item.effect])
         if rule is None:
             return None
+        same_effect_rules = [item for item in matches if item.effect is rule.effect]
         return PolicyDecision(
             effect=rule.effect,
             reason=f"{stage} policy requires {rule.effect.value}",
             matched_rule=f"{rule.source}:{rule.pattern}",
             revalidate_before_execute=(
-                rule.revalidate_before_execute
+                any(item.revalidate_before_execute for item in same_effect_rules)
                 or rule.effect is PolicyEffect.REQUIRE_RECONFIRMATION
             ),
         )

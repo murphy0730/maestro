@@ -264,3 +264,29 @@ def test_argument_reconfirmation_dominates_organization_allow_in_any_order() -> 
         )
         assert decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION
         assert decision.revalidate_before_execute is True
+
+
+def test_same_priority_confirmation_aggregates_revalidation_in_any_order() -> None:
+    spec = CapabilitySpec(name="write", kind=CapabilityKind.TOOL)
+    organization_confirmation = PolicyRule(
+        pattern="write",
+        effect=PolicyEffect.REQUIRE_CONFIRMATION,
+        source="organization",
+        revalidate_before_execute=False,
+    )
+    argument_confirmation = PolicyRule(
+        pattern="write",
+        effect=PolicyEffect.REQUIRE_CONFIRMATION,
+        source="argument",
+        revalidate_before_execute=True,
+    )
+
+    for rules in (
+        [organization_confirmation, argument_confirmation],
+        [argument_confirmation, organization_confirmation],
+    ):
+        decision = PolicyGate(rules).evaluate(
+            CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1")
+        )
+        assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION
+        assert decision.revalidate_before_execute is True
