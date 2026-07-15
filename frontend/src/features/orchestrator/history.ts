@@ -14,9 +14,7 @@ export function storedToThread(stored: StoredMessage[]): ChatMessageData[] {
   return [
     WELCOME,
     ...stored.map((m, i): ChatMessageData => {
-      const time = m.ts
-        ? new Date(m.ts).toLocaleTimeString('en-GB').slice(0, 5)
-        : undefined;
+      const time = m.ts ? new Date(m.ts).toLocaleTimeString('en-GB').slice(0, 5) : undefined;
       if (m.role === 'user')
         return {
           id: `hist-${i}`,

@@ -50,6 +50,22 @@ const INITIAL: StreamingChatState = {
   error: null,
 };
 
+const PROGRESS_NOISE = [
+  /^(识别意图|思考中|整理结论)[…。.]*$/u,
+  /^调用工具\s+\S+$/u,
+  /^并发执行\s+\d+\s+个只读工具$/u,
+  /^\S+\s+(started|done)(?:\s+\d+%)?$/iu,
+];
+const MAX_PROGRESS_ITEMS = 4;
+
+/** Keep user-facing reasoning summaries; discard transport/tool lifecycle noise. */
+function appendProgress(lines: string[], incoming: string): string[] {
+  const text = incoming.trim();
+  if (!text || PROGRESS_NOISE.some((pattern) => pattern.test(text))) return lines;
+  if (lines.at(-1) === text) return lines;
+  return [...lines, text].slice(-MAX_PROGRESS_ITEMS);
+}
+
 /**
  * useStreamingChat — drives the orchestrator's `POST /chat/stream` (and the
  * clarify follow-up) and surfaces the SSE stream as incrementally-updating
@@ -92,11 +108,11 @@ export function useStreamingChat(sessionId: string) {
             setState((s) => ({ ...s, context: evt.data }));
             break;
           case 'progress':
-            setState((s) => ({
-              ...s,
-              progress: evt.data.text,
-              progressLog: [...s.progressLog, evt.data.text],
-            }));
+            setState((s) => {
+              const progressLog = appendProgress(s.progressLog, evt.data.text);
+              if (progressLog === s.progressLog) return s;
+              return { ...s, progress: progressLog.at(-1) ?? null, progressLog };
+            });
             break;
           case 'actions':
             setState((s) => ({ ...s, actions: evt.data.actions }));

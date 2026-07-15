@@ -23,11 +23,16 @@ ToolExecutor = Callable[[str, dict], Awaitable[Any]]
 
 @dataclass
 class ToolCall:
-    """模型在一步里请求调用的单个工具 (已解析参数)。"""
+    """模型在一步里请求调用的单个工具 (已解析参数)。
+
+    `parse_error` 非空表示模型输出的参数 JSON 无法解析 (此时 arguments 为空)，
+    调用方应把错误原样喂回模型让其修正重试，而不是把空参数当真实输入执行。
+    """
 
     id: str
     name: str
     arguments: dict
+    parse_error: str | None = None
 
 
 @dataclass
@@ -200,15 +205,32 @@ class LLMClient:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001 — 网络/服务异常统一转 LLMError
             raise LLMError(f"LLM 调用失败: {e}") from e
-        msg = resp.choices[0].message
+        choice = resp.choices[0]
+        msg = choice.message
         raw_calls = msg.tool_calls or []
         calls: list[ToolCall] = []
         for tc in raw_calls:
+            parse_error: str | None = None
             try:
                 args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
+                if not isinstance(args, dict):
+                    args, parse_error = {}, f"参数必须是 JSON 对象，实际为 {type(args).__name__}"
+            except json.JSONDecodeError as e:
                 args = {}
-            calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
+                parse_error = f"参数 JSON 解析失败: {e}"
+                if choice.finish_reason == "length":
+                    parse_error += " (输出因长度限制被截断，请精简参数或拆分为多次调用)"
+                logger.warning(
+                    "[LLM] 工具 %s 参数解析失败 (len=%d): %s",
+                    tc.function.name,
+                    len(tc.function.arguments or ""),
+                    e,
+                )
+            calls.append(
+                ToolCall(
+                    id=tc.id, name=tc.function.name, arguments=args, parse_error=parse_error
+                )
+            )
         assistant_message: dict = {"role": "assistant", "content": msg.content or ""}
         if raw_calls:
             assistant_message["tool_calls"] = [tc.model_dump() for tc in raw_calls]

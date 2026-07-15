@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -13,16 +14,29 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
 # SRT 基础设施故障特征 (mux socket 建不起来等)，与"脚本自身失败"区分
 _SRT_INFRA_ERROR = re.compile(r"srt-mux-.*\.sock|listen EINVAL")
+_MAX_ARG_CHARS = 16_384
+_MAX_TOTAL_ARG_CHARS = 65_536
 
 from maestro.execution.srt import SrtRuntime
-from maestro.skills.office_artifacts import artifact_metadata
 from maestro.skills.schemas import SkillValidationError
 from maestro.skills.store import SkillStore
+
+
+def artifact_metadata(path: Path, root: Path) -> dict:
+    relative = path.resolve().relative_to(root.resolve())
+    parts = [quote(part, safe="") for part in relative.parts]
+    return {
+        "name": path.name,
+        "size": path.stat().st_size,
+        "content_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+        "download_url": "/artifacts/" + "/".join(parts),
+    }
 
 
 class SkillScriptExecutionService:
@@ -49,8 +63,10 @@ class SkillScriptExecutionService:
         args = params.get("args", [])
         if not isinstance(args, list) or len(args) > 32 or not all(isinstance(arg, str) for arg in args):
             raise SkillValidationError("脚本参数必须是最多 32 项的字符串数组")
-        if any(len(arg) > 2048 or "\x00" in arg for arg in args):
+        if any(len(arg) > _MAX_ARG_CHARS or "\x00" in arg for arg in args):
             raise SkillValidationError("脚本参数非法或过长")
+        if sum(len(arg) for arg in args) > _MAX_TOTAL_ARG_CHARS:
+            raise SkillValidationError("脚本参数总长度过长")
         meta = self._store.get(skill_id)
         if meta is None:
             raise SkillValidationError(f"技能 {skill_id} 不存在")

@@ -263,6 +263,25 @@ async def test_agent_duplicate_read_without_write_blocked(audit, gate):
     assert result.steps[1].blocked is True
 
 
+async def test_agent_tool_call_parse_error_fed_back_and_retryable(audit, gate):
+    """参数 JSON 解析失败: 不当空参数执行 (否则误报「缺少必填参数」并触发防绕圈)，
+    把真实解析错误喂回模型；修正后的重试不被防绕圈拦截，可正常走到执行/确认。"""
+    llm = FakeLLM(
+        chat_script=[
+            [("write_w", {}, "参数 JSON 解析失败: Unterminated string")],
+            [("write_w", {})],
+            "结论",
+        ]
+    )
+    result = await _mini_loop(llm, _mini_registry(), gate, audit).run("t")
+    assert result.steps[0].blocked is True
+    assert "解析失败" in str(result.steps[0].observation)
+    # 解析失败的调用不计入防绕圈计数 → 修正后的同名调用正常执行
+    assert result.steps[1].blocked is False
+    assert result.steps[1].observation == {"written": True}
+    assert result.answer == "结论"
+
+
 async def test_agent_duplicate_write_still_blocked(audit, gate):
     """同参写操作重复仍防重 (写类计数不随写成功清零)。"""
     llm = FakeLLM(chat_script=[[("write_w", {})], [("write_w", {})], "结论"])
@@ -272,8 +291,19 @@ async def test_agent_duplicate_write_still_blocked(audit, gate):
 
 
 async def test_agent_progress_reporting(adapter, audit, gate, settings):
-    """on_progress 在思考/工具步实时上报 (SSE progress 帧数据源)。"""
-    llm = FakeLLM(chat_script=[[("check_kitting", {"wo_ids": ["WO-104"]})], "WO-104 已齐套。"])
+    """SSE 只上报模型的业务判断摘要，不暴露工具生命周期流水账。"""
+
+    class ProgressLLM(FakeLLM):
+        async def chat_turn(self, system, messages, tools=None):
+            turn = await super().chat_turn(system, messages, tools)
+            if turn.tool_calls:
+                turn.text = "先核验 WO-104 的齐套状态，确认是否具备后续操作条件。"
+                turn.assistant_message["content"] = turn.text
+            return turn
+
+    llm = ProgressLLM(
+        chat_script=[[("check_kitting", {"wo_ids": ["WO-104"]})], "WO-104 已齐套。"]
+    )
     _, _, _, agent, _ = _assemble(adapter, audit, gate, llm, settings)
     seen: list[str] = []
 
@@ -282,8 +312,7 @@ async def test_agent_progress_reporting(adapter, audit, gate, settings):
 
     result = await agent.run("查 WO-104 齐套", on_progress=on_progress)
     assert result.answer == "WO-104 已齐套。"
-    assert any("思考中" in t for t in seen)
-    assert any("check_kitting" in t for t in seen)
+    assert seen == ["先核验 WO-104 的齐套状态，确认是否具备后续操作条件。"]
 
 
 def test_execute_endpoint_rejects_processed_action_even_unconfirmed(tmp_path, monkeypatch):

@@ -91,9 +91,14 @@ class FakeLLM:
         if isinstance(item, str):
             return AgentTurn(text=item, assistant_message={"role": "assistant", "content": item})
         calls, raw = [], []
-        for j, (name, args) in enumerate(item):
+        for j, entry in enumerate(item):
+            # 每项为 (name, args) 或 (name, args, parse_error) — 后者模拟
+            # 模型输出的参数 JSON 无法解析的场景。
+            name, args, *rest = entry
             cid = f"call_{self._chat_idx}_{j}"
-            calls.append(ToolCall(id=cid, name=name, arguments=args))
+            calls.append(
+                ToolCall(id=cid, name=name, arguments=args, parse_error=rest[0] if rest else None)
+            )
             raw.append(
                 {
                     "id": cid,

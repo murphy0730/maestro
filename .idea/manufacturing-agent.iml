@@ -8,6 +8,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/scheduling_platform/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/maestro/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.worktrees/agent-runtime-redesign/maestro/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.14 (manufacturing-agent)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

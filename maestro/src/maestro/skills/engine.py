@@ -14,9 +14,11 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Literal
 
-from maestro.engines.base import EngineResponse, ProgressFn
+from maestro.engines.base import EngineResponse, ProgressFn, emit_progress
 from maestro.engines.scheduling.agent_loop import AgentLoop
 from maestro.engines.scheduling.run_state import Budget
 from maestro.foundation.audit import AuditLog
@@ -34,9 +36,16 @@ from maestro.skills.store import SkillStore
 SKILL_PREAMBLE = (
     "你是技能执行体。严格按下方 SKILL.md 正文步骤推进，只用允许的工具查证/操作，"
     "不要臆造数据；写操作被护栏拦截时如实说明原因。"
-    "如果工具列表中有 create_office_artifact，新建 DOCX/PPTX 时直接提交完整结构化内容，"
-    "不要输出让用户自行运行的代码，不要把代码文本传给 run_skill_script。\n\n---\n\n"
+    "用户未提供的业务指标、日期、人名、电话和联系方式不得虚构；"
+    "必须使用‘待填写’等占位文字，或明确标注为示例数据。\n\n---\n\n"
 )
+
+_CREATE_PPT_RE = re.compile(
+    r"(?:生成|制作|创建|新建|写一份|做一份|帮我做).*?(?:pptx?|幻灯片|演示文稿)"
+    r"|(?:create|make|build|generate).*?(?:pptx?|slides?|presentation)",
+    re.IGNORECASE,
+)
+_EXECUTABLE_SUFFIXES = {".py", ".js"}
 
 
 class SkillEngine:
@@ -73,6 +82,13 @@ class SkillEngine:
         "route"=路由命中。多技能：合并 allowed_tools/tool_preconditions/正文，单次 AgentLoop。"""
         if not skill_ids:
             return EngineResponse(reply="未指定技能")
+        requested_skill_ids = list(skill_ids)
+        skill_ids = self._resolve_creation_fallback(skill_ids, message)
+        if skill_ids != requested_skill_ids:
+            await emit_progress(
+                on_progress,
+                "所选 PPTX 技能不含整套新建入口，已切换到兼容的 PPT 生成技能。",
+            )
         metas = []
         for sid in skill_ids:
             meta = self._store.get(sid)
@@ -161,9 +177,6 @@ class SkillEngine:
         # read_observation 分页提示，它是只读基础设施，不要求技能作者声明。
         if "read_observation" not in allowed:
             allowed.append("read_observation")
-        office_names = {"docx", "pptx"}
-        if any(m.name in office_names for m in metas):
-            allowed.insert(0, "create_office_artifact")
 
         extra: dict[str, list[Precondition]] = {}
         for m in metas:
@@ -181,7 +194,12 @@ class SkillEngine:
             except (KeyError, FileNotFoundError):
                 return EngineResponse(reply=f"技能 {sid} 不存在或已被删除")
             bodies.append(f"## 技能: {m.effective_display_name}\n\n{body}")
-        combined = SKILL_PREAMBLE + "\n\n---\n\n".join(bodies) + self._file_manifest(skill_ids, metas)
+        combined = (
+            SKILL_PREAMBLE
+            + "\n\n---\n\n".join(bodies)
+            + self._file_manifest(skill_ids, metas)
+            + self._script_manifest(skill_ids, metas)
+        )
 
         cap = self._settings.skill_prompt_max_bytes
         if len(combined.encode("utf-8")) > cap:
@@ -213,6 +231,62 @@ class SkillEngine:
                 "skill_names": [m.effective_display_name for m in metas],
             },
             pending_actions=result.pending_actions,
+        )
+
+    def _resolve_creation_fallback(self, skill_ids: list[str], message: str) -> list[str]:
+        """Route create-from-scratch PPT requests away from editor-only skill bundles.
+
+        Some imported PPTX skills describe a shell-based authoring workflow but ship only
+        editing/QA helpers. Maestro intentionally cannot execute model-authored shell/code,
+        so use an installed trusted PPT generator when one is available.
+        """
+        if len(skill_ids) != 1 or skill_ids[0] != "pptx" or not _CREATE_PPT_RE.search(message):
+            return skill_ids
+        primary = self._store.get("pptx")
+        if primary is None or self._generation_scripts(primary):
+            return skill_ids
+        candidates = [
+            meta
+            for meta in self._store.list_all()
+            if meta.name != "pptx"
+            and meta.user_invocable
+            and not meta.disable_model_invocation
+            and "ppt" in f"{meta.name} {meta.description}".lower()
+            and self._generation_scripts(meta)
+            and self._store.is_trusted(meta.name, meta.package_sha256)
+        ]
+        if not candidates:
+            return skill_ids
+        candidates.sort(key=lambda meta: (meta.name != "ppt-generator", meta.name))
+        return [candidates[0].name]
+
+    @staticmethod
+    def _generation_scripts(meta) -> list[str]:
+        return [
+            script
+            for script in meta.scripts
+            if Path(script).suffix.lower() in _EXECUTABLE_SUFFIXES
+            and Path(script).stem.lower().startswith(("generate", "create"))
+        ]
+
+    @staticmethod
+    def _script_manifest(skill_ids: list[str], metas: list) -> str:
+        entries = []
+        multi_skill = len(skill_ids) > 1
+        for sid, meta in zip(skill_ids, metas):
+            scripts = [
+                f"{sid}/{script}" if multi_skill else script
+                for script in meta.scripts
+                if Path(script).suffix.lower() in _EXECUTABLE_SUFFIXES
+            ]
+            if scripts:
+                entries.append(f"- {sid}: {json.dumps(scripts, ensure_ascii=False)}")
+        if not entries:
+            return ""
+        return (
+            "\n\n---\n\n可执行脚本硬约束：`run_skill_script.script` 必须逐字使用以下清单中的路径；"
+            "不得传入代码、shell 命令、`node -e` 或 `python -c`。参数放在 `args` 字符串数组中。\n"
+            + "\n".join(entries)
         )
 
     def _file_manifest(self, skill_ids: list[str], metas: list) -> str:

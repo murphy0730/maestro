@@ -247,6 +247,32 @@ async def test_without_stop_on_pending_collects_multiple():
     assert len(result.pending_actions) == 2
 
 
+async def test_pending_actions_are_isolated_from_concurrent_event_runs():
+    """Only the action id returned by this tool belongs to this chat turn."""
+    pending = PendingActionStore()
+    tools = ToolRegistry()
+
+    async def _risky():
+        unrelated = PendingAction(action_type="send_notification", description="event action")
+        pending.add(unrelated)  # simulates another AgentLoop racing this run
+        own = PendingAction(action_type="create_office_artifact", description="chat action")
+        pending.add(own)
+        return {"pending_confirmation": True, "action_id": own.action_id}
+
+    tools.register(
+        "risky", "写", {"type": "object", "properties": {}}, _risky,
+        kind="write", parallelizable=False,
+    )
+    llm = FakeLLM(chat_script=[[('risky', {})]])
+    result = await AgentLoop(
+        llm, tools, pending, AuditLog(file_path=None), "", ["risky"], 4,
+        stop_on_pending=True,
+    ).run("t")
+    assert [action.action_type for action in result.pending_actions] == [
+        "create_office_artifact"
+    ]
+
+
 # ── #3 嵌套有界护栏 (无需 LLM: 护栏在 _run 之前) ────────────────
 
 async def test_invoke_nested_no_context(tmp_path, monkeypatch):
@@ -343,3 +369,56 @@ async def test_skill_whitelist_always_includes_read_observation(monkeypatch):
     resp = await engine._run(["pdf"], "hi", None, None, _ctx(["pdf"]))
     assert resp.data["skill_ids"] == ["pdf"]
     assert "read_observation" in captured["allowed"]
+
+
+def test_editor_only_pptx_creation_uses_trusted_generator_fallback():
+    from maestro.config import Settings
+    from maestro.skills.engine import SkillEngine
+
+    pptx = SkillMeta(
+        name="pptx",
+        description="Read, edit, or create PPTX files",
+        scripts=["scripts/clean.py", "scripts/thumbnail.py"],
+    )
+    generator = SkillMeta(
+        name="ppt-generator",
+        description="Generate PPT presentations",
+        scripts=["scripts/generate_ppt.py"],
+        package_sha256="a" * 64,
+    )
+
+    class Store:
+        def get(self, sid):
+            return {"pptx": pptx, "ppt-generator": generator}.get(sid)
+
+        def list_all(self):
+            return [pptx, generator]
+
+        def is_trusted(self, name, package_hash=None):
+            return name == "ppt-generator" and package_hash == "a" * 64
+
+    engine = SkillEngine(
+        llm=None, tools=None, pending=None, audit=None,
+        store=Store(), settings=Settings(), named_preconditions={},
+    )
+    assert engine._resolve_creation_fallback(
+        ["pptx"], "给我生成一份介绍具身智能的PPT，十页左右。"
+    ) == ["ppt-generator"]
+    assert engine._resolve_creation_fallback(
+        ["pptx"], "修改附件中的季度汇报PPT"
+    ) == ["pptx"]
+
+
+def test_script_manifest_requires_declared_paths_not_inline_code():
+    from maestro.skills.engine import SkillEngine
+
+    meta = SkillMeta(
+        name="ppt-generator",
+        description="Generate PPT presentations",
+        scripts=["scripts/generate_ppt.py", "references/example.js", "assets/schema.xsd"],
+    )
+    manifest = SkillEngine._script_manifest([meta.name], [meta])
+    assert "scripts/generate_ppt.py" in manifest
+    assert "references/example.js" in manifest
+    assert "assets/schema.xsd" not in manifest
+    assert "不得传入代码" in manifest

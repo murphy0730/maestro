@@ -27,7 +27,18 @@ const ROUTE_LABELS: Record<ComposerRoute, string> = {
   query: '查询',
 };
 
-const TEXT_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'yaml', 'yml', 'xml', 'html', 'log']);
+const TEXT_EXTENSIONS = new Set([
+  'txt',
+  'md',
+  'markdown',
+  'csv',
+  'json',
+  'yaml',
+  'yml',
+  'xml',
+  'html',
+  'log',
+]);
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 function extension(name: string): string {
@@ -138,10 +149,20 @@ export function Composer({
           {attachments.length > 0 && (
             <div className="flex flex-wrap items-center gap-[6px] px-[12px] pt-[8px]">
               {attachments.map((file) => (
-                <span key={file.name} className="inline-flex h-[26px] items-center gap-[6px] rounded-md border border-border-default bg-surface-2 px-[8px] text-caption text-text-secondary">
+                <span
+                  key={file.name}
+                  className="inline-flex h-[26px] items-center gap-[6px] rounded-md border border-border-default bg-surface-2 px-[8px] text-caption text-text-secondary"
+                >
                   <FileText size={12} />
                   <span className="max-w-[180px] truncate">{file.name}</span>
-                  <button type="button" title="移除附件" onClick={() => setAttachments((items) => items.filter((item) => item.name !== file.name))} className="grid h-[16px] w-[16px] place-items-center rounded-sm text-text-tertiary hover:bg-border-subtle">
+                  <button
+                    type="button"
+                    title="移除附件"
+                    onClick={() =>
+                      setAttachments((items) => items.filter((item) => item.name !== file.name))
+                    }
+                    className="grid h-[16px] w-[16px] place-items-center rounded-sm text-text-tertiary hover:bg-border-subtle"
+                  >
                     <X size={12} />
                   </button>
                 </span>
@@ -196,7 +217,9 @@ export function Composer({
             skills={skills}
           />
         </div>
-        {attachmentError && <p className="mt-1 text-caption text-status-error">{attachmentError}</p>}
+        {attachmentError && (
+          <p className="mt-1 text-caption text-status-error">{attachmentError}</p>
+        )}
         <div className="mt-2 flex items-center gap-[7px] text-[11px] text-text-tertiary">
           {mode === 'auto' ? (
             <Zap size={12} className="text-auth-confirm" />

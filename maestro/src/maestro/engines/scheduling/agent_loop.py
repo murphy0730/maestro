@@ -58,7 +58,7 @@ class AgentLoop:
         self._termination = TerminationPolicy(max_steps)
         self._budget = budget
         self._stop_on_pending = stop_on_pending
-        self._pending_before: set[str] = set()
+        self._created_pending_ids: set[str] = set()
         self._executor = ToolExecutor(
             tools=tools,
             audit=audit,
@@ -89,8 +89,10 @@ class AgentLoop:
         if not self._llm.available:
             raise LLMError("LLM 未配置，无法运行 ReAct 智能体")
 
-        pending_before = {action.action_id for action in self._pending.list_pending()}
-        self._pending_before = pending_before
+        # Track only action ids returned by tools in this run. Comparing the
+        # process-global pending store before/after races with event-driven
+        # agents and can attach an unrelated action to the user's chat turn.
+        self._created_pending_ids = set()
         initial_tools = []
         for name in self._allowed:
             try:
@@ -108,7 +110,6 @@ class AgentLoop:
             if stop_status is not None:
                 state.status = stop_status
                 break
-            await emit_progress(on_progress, "思考中…")
             try:
                 await self._step(state, on_progress)
             except _BudgetExhausted:
@@ -120,13 +121,14 @@ class AgentLoop:
             iteration += 1
 
         if self._termination.needs_forced_final(state.status):
-            await emit_progress(on_progress, "整理结论…")
             state.answer = await self._force_final(state) or state.answer
         if state.status is AgentStatus.PENDING_CONFIRMATION and not state.answer:
             state.answer = _PENDING_ANSWER
 
         pending_actions = [
-            action for action in self._pending.list_pending() if action.action_id not in pending_before
+            action
+            for action_id in self._created_pending_ids
+            if (action := self._pending.get(action_id)) is not None and action.status == "pending"
         ]
         return AgentResult(
             answer=state.answer or self._fallback_answer(state.steps),
@@ -169,32 +171,55 @@ class AgentLoop:
                 return
 
     def _new_pending(self) -> bool:
-        return any(
-            action.action_id not in self._pending_before
-            for action in self._pending.list_pending()
-        )
+        return bool(self._created_pending_ids)
+
+    def _capture_pending(self, observation: object) -> None:
+        """Associate a pending action only when this tool returned its id."""
+        if not isinstance(observation, dict):
+            return
+        action_id = observation.get("action_id")
+        if isinstance(action_id, str) and self._pending.get(action_id) is not None:
+            self._created_pending_ids.add(action_id)
+
+    @staticmethod
+    def _parse_error_observation(call) -> dict | None:
+        """未能解析的参数不能当空参数执行，把真实错误喂回模型让其修正重试。"""
+        if not getattr(call, "parse_error", None):
+            return None
+        return {
+            "blocked": (
+                f"工具 {call.name} 的参数未被执行: {call.parse_error}。"
+                "请重新调用并输出合法的 JSON 参数。"
+            )
+        }
 
     async def _step_one(self, call, state: RunState, turn: AgentTurn, on_progress) -> None:
-        await emit_progress(on_progress, f"调用工具 {call.name}")
+        invalid = self._parse_error_observation(call)
+        if invalid is not None:
+            self._record_step(state, turn, call, invalid, True)
+            return
         observation, blocked = await self._executor.handle_call(
-            call.name, call.arguments, state, on_progress
+            call.name, call.arguments, state
         )
+        self._capture_pending(observation)
         self._load_searched_tools(call.name, observation, state)
         self._record_step(state, turn, call, observation, blocked)
 
     async def _step_concurrent(self, calls, state: RunState, turn: AgentTurn, on_progress) -> None:
         logger.info("[AGENT] 并发执行 %d 个只读工具: %s", len(calls), [call.name for call in calls])
-        await emit_progress(on_progress, f"并发执行 {len(calls)} 个只读工具")
         gated = []
         for call in calls:
+            invalid = self._parse_error_observation(call)
+            if invalid is not None:
+                gated.append((call, invalid, None))
+                continue
             observation, tool = await self._executor.gate_call(call.name, call.arguments, state)
             gated.append((call, observation, tool))
         to_execute = [(call, tool) for call, _observation, tool in gated if tool is not None]
 
         async def execute(call, tool):
-            await emit_progress(on_progress, f"调用工具 {call.name}")
             return await self._executor.execute_call(
-                tool, call.name, call.arguments, state, on_progress
+                tool, call.name, call.arguments, state
             )
 
         executed = await asyncio.gather(*(execute(call, tool) for call, tool in to_execute))
@@ -204,6 +229,7 @@ class AgentLoop:
                 self._record_step(state, turn, call, observation, True)
                 continue
             tool_observation, blocked = results[call.id]
+            self._capture_pending(tool_observation)
             self._load_searched_tools(call.name, tool_observation, state)
             self._record_step(state, turn, call, tool_observation, blocked)
 

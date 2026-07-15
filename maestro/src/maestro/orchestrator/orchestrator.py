@@ -317,13 +317,4 @@ class Orchestrator:
                 return format_skill_result_markdown(json.loads(raw_detail))
             except (json.JSONDecodeError, TypeError):
                 return raw_detail
-        if action_type == "create_office_artifact":
-            import json
-
-            from maestro.skills.office_artifacts import format_office_result_markdown
-
-            try:
-                return format_office_result_markdown(json.loads(raw_detail))
-            except (json.JSONDecodeError, TypeError):
-                return raw_detail
         return raw_detail

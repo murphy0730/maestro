@@ -72,6 +72,45 @@ async def test_trusted_script_runs_guarded_on_host_when_srt_unavailable(tmp_path
     assert result["stdout"].strip() == "hello trusted"
 
 
+@pytest.mark.asyncio
+async def test_trusted_script_accepts_bounded_presentation_spec(tmp_path):
+    """A normal multi-slide JSON spec is larger than 2KB but remains safely bounded."""
+    store = SkillStore(tmp_path / "skills")
+    store.save(_meta(), "body", {"scripts/run.py": b"import sys; print(len(sys.argv[1]))"})
+    meta = store.get("script-skill")
+    store.trust(meta.name, meta.package_sha256)
+    service = SkillScriptExecutionService(
+        store, tmp_path / "runs", tmp_path / "skills", srt=_NoSrt()
+    )
+    spec = "x" * 5600
+    result = await service.execute({
+        "skill_id": meta.name,
+        "script": "scripts/run.py",
+        "args": [spec],
+        "package_sha256": meta.package_sha256,
+    })
+    assert result["status"] == "completed"
+    assert result["stdout"].strip() == "5600"
+
+
+@pytest.mark.asyncio
+async def test_trusted_script_still_rejects_unbounded_argument(tmp_path):
+    store = SkillStore(tmp_path / "skills")
+    store.save(_meta(), "body", {"scripts/run.py": b"print('should not run')"})
+    meta = store.get("script-skill")
+    store.trust(meta.name, meta.package_sha256)
+    service = SkillScriptExecutionService(
+        store, tmp_path / "runs", tmp_path / "skills", srt=_NoSrt()
+    )
+    with pytest.raises(SkillValidationError, match="非法或过长"):
+        await service.execute({
+            "skill_id": meta.name,
+            "script": "scripts/run.py",
+            "args": ["x" * 20_000],
+            "package_sha256": meta.package_sha256,
+        })
+
+
 def test_srt_wrap_keeps_command_args_out_of_srt_options(tmp_path):
     runtime = SrtRuntime(executable=tmp_path / "srt")
     argv, settings = runtime.wrap(

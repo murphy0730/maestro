@@ -27,6 +27,8 @@ it('consumes progress / token / actions / done frames into state', async () => {
   script.push(
     { event: 'progress', data: { text: '识别意图…' } },
     { event: 'progress', data: { text: '调用工具 check_kitting' } },
+    { event: 'progress', data: { text: '先核验 WO-104 的齐套状态，确认是否满足下发条件。' } },
+    { event: 'progress', data: { text: 'check_kitting started' } },
     { event: 'token', data: { delta: '已下发' } },
     {
       event: 'actions',
@@ -52,7 +54,10 @@ it('consumes progress / token / actions / done frames into state', async () => {
 
   await waitFor(() => expect(result.current.phase).toBe('done'));
   expect(result.current.text).toBe('已下发');
-  expect(result.current.progress).toBe('调用工具 check_kitting');
+  expect(result.current.progress).toBe('先核验 WO-104 的齐套状态，确认是否满足下发条件。');
+  expect(result.current.progressLog).toEqual([
+    '先核验 WO-104 的齐套状态，确认是否满足下发条件。',
+  ]);
   expect(result.current.actions).toHaveLength(1);
   expect(result.current.messageId).toBe('m1');
 });

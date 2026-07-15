@@ -7,3 +7,4 @@
 2026-07-12 01:03 - main 分支提交 76 文件（+5244/-123，commit c674a59），已推送 origin/main（5274d8b..c674a59，含先前未推送的 a3e4ea5）。含扩展中心 + MCP 市场同步、skill 脚本执行/信任模型、SSE 流与技能附件、shell 执行工具与 builtins bridge、调度/工具链重构；已排除 .workbuddy/ 内部记忆文件。
 2026-07-12 06:55 - main 分支提交 10 文件（+338/-11，commit 77623cd），已推送 origin/main（c674a59..77623cd）。含 extensions/catalog_tools.py 新增、bootstrap 桥接、builtin 查询只读列表更新、adapters/service/sources/parser 修复；已排除本自动化 memory.md。
 2026-07-13 06:55 - 无需提交/推送：feat/skills-module（1e0706c）与 feat/composer-settings-skills（82ecda0）均已是 main 的祖先，其提交早已并入 main；main（77623cd）与 origin/main 完全同步。工作区无未提交代码，唯一改动为本自动化 memory.md（按惯例不纳入提交）。
+2026-07-14 06:55 - main 分支提交 75 文件（+3264/-266，commit 4e84b42），已推送 origin/main（77623cd..4e84b42）。含技能信任模型/Office产物、扩展中心 localization、artifacts 路由、前端技能UI与产物接口、新增测试及工程脚本/文档；已排除 test-results/ 测试产物。
