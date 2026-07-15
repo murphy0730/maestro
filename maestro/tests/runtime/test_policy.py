@@ -176,3 +176,45 @@ def test_direct_string_high_risk_write_requires_confirmation() -> None:
 
     assert spec.risk is RiskLevel.HIGH
     assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION
+
+
+def test_organization_reconfirmation_dominates_confirmation_in_reverse_order() -> None:
+    spec = CapabilitySpec(name="write", kind=CapabilityKind.TOOL)
+    decision = PolicyGate(
+        [
+            PolicyRule(
+                pattern="write",
+                effect=PolicyEffect.REQUIRE_CONFIRMATION,
+                source="organization",
+            ),
+            PolicyRule(
+                pattern="write",
+                effect=PolicyEffect.REQUIRE_RECONFIRMATION,
+                source="organization",
+            ),
+        ]
+    ).evaluate(CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1"))
+
+    assert decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION
+    assert decision.revalidate_before_execute is True
+
+
+def test_argument_reconfirmation_dominates_confirmation_in_reverse_order() -> None:
+    spec = CapabilitySpec(name="write", kind=CapabilityKind.TOOL)
+    decision = PolicyGate(
+        [
+            PolicyRule(
+                pattern="write",
+                effect=PolicyEffect.REQUIRE_CONFIRMATION,
+                source="argument",
+            ),
+            PolicyRule(
+                pattern="write",
+                effect=PolicyEffect.REQUIRE_RECONFIRMATION,
+                source="argument",
+            ),
+        ]
+    ).evaluate(CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1"))
+
+    assert decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION
+    assert decision.revalidate_before_execute is True

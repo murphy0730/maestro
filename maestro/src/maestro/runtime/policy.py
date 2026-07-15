@@ -106,17 +106,23 @@ class PolicyGate:
         matches = [rule for rule in rules if PolicyGate._matches(rule, call)]
         if not matches:
             return None
-        rule = next(
-            (item for item in matches if item.effect is PolicyEffect.DENY),
-            next((item for item in matches if item.effect is not PolicyEffect.ALLOW), None),
-        )
+        priorities = {
+            PolicyEffect.DENY: 3,
+            PolicyEffect.REQUIRE_RECONFIRMATION: 2,
+            PolicyEffect.REQUIRE_CONFIRMATION: 1,
+            PolicyEffect.ALLOW: 0,
+        }
+        rule = max(matches, key=lambda item: priorities[item.effect])
         if rule is None:
             return None
         return PolicyDecision(
             effect=rule.effect,
             reason=f"{stage} policy requires {rule.effect.value}",
             matched_rule=f"{rule.source}:{rule.pattern}",
-            revalidate_before_execute=rule.revalidate_before_execute,
+            revalidate_before_execute=(
+                rule.revalidate_before_execute
+                or rule.effect is PolicyEffect.REQUIRE_RECONFIRMATION
+            ),
         )
 
     @staticmethod
