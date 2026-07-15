@@ -73,6 +73,17 @@ def _content_hash(spec: CapabilitySpec) -> str:
     ).hexdigest()
 
 
+def _normalize_risk(risk: object) -> RiskLevel:
+    if isinstance(risk, RiskLevel):
+        return risk
+    if isinstance(risk, str):
+        try:
+            return RiskLevel(risk)
+        except ValueError as error:
+            raise ValueError(f"invalid capability risk: {risk}") from error
+    raise ValueError(f"invalid capability risk: {risk!r}")
+
+
 class CapabilitySnapshot:
     """An immutable, deep-copied registry view pinned to a Run."""
 
@@ -100,6 +111,7 @@ class CapabilityRegistry:
         if spec.name in self._specs and not replace:
             raise ValueError(f"capability already registered: {spec.name}")
         stored = deepcopy(spec)
+        stored = dataclass_replace(stored, risk=_normalize_risk(stored.risk))
         stored = dataclass_replace(stored, content_sha256=_content_hash(stored))
         self._specs[stored.name] = stored
 

@@ -1,6 +1,7 @@
 from maestro.runtime.capabilities import (
     CapabilityCall,
     CapabilityKind,
+    CapabilityRegistry,
     CapabilitySpec,
     RiskLevel,
 )
@@ -139,3 +140,23 @@ def test_argument_deny_precedes_high_risk_write_confirmation() -> None:
     )
 
     assert decision.effect is PolicyEffect.DENY
+
+
+def test_registered_string_high_risk_write_requires_confirmation() -> None:
+    registry = CapabilityRegistry()
+    registry.register(
+        CapabilitySpec(  # type: ignore[arg-type]
+            name="write_record",
+            kind=CapabilityKind.MCP,
+            risk="high",
+            writes=True,
+        )
+    )
+
+    decision = PolicyGate([]).evaluate(
+        CapabilityCall(name="write_record"),
+        registry.snapshot().require("write_record"),
+        PolicyContext(principal_id="u1"),
+    )
+
+    assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION

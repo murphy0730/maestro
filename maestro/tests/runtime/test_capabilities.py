@@ -82,6 +82,32 @@ def test_registry_retrieval_cannot_mutate_stored_descriptor() -> None:
     }
 
 
+def test_registry_normalizes_valid_string_risk_to_enum() -> None:
+    registry = CapabilityRegistry()
+    registry.register(
+        CapabilitySpec(  # type: ignore[arg-type]
+            name="write_record",
+            kind=CapabilityKind.MCP,
+            risk="high",
+            writes=True,
+        )
+    )
+
+    assert registry.require("write_record").risk is RiskLevel.HIGH
+    assert registry.snapshot().require("write_record").risk is RiskLevel.HIGH
+
+
+def test_registry_rejects_unknown_risk_value() -> None:
+    registry = CapabilityRegistry()
+
+    with pytest.raises(ValueError, match="invalid capability risk"):
+        registry.register(
+            CapabilitySpec(  # type: ignore[arg-type]
+                name="write_record", kind=CapabilityKind.MCP, risk="critical"
+            )
+        )
+
+
 class ReadInput(BaseModel):
     path: str
 
