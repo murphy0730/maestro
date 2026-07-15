@@ -23,6 +23,17 @@
 - Backend tests run without network and with all LLM calls mocked.
 - Preserve unrelated user changes; execute this plan from an isolated worktree created with `using-git-worktrees`.
 
+## Approved Green-Suite Migration Sequence
+
+The user approved this sequencing on 2026-07-16 to keep every task reviewable with a green full suite while preserving the final direct-replacement requirement:
+
+- Tasks 1–9 add and validate the new Runtime while the legacy public path remains untouched.
+- Task 4 introduces a separate strict runtime-facing Claude Skill contract; it does not remove legacy SkillEngine fields yet.
+- Task 10 switches the backend composition root/API and deletes the obsolete backend engines, business modules, routes, and tests in the same task.
+- Task 11 switches the frontend and deletes obsolete engine-centric frontend modules and tests in the same task.
+- Task 12 performs dependency/configuration cleanup, architecture scans, documentation, and the B1 acceptance matrix.
+- Intermediate coexistence is an implementation sequencing technique only. The finished branch contains no compatibility adapter or legacy execution path.
+
 ---
 
 ## Target File Map
@@ -598,9 +609,9 @@ Run: `cd maestro && pytest tests/runtime/test_skills_compat.py -v`
 
 Expected: FAIL because `SkillCatalog` does not exist and current schema contains Maestro-only execution fields.
 
-- [ ] **Step 4: Align frontmatter without Maestro execution fields**
+- [ ] **Step 4: Add the strict runtime-facing frontmatter without breaking the legacy path**
 
-Remove `tool_preconditions` and `scripts` as execution semantics. Preserve unrecognized frontmatter in `extensions`; parse hyphenated Claude keys; add `context`, `agent`, `model`, `effort`, `hooks`, and `shell`. Keep package hash/trust metadata outside frontmatter.
+Define the strict Claude contract used by `runtime/skills.py` separately from the legacy SkillEngine schema so the pre-cutover full suite remains green. The runtime contract has no `tool_preconditions` or frontmatter `scripts` execution semantics. Preserve unrecognized frontmatter in `extensions`; parse hyphenated Claude keys; add `context`, `agent`, `model`, `effort`, `hooks`, and `shell`. Keep package hash/trust metadata outside frontmatter. Task 10 removes the legacy SkillEngine and then makes the strict contract the only public schema.
 
 - [ ] **Step 5: Implement source precedence and progressive loading**
 
@@ -984,6 +995,8 @@ git commit -m "feat: recover and govern runtime side effects"
 
 **Files:**
 - Modify: `maestro/src/maestro/bootstrap.py`
+- Modify: `maestro/src/maestro/main.py`
+- Modify: `maestro/src/maestro/cli.py`
 - Modify: `maestro/src/maestro/api/app.py`
 - Modify: `maestro/src/maestro/api/routes/__init__.py`
 - Modify: `maestro/src/maestro/api/routes/artifacts.py`
@@ -994,6 +1007,57 @@ git commit -m "feat: recover and govern runtime side effects"
 - Create: `maestro/tests/test_runs_api.py`
 - Modify: `maestro/tests/test_sessions.py`
 - Create: `docs/api-contract/agent-runtime-v1.md`
+- Delete: `maestro/src/maestro/engines/`
+- Delete: `maestro/src/maestro/orchestrator/`
+- Delete: `maestro/src/maestro/events/`
+- Delete: `maestro/src/maestro/extensions/`
+- Delete: `maestro/src/maestro/domain/`
+- Delete: `maestro/src/maestro/foundation/integration/`
+- Delete: `maestro/src/maestro/foundation/kitting.py`
+- Delete: `maestro/src/maestro/foundation/master_data.py`
+- Delete: `maestro/src/maestro/foundation/authz.py`
+- Delete: `maestro/src/maestro/foundation/permissions.py`
+- Delete: `maestro/src/maestro/foundation/audit.py`
+- Delete: `maestro/src/maestro/foundation/tools/`
+- Delete: `maestro/src/maestro/foundation/exec_context.py`
+- Delete: `maestro/src/maestro/foundation/chroma_store.py`
+- Delete: `maestro/src/maestro/foundation/chunking.py`
+- Delete: `maestro/src/maestro/foundation/embedding.py`
+- Delete: `maestro/src/maestro/foundation/loaders/`
+- Delete: `maestro/src/maestro/foundation/vectorstore.py`
+- Delete: `maestro/src/maestro/foundation/memory.py`
+- Delete: `maestro/src/maestro/foundation/observation_store.py`
+- Delete: `maestro/src/maestro/api/routes/chat.py`
+- Delete: `maestro/src/maestro/api/routes/operations.py`
+- Delete: `maestro/src/maestro/api/routes/knowledge.py`
+- Delete: `maestro/src/maestro/api/routes/extensions.py`
+- Delete: `maestro/src/maestro/skills/context.py`
+- Delete: `maestro/src/maestro/skills/engine.py`
+- Delete: `maestro/src/maestro/skills/script_execution.py`
+- Delete: `maestro/src/maestro/skills/office_artifacts.py`
+- Delete: `maestro/src/maestro/tools/bridge.py`
+- Delete: `maestro/src/maestro/tools/integrated_manager.py`
+- Delete: `maestro/src/maestro/tools/manager.py`
+- Delete: `maestro/src/maestro/tools/permissions.py`
+- Delete: `maestro/tests/test_agent_loop_state.py`
+- Delete: `maestro/tests/test_audit_persistence.py`
+- Delete: `maestro/tests/test_chat_attachments.py`
+- Delete: `maestro/tests/test_chat_sse.py`
+- Delete: `maestro/tests/test_chroma_store.py`
+- Delete: `maestro/tests/test_events.py`
+- Delete: `maestro/tests/test_extension_catalog.py`
+- Delete: `maestro/tests/test_knowledge.py`
+- Delete: `maestro/tests/test_observation_store.py`
+- Delete: `maestro/tests/test_office_artifacts.py`
+- Delete: `maestro/tests/test_permissions.py`
+- Delete: `maestro/tests/test_planning.py`
+- Delete: `maestro/tests/test_query.py`
+- Delete: `maestro/tests/test_router.py`
+- Delete: `maestro/tests/test_scheduling.py`
+- Delete: `maestro/tests/test_skill_capabilities.py`
+- Delete: `maestro/tests/test_skill_routing.py`
+- Delete: `maestro/tests/test_skill_trust_execution.py`
+- Delete: `maestro/tests/test_tool_chain.py`
 
 **Interfaces:**
 - Produces: `POST /artifacts`, `GET /artifacts/{artifact_id}`, `POST /runs`, `GET /runs/{run_id}`, `GET /runs/{run_id}/stream`, `POST /runs/{run_id}/approvals/{approval_id}`, `POST /runs/{run_id}/cancel`; Run creation accepts `source`, `skill_names`, and existing `artifact_ids` rather than embedding large files.
@@ -1047,6 +1111,8 @@ Expected: FAIL because `/runs` is not registered.
 
 `Platform` must expose only generic services required by API/admin surfaces: `settings`, `llm`, `runtime`, `run_store`, `journal`, `artifact_store`, `skill_catalog`, `capabilities`, `mcp`, and model configuration services. Do not register MockAdapter manufacturing actions, construct legacy engines, or start the old extension catalog scheduler.
 
+In this same step, delete every backend path listed in this task, remove its imports/routers, and delete the corresponding legacy tests. Convert `maestro.skills.schemas` to the strict Claude contract introduced in Task 4. The full backend suite after this task consists only of generic administration tests plus Runtime/Run API tests and must be green; no compatibility adapter remains.
+
 - [ ] **Step 4: Implement Run endpoints and resumable SSE**
 
 `POST /runs` creates a background task and returns the first persisted snapshot. Stream first replays Journal events after `Last-Event-ID`, then subscribes to live events without a replay/live gap. Approval requires `expected_revision`; cancellation is idempotent. Return structured error bodies with `code`, `message`, and `run_id`.
@@ -1068,7 +1134,7 @@ Run: `cd maestro && pytest tests/runtime tests/test_runs_api.py -v`
 Expected: PASS.
 
 ```bash
-git add maestro/src/maestro/bootstrap.py maestro/src/maestro/api/app.py maestro/src/maestro/api/routes/__init__.py maestro/src/maestro/api/routes/artifacts.py maestro/src/maestro/api/routes/runs.py maestro/src/maestro/api/routes/sessions.py maestro/src/maestro/config.py maestro/src/maestro/foundation/session_store.py maestro/tests/test_runs_api.py maestro/tests/test_sessions.py docs/api-contract/agent-runtime-v1.md
+git add -A maestro docs/api-contract/agent-runtime-v1.md
 git commit -m "feat: expose unified agent run API"
 ```
 
@@ -1090,6 +1156,32 @@ git commit -m "feat: expose unified agent run API"
 - Modify: `frontend/src/pages/Workspace.tsx`
 - Modify: `frontend/src/features/orchestrator/Composer.tsx`
 - Modify: `frontend/src/features/orchestrator/Thread.tsx`
+- Delete: `frontend/src/api/chat.ts`
+- Delete: `frontend/src/api/planning.ts`
+- Delete: `frontend/src/api/query.ts`
+- Delete: `frontend/src/api/scheduling.ts`
+- Delete: `frontend/src/api/streaming.ts`
+- Delete: `frontend/src/api/useStreamingChat.ts`
+- Delete: `frontend/src/api/useStreamingChat.test.tsx`
+- Delete: `frontend/src/api/useStreamingQuery.ts`
+- Delete: `frontend/src/api/extensionCatalog.ts`
+- Delete: `frontend/src/types/api/chat.ts`
+- Delete: `frontend/src/types/api/planning.ts`
+- Delete: `frontend/src/types/api/query.ts`
+- Delete: `frontend/src/types/api/scheduling.ts`
+- Delete: `frontend/src/types/api/extensions.ts`
+- Delete: `frontend/src/features/extensions/`
+- Delete: `frontend/src/features/planning/`
+- Delete: `frontend/src/features/query/`
+- Delete: `frontend/src/features/scheduling/`
+- Delete: `frontend/src/components/ContextPanel.tsx`
+- Delete: `frontend/src/components/ContextPanelHost.tsx`
+- Delete: `frontend/src/features/orchestrator/ClarificationCard.tsx`
+- Delete: `frontend/src/features/orchestrator/RouteBadge.tsx`
+- Delete: `frontend/src/lib/routes.ts`
+- Delete: `frontend/src/stores/defaultEngineStore.ts`
+- Delete: `frontend/src/stores/defaultEngineStore.test.ts`
+- Modify: `frontend/src/router/index.tsx`
 
 **Interfaces:**
 - Consumes: Task 10 Run API/SSE contract.
@@ -1135,7 +1227,7 @@ Assert visual labels for `快速执行`, `已升级为结构化执行`, `等待�
 
 - [ ] **Step 7: Replace route-centric Workspace behavior**
 
-Remove planning/scheduling/query route selection from the default Composer. Keep one optional expert-mode selector that only adds expert context and never selects a backend engine. Replace engine Context Panel activation with `RunTrace`; keep Skill selection and attachments. Update welcome/placeholder text to describe a manufacturing Agent rather than planning/scheduling/query routes.
+Remove planning/scheduling/query route selection from the default Composer. Keep one optional expert-mode selector that only adds expert context and never selects a backend engine. Replace engine Context Panel activation with `RunTrace`; keep Skill selection and attachments. Update welcome/placeholder text to describe a manufacturing Agent rather than planning/scheduling/query routes. Delete every frontend path listed in this task and update barrel exports, router configuration, and MSW handlers/fixtures in the same cutover so the full frontend suite stays green.
 
 - [ ] **Step 8: Run focused and full frontend verification**
 
@@ -1156,81 +1248,10 @@ git commit -m "feat: present unified agent run experience"
 
 ---
 
-### Task 12: Direct Replacement Cleanup and B1 Acceptance
+### Task 12: Dependency Cleanup and B1 Acceptance
 
 **Files:**
 - Modify: `maestro/pyproject.toml`
-- Modify: `maestro/src/maestro/main.py`
-- Modify: `maestro/src/maestro/cli.py`
-- Delete: `maestro/src/maestro/engines/`
-- Delete: `maestro/src/maestro/orchestrator/`
-- Delete: `maestro/src/maestro/foundation/kitting.py`
-- Delete: `maestro/src/maestro/foundation/master_data.py`
-- Delete: `maestro/src/maestro/foundation/integration/`
-- Delete: `maestro/src/maestro/foundation/tools/builtin.py`
-- Delete: `maestro/src/maestro/foundation/authz.py`
-- Delete: `maestro/src/maestro/foundation/permissions.py`
-- Delete: `maestro/src/maestro/foundation/audit.py`
-- Delete: `maestro/src/maestro/foundation/tools/`
-- Delete: `maestro/src/maestro/foundation/exec_context.py`
-- Delete: `maestro/src/maestro/foundation/chroma_store.py`
-- Delete: `maestro/src/maestro/foundation/chunking.py`
-- Delete: `maestro/src/maestro/foundation/embedding.py`
-- Delete: `maestro/src/maestro/foundation/loaders/`
-- Delete: `maestro/src/maestro/foundation/vectorstore.py`
-- Delete: `maestro/src/maestro/events/`
-- Delete: `maestro/src/maestro/extensions/`
-- Delete: `maestro/src/maestro/domain/`
-- Delete: `maestro/src/maestro/api/routes/operations.py`
-- Delete: `maestro/src/maestro/api/routes/knowledge.py`
-- Delete: `maestro/src/maestro/api/routes/extensions.py`
-- Delete: `maestro/src/maestro/skills/context.py`
-- Delete: `maestro/src/maestro/skills/engine.py`
-- Delete: `maestro/src/maestro/skills/script_execution.py`
-- Delete: `maestro/src/maestro/tools/bridge.py`
-- Delete: `maestro/src/maestro/tools/integrated_manager.py`
-- Delete: `maestro/src/maestro/tools/manager.py`
-- Delete: `maestro/src/maestro/tools/permissions.py`
-- Delete: `maestro/tests/test_planning.py`
-- Delete: `maestro/tests/test_query.py`
-- Delete: `maestro/tests/test_router.py`
-- Delete: `maestro/tests/test_scheduling.py`
-- Delete: `maestro/tests/test_events.py`
-- Delete: `maestro/tests/test_permissions.py`
-- Delete: `maestro/tests/test_audit_persistence.py`
-- Delete: `maestro/tests/test_chroma_store.py`
-- Delete: `maestro/tests/test_knowledge.py`
-- Delete: `maestro/tests/test_extension_catalog.py`
-- Delete: `maestro/tests/test_skill_capabilities.py`
-- Delete: `maestro/tests/test_skill_routing.py`
-- Delete: `maestro/tests/test_skill_trust_execution.py`
-- Delete: `maestro/tests/test_tool_chain.py`
-- Delete: `maestro/src/maestro/api/routes/chat.py`
-- Delete: `frontend/src/api/chat.ts`
-- Delete: `frontend/src/api/planning.ts`
-- Delete: `frontend/src/api/query.ts`
-- Delete: `frontend/src/api/scheduling.ts`
-- Delete: `frontend/src/api/streaming.ts`
-- Delete: `frontend/src/api/useStreamingChat.ts`
-- Delete: `frontend/src/api/useStreamingChat.test.tsx`
-- Delete: `frontend/src/api/useStreamingQuery.ts`
-- Delete: `frontend/src/api/extensionCatalog.ts`
-- Delete: `frontend/src/types/api/chat.ts`
-- Delete: `frontend/src/types/api/planning.ts`
-- Delete: `frontend/src/types/api/query.ts`
-- Delete: `frontend/src/types/api/scheduling.ts`
-- Delete: `frontend/src/types/api/extensions.ts`
-- Delete: `frontend/src/features/extensions/`
-- Delete: `frontend/src/features/planning/`
-- Delete: `frontend/src/features/query/`
-- Delete: `frontend/src/features/scheduling/`
-- Delete: `frontend/src/components/ContextPanel.tsx`
-- Delete: `frontend/src/components/ContextPanelHost.tsx`
-- Delete: `frontend/src/features/orchestrator/ClarificationCard.tsx`
-- Delete: `frontend/src/features/orchestrator/RouteBadge.tsx`
-- Delete: `frontend/src/lib/routes.ts`
-- Delete: `frontend/src/stores/defaultEngineStore.ts`
-- Delete: `frontend/src/stores/defaultEngineStore.test.ts`
 - Modify: `frontend/src/router/index.tsx`
 - Delete: `docs/api-contract/api-contract.md`
 - Delete: `docs/api-contract/api-contract-v2.md`
@@ -1242,7 +1263,7 @@ git commit -m "feat: present unified agent run experience"
 - Consumes: all prior tasks.
 - Produces: a repository whose only conversational execution path is the unified Runtime.
 
-- [ ] **Step 1: Add failing architecture-invariant tests before deletion**
+- [ ] **Step 1: Add failing architecture and dependency invariant tests**
 
 ```python
 from pathlib import Path
@@ -1258,21 +1279,26 @@ def test_runtime_core_has_no_manufacturing_dependencies() -> None:
 def test_legacy_engine_packages_are_removed() -> None:
     assert not Path("src/maestro/engines").exists()
     assert not Path("src/maestro/orchestrator").exists()
+
+
+def test_removed_dependencies_are_absent() -> None:
+    pyproject = Path("pyproject.toml").read_text("utf-8")
+    assert all(name not in pyproject for name in ["ortools", "chromadb", "python-docx", "python-pptx"])
 ```
 
-- [ ] **Step 2: Run and verify the legacy-removal test fails**
+- [ ] **Step 2: Run and verify the dependency invariant fails**
 
 Run: `cd maestro && pytest tests/runtime/test_b1_invariants.py -v`
 
-Expected: FAIL because legacy engine directories still exist.
+Expected: FAIL because removed dependencies are still declared before Task 12 cleanup; legacy directory assertions already pass after Task 10.
 
 - [ ] **Step 3: Remove legacy backend paths and OR-Tools**
 
-Delete the listed legacy engine, router, business integration, extension marketplace, and built-in business tool files. Set `requires-python = ">=3.12"`; remove `ortools`, `chromadb`, `python-docx`, and `python-pptx` after an `rg` import scan confirms the surviving code has no imports. Keep generic model configuration, Skill administration, MCP configuration, generic tools, v3 sessions, and artifact endpoints only when they do not import deleted business modules.
+Verify the Task 10 backend and Task 11 frontend deletion scopes are absent. Set `requires-python = ">=3.12"`; remove `ortools`, `chromadb`, `python-docx`, and `python-pptx` after an `rg` import scan confirms the surviving code has no imports. Keep generic model configuration, Skill administration, MCP configuration, generic tools, v3 sessions, and artifact endpoints only when they do not import deleted business modules.
 
 - [ ] **Step 4: Remove legacy frontend paths**
 
-Delete every frontend path listed in this task and update `frontend/src/api/index.ts`, `frontend/src/types/api/index.ts`, `frontend/src/types/index.ts`, `frontend/src/stores/index.ts`, `frontend/src/components/index.ts`, `frontend/src/router/index.tsx`, `frontend/src/mocks/api/handlers.ts`, `frontend/src/mocks/api/sse.ts`, and `frontend/src/mocks/api/fixtures.ts` to export, route, or mock only the Run, Skill, MCP, model, session, and artifact administration contracts. The only permitted occurrence of `query` is generic TanStack Query terminology.
+Verify Task 11 already removed the obsolete frontend paths and that barrel exports, router configuration, and MSW files expose only Run, Skill, MCP, model, session, and artifact administration contracts. The only permitted occurrence of `query` is generic TanStack Query terminology.
 
 - [ ] **Step 5: Update CLI and documentation**
 
