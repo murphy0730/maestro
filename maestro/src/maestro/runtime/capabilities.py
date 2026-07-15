@@ -99,13 +99,13 @@ class CapabilityRegistry:
     def register(self, spec: CapabilitySpec, *, replace: bool = False) -> None:
         if spec.name in self._specs and not replace:
             raise ValueError(f"capability already registered: {spec.name}")
-        if not spec.content_sha256:
-            spec = dataclass_replace(spec, content_sha256=_content_hash(spec))
-        self._specs[spec.name] = spec
+        stored = deepcopy(spec)
+        stored = dataclass_replace(stored, content_sha256=_content_hash(stored))
+        self._specs[stored.name] = stored
 
     def require(self, name: str) -> CapabilitySpec:
         try:
-            return self._specs[name]
+            return deepcopy(self._specs[name])
         except KeyError as error:
             raise KeyError(f"unknown capability: {name}") from error
 

@@ -10,6 +10,7 @@ from maestro.mcp.manager import MCPManager
 from maestro.mcp.types import MCPTool
 from maestro.tools.base import BaseTool, ToolResult, ToolResultStatus
 from pydantic import BaseModel
+import pytest
 
 
 def test_snapshot_pins_content_hash() -> None:
@@ -43,6 +44,40 @@ def test_snapshot_does_not_expose_mutable_descriptor_data() -> None:
     snapshot.require("read_file").input_schema["properties"] = {}
 
     assert snapshot.require("read_file").input_schema["properties"] == {
+        "path": {"type": "string"}
+    }
+
+
+def test_registry_isolated_from_descriptor_mutated_after_registration() -> None:
+    registry = CapabilityRegistry()
+    spec = CapabilitySpec(
+        name="read_file",
+        kind=CapabilityKind.TOOL,
+        input_schema={"properties": {"path": {"type": "string"}}},
+    )
+    registry.register(spec)
+    original_hash = registry.require("read_file").content_sha256
+
+    spec.input_schema["properties"] = {}
+
+    stored = registry.require("read_file")
+    assert stored.input_schema["properties"] == {"path": {"type": "string"}}
+    assert stored.content_sha256 == original_hash
+
+
+def test_registry_retrieval_cannot_mutate_stored_descriptor() -> None:
+    registry = CapabilityRegistry()
+    registry.register(
+        CapabilitySpec(
+            name="read_file",
+            kind=CapabilityKind.TOOL,
+            input_schema={"properties": {"path": {"type": "string"}}},
+        )
+    )
+
+    registry.require("read_file").input_schema["properties"] = {}
+
+    assert registry.require("read_file").input_schema["properties"] == {
         "path": {"type": "string"}
     }
 
@@ -101,6 +136,14 @@ async def test_mcp_adapter_uses_registered_metadata_not_description() -> None:
     assert capability.idempotent is False
 
 
+def test_mcp_adapter_rejects_tool_without_local_registration() -> None:
+    manager = MCPManager()
+    tool = MCPTool("lookup", "read-only according to remote text", {}, "inventory")
+
+    with pytest.raises(ValueError, match="missing local capability registration"):
+        mcp_tool_to_capability("inventory", tool, manager)
+
+
 async def test_mcp_transport_ambiguity_is_unknown_only_for_writes() -> None:
     manager = MCPManager()
 
@@ -110,7 +153,10 @@ async def test_mcp_transport_ambiguity_is_unknown_only_for_writes() -> None:
     manager.call_tool = unavailable  # type: ignore[method-assign]
     write_tool = MCPTool("write", "", {}, "inventory")
     read_tool = MCPTool("read", "", {}, "inventory")
-    manager.capability_registrations = {("inventory", "write"): {"writes": True}}
+    manager.capability_registrations = {
+        ("inventory", "write"): {"writes": True},
+        ("inventory", "read"): {"writes": False},
+    }
 
     write = mcp_tool_to_capability("inventory", write_tool, manager)
     read = mcp_tool_to_capability("inventory", read_tool, manager)

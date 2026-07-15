@@ -67,3 +67,50 @@ def test_organization_approval_precedes_capability_metadata() -> None:
 
     assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION
     assert decision.matched_rule == "organization:read_*"
+
+
+def test_run_and_skill_allowlists_deny_before_high_risk_confirmation() -> None:
+    spec = CapabilitySpec(
+        name="dangerous_write",
+        kind=CapabilityKind.TOOL,
+        risk=RiskLevel.HIGH,
+        writes=True,
+    )
+
+    decision = PolicyGate(
+        [
+            PolicyRule(
+                pattern="dangerous_*",
+                effect=PolicyEffect.REQUIRE_CONFIRMATION,
+                source="organization",
+            )
+        ]
+    ).evaluate(
+        CapabilityCall(name=spec.name),
+        spec,
+        PolicyContext(
+            principal_id="u1",
+            run_allowed_tools={"other_tool"},
+            skill_allowed_tools={"other_tool"},
+        ),
+    )
+
+    assert decision.effect is PolicyEffect.DENY
+
+
+def test_organization_confirmation_dominates_allow_regardless_of_rule_order() -> None:
+    spec = CapabilitySpec(name="write", kind=CapabilityKind.TOOL)
+    rules = [
+        PolicyRule(pattern="*", effect=PolicyEffect.ALLOW, source="organization"),
+        PolicyRule(
+            pattern="write",
+            effect=PolicyEffect.REQUIRE_CONFIRMATION,
+            source="organization",
+        ),
+    ]
+
+    decision = PolicyGate(rules).evaluate(
+        CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1")
+    )
+
+    assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION

@@ -53,7 +53,12 @@ def tool_to_capability(tool: BaseTool) -> CapabilitySpec:
 
 def _registration(manager: MCPManager, server_name: str, tool_name: str) -> dict[str, Any]:
     registrations = getattr(manager, "capability_registrations", {})
-    return dict(registrations.get((server_name, tool_name), {}))
+    registration = registrations.get((server_name, tool_name))
+    if registration is None:
+        raise ValueError(
+            f"missing local capability registration: {server_name}/{tool_name}"
+        )
+    return dict(registration)
 
 
 def mcp_tool_to_capability(

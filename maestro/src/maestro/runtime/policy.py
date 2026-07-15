@@ -60,21 +60,7 @@ class PolicyGate:
             rule for rule in self._rules if rule.source == "organization"
         ]
         decision = self._rule_decision(organization_rules, call, "organization")
-        if decision is not None:
-            return decision
-
-        if spec.writes and spec.risk is RiskLevel.HIGH:
-            return PolicyDecision(
-                effect=PolicyEffect.REQUIRE_CONFIRMATION,
-                reason="high-risk write requires confirmation",
-                revalidate_before_execute=True,
-            )
-
-        argument_rules = [
-            rule for rule in self._rules if rule.source != "organization"
-        ] + context.argument_rules
-        decision = self._rule_decision(argument_rules, call, "argument")
-        if decision is not None:
+        if decision is not None and decision.effect is PolicyEffect.DENY:
             return decision
 
         if context.run_allowed_tools is not None and spec.name not in context.run_allowed_tools:
@@ -92,6 +78,23 @@ class PolicyGate:
                 reason="capability is not allowed by the skill",
             )
 
+        if decision is not None:
+            return decision
+
+        if spec.writes and spec.risk is RiskLevel.HIGH:
+            return PolicyDecision(
+                effect=PolicyEffect.REQUIRE_CONFIRMATION,
+                reason="high-risk write requires confirmation",
+                revalidate_before_execute=True,
+            )
+
+        argument_rules = [
+            rule for rule in self._rules if rule.source != "organization"
+        ] + context.argument_rules
+        decision = self._rule_decision(argument_rules, call, "argument")
+        if decision is not None:
+            return decision
+
         return PolicyDecision(effect=PolicyEffect.ALLOW, reason="allowed")
 
     @staticmethod
@@ -101,8 +104,11 @@ class PolicyGate:
         matches = [rule for rule in rules if PolicyGate._matches(rule, call)]
         if not matches:
             return None
-        rule = next((item for item in matches if item.effect is PolicyEffect.DENY), matches[0])
-        if rule.effect is PolicyEffect.ALLOW:
+        rule = next(
+            (item for item in matches if item.effect is PolicyEffect.DENY),
+            next((item for item in matches if item.effect is not PolicyEffect.ALLOW), None),
+        )
+        if rule is None:
             return None
         return PolicyDecision(
             effect=rule.effect,
