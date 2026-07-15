@@ -108,6 +108,13 @@ def test_registry_rejects_unknown_risk_value() -> None:
         )
 
 
+def test_capability_spec_rejects_unknown_direct_risk_value() -> None:
+    with pytest.raises(ValueError, match="invalid capability risk"):
+        CapabilitySpec(  # type: ignore[arg-type]
+            name="write_record", kind=CapabilityKind.MCP, risk="critical"
+        )
+
+
 class ReadInput(BaseModel):
     path: str
 

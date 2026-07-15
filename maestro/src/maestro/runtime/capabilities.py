@@ -55,6 +55,9 @@ class CapabilitySpec:
     content_sha256: str = ""
     executor: CapabilityExecutor | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "risk", _normalize_risk(self.risk))
+
 
 def _content_hash(spec: CapabilitySpec) -> str:
     content = {

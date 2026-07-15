@@ -160,3 +160,19 @@ def test_registered_string_high_risk_write_requires_confirmation() -> None:
     )
 
     assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION
+
+
+def test_direct_string_high_risk_write_requires_confirmation() -> None:
+    spec = CapabilitySpec(  # type: ignore[arg-type]
+        name="write_record",
+        kind=CapabilityKind.MCP,
+        risk="high",
+        writes=True,
+    )
+
+    decision = PolicyGate([]).evaluate(
+        CapabilityCall(name=spec.name), spec, PolicyContext(principal_id="u1")
+    )
+
+    assert spec.risk is RiskLevel.HIGH
+    assert decision.effect is PolicyEffect.REQUIRE_CONFIRMATION
