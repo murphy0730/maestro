@@ -18,12 +18,16 @@
 2. 实现最小 catalog/schema/parser 后，同命令：7 passed（GREEN）。
 3. 新增大正文 discovery 回归测试后执行单测：因 `runtime skill frontmatter exceeds 16KB` 失败（RED）。
 4. 将 discovery 调整为在 16KB 内寻找结束分隔符、只保留前言后，执行 `pytest tests/runtime/test_skills_compat.py -v`：8 passed（GREEN）。
+5. 复审补充的 RED：新增未 discover 资源读取、大正文上限、跨平台绝对路径与 Unicode Cc 测试后，兼容测试 15 项中 5 项失败，分别证明了全量 `read_text()`、第 16KB+1 字节读取、`C:/...`/DEL/U+0085 未在校验阶段拒绝。
+6. 复审 GREEN：资源读取的未 discover 查找改用同一个有界 metadata 读取路径；读取循环从 `< 16KB` 截止；资源名新增 drive/UNC 与 Unicode Cc 检查。`pytest tests/runtime/test_skills_compat.py -v`：15 passed。
 
 ## 验证
 
 - `cd maestro && pytest tests/runtime/test_skills_compat.py tests/test_skills.py -v`：50 passed。
 - `cd maestro && pytest`：359 passed、7 failed。所有失败都是既有 `tests/test_chroma_store.py` 的 `ModuleNotFoundError: chromadb`；Task 4 runtime/legacy Skill 测试均通过。
 - `git diff --check`：无输出。
+- 复审后：`cd maestro && pytest tests/runtime/test_skills_compat.py tests/test_skills.py -v`：57 passed。
+- 复审后：`cd maestro && pytest`：366 passed、7 failed；失败仍全部为 `tests/test_chroma_store.py` 的 `ModuleNotFoundError: chromadb`。
 
 ## 提交
 

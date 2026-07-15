@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+import re
 from typing import Mapping
+import unicodedata
 
 from maestro.runtime.capabilities import CapabilitySnapshot
 from maestro.skills.parser import DEFAULT_TOOL_ALIASES, parse_runtime_frontmatter
@@ -92,12 +94,18 @@ class SkillCatalog:
         return LoadedSkill(metadata=metadata, prompt=prompt, mode=metadata.context)
 
     def read_resource(self, skill_name: str, resource: str) -> str:
-        metadata = self._active.get(skill_name) or self._find_by_directory_name(skill_name)
+        metadata = self._active.get(skill_name) or self._find_metadata_by_directory_name(skill_name)
         if metadata is None:
             raise KeyError(skill_name)
-        if not resource or Path(resource).is_absolute() or "\\" in resource:
+        if (
+            not resource
+            or Path(resource).is_absolute()
+            or resource.startswith(("//", "\\\\"))
+            or re.match(r"^[A-Za-z]:[\\/]", resource)
+            or "\\" in resource
+        ):
             raise SkillResourceError(f"unsafe skill resource: {resource!r}")
-        if any(ord(char) < 32 for char in resource) or ".." in Path(resource).parts:
+        if any(unicodedata.category(char) == "Cc" for char in resource) or ".." in Path(resource).parts:
             raise SkillResourceError(f"unsafe skill resource: {resource!r}")
         root = metadata.path.parent.resolve()
         target = (root / resource).resolve()
@@ -116,8 +124,8 @@ class SkillCatalog:
     def _read_metadata(self, source: str, root: Path, path: Path) -> SkillMetadata:
         with path.open("rb") as handle:
             header = b""
-            while len(header) <= _FRONTMATTER_BYTES:
-                chunk = handle.read(min(1024, _FRONTMATTER_BYTES + 1 - len(header)))
+            while len(header) < _FRONTMATTER_BYTES:
+                chunk = handle.read(min(1024, _FRONTMATTER_BYTES - len(header)))
                 if not chunk:
                     break
                 header += chunk
@@ -173,6 +181,21 @@ class SkillCatalog:
             if candidate.is_file():
                 frontmatter = parse_runtime_frontmatter(candidate.read_text("utf-8"))
                 metadata = self._metadata_from(frontmatter, source, candidate)
+                if metadata.name == name:
+                    return metadata
+        return None
+
+    def _find_metadata_by_directory_name(self, name: str) -> SkillMetadata | None:
+        """Find a named skill for resource loading without reading its body."""
+        for source in _SOURCE_PRECEDENCE:
+            root = self._sources.get(source)
+            if root is None:
+                continue
+            candidate = root / name / "SKILL.md"
+            if not candidate.is_file() and root.name == name:
+                candidate = root / "SKILL.md"
+            if candidate.is_file():
+                metadata = self._read_metadata(source, root, candidate)
                 if metadata.name == name:
                     return metadata
         return None

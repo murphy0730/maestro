@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ from maestro.runtime.skills import (
     SkillResourceError,
     SkillValidationError,
 )
+
+_FRONTMATTER_LIMIT = 16 * 1024
 
 
 @pytest.fixture
@@ -96,3 +99,68 @@ def test_discovery_stays_bounded_when_skill_body_is_large(tmp_path: Path) -> Non
     catalog = SkillCatalog({"project": skill.parent}, CapabilityRegistry().snapshot())
 
     assert catalog.discover()["large"].description == "large"
+
+
+def test_resource_read_before_discovery_reads_only_bounded_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skill = tmp_path / "resources" / "SKILL.md"
+    guide = skill.parent / "references" / "guide.md"
+    guide.parent.mkdir(parents=True)
+    skill.write_text("---\nname: resources\ndescription: resources\n---\n" + "x" * (17 * 1024))
+    guide.write_text("guide")
+    catalog = SkillCatalog({"project": skill.parent}, CapabilityRegistry().snapshot())
+    original_read_text = Path.read_text
+
+    def reject_full_skill_read(path: Path, *args: object, **kwargs: object) -> str:
+        if path == skill:
+            raise AssertionError("read_resource must not read the full SKILL.md")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", reject_full_skill_read)
+
+    assert catalog.read_resource("resources", "references/guide.md") == "guide"
+    assert catalog.io_log == [
+        "resources/SKILL.md:frontmatter",
+        "resources/references/guide.md:resource",
+    ]
+
+
+def test_discovery_never_reads_past_frontmatter_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skill = tmp_path / "bounded" / "SKILL.md"
+    skill.parent.mkdir()
+    skill.write_bytes(b"---\n" + b"x" * (_FRONTMATTER_LIMIT - 4))
+    skill_bytes = skill.read_bytes()
+    original_open = Path.open
+
+    class BoundedRead(io.BytesIO):
+        def __init__(self, value: bytes) -> None:
+            super().__init__(value)
+            self.bytes_requested = 0
+
+        def read(self, size: int = -1) -> bytes:
+            assert size >= 0
+            self.bytes_requested += size
+            assert self.bytes_requested <= _FRONTMATTER_LIMIT
+            return super().read(size)
+
+    def bounded_open(path: Path, *args: object, **kwargs: object) -> BoundedRead | object:
+        if path == skill:
+            return BoundedRead(skill_bytes)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", bounded_open)
+    catalog = SkillCatalog({"project": skill.parent}, CapabilityRegistry().snapshot())
+
+    with pytest.raises(SkillValidationError, match="exceeds 16KB"):
+        catalog.discover()
+
+
+@pytest.mark.parametrize("resource", ["C:/secret", r"C:\\secret", r"\\server\share", "guide\x7f.md", "guide\x85.md"])
+def test_resource_read_rejects_cross_platform_absolute_and_unicode_controls(
+    skill_catalog: SkillCatalog, resource: str
+) -> None:
+    with pytest.raises(SkillResourceError, match="unsafe skill resource"):
+        skill_catalog.read_resource("resources", resource)
