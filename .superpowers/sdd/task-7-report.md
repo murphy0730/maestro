@@ -29,7 +29,7 @@ GREEN: the same focused suite passed 4 tests after the minimal implementation. I
 
 ## Commit
 
-Pending at report creation; the completion commit is recorded after final verification.
+`c163c08 feat: execute bounded fast agent runs`
 
 ## Concerns / follow-up
 
