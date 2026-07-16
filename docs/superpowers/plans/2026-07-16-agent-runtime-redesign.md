@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Maestro's fixed planning/scheduling/query engines with one recoverable, policy-governed Agent Runtime that selects a fast loop or a GoalSpec + Typed Plan path and loads manufacturing capabilities exclusively through Claude-compatible Skills, Tools, and MCP.
+**Goal:** Replace Maestro's fixed planning/scheduling/query engines with one recoverable, policy-governed Agent Runtime that selects a fast loop or controlled execution mode and loads manufacturing capabilities exclusively through Claude-compatible Skills, Tools, and MCP.
 
 **Architecture:** Build a new `maestro.runtime` package beside the legacy engines, prove its domain model, persistence, policy, Skill loading, adaptive execution, and recovery independently, then switch the composition root and HTTP/SSE contract in one controlled cutover. The frontend consumes only Run/Step/Approval events and keeps a unified Agent entry; the final cleanup deletes the legacy engines and built-in manufacturing capabilities rather than maintaining adapters.
 
@@ -12,8 +12,8 @@
 
 - Package imports use `maestro`, never `platform`.
 - Runtime Core contains no planning algorithm, CP-SAT, PlanningStrategy, kitting, expediting, dispatching, or other manufacturing business capability.
-- Every request creates a `RunIntent`; GoalSpec and Typed Plan exist only on the structured path.
-- A fast Run can upgrade to the structured path; a structured Run can never downgrade.
+- Every request creates a `RunIntent`; Runtime creates no pre-built goal specification, plan graph, or plan-step contract.
+- A fast Run can upgrade to controlled execution; controlled execution can never downgrade.
 - Only `RunCoordinator` changes Run or Step state.
 - Every real Tool/MCP side effect passes through `PolicyGate`; model and Skill text cannot lower deterministic risk.
 - Skill discovery loads metadata, invocation loads full `SKILL.md`, and `references/`, `scripts/`, and `assets/` load only on demand.
@@ -40,7 +40,7 @@ The user approved this sequencing on 2026-07-16 to keep every task reviewable wi
 
 ### New backend runtime package
 
-- `maestro/src/maestro/runtime/models.py` — RunIntent, GoalSpec, TypedPlan, Run/Step/Approval models and enums.
+- `maestro/src/maestro/runtime/models.py` — RunIntent, Run/Step/Approval models and enums.
 - `maestro/src/maestro/runtime/state_machine.py` — the only legal Run/Step transition tables and transition validation.
 - `maestro/src/maestro/runtime/journal.py` — append-only JSONL facts and replay.
 - `maestro/src/maestro/runtime/store.py` — atomic Run snapshots and Artifact references.
@@ -50,9 +50,8 @@ The user approved this sequencing on 2026-07-16 to keep every task reviewable wi
 - `maestro/src/maestro/runtime/skills.py` — Claude-compatible discovery and progressive resource loading.
 - `maestro/src/maestro/runtime/context.py` — P0–P3 context assembly and untrusted-data wrapping.
 - `maestro/src/maestro/runtime/intent.py` — RunIntent construction and initial path selection.
-- `maestro/src/maestro/runtime/planning.py` — GoalSpec/TypedPlan generation and schema validation; no manufacturing algorithm.
 - `maestro/src/maestro/runtime/model.py` — model-turn protocol adapting the existing `LLMClient.chat_turn`.
-- `maestro/src/maestro/runtime/coordinator.py` — fast loop, structured execution, one-way upgrade, approval, cancellation, and recovery.
+- `maestro/src/maestro/runtime/coordinator.py` — fast loop, controlled execution, one-way upgrade, approval, reconciliation, cancellation, recovery, and Child Run management.
 - `maestro/src/maestro/runtime/events.py` — public Run/Step/Approval event schema and publisher.
 - `maestro/src/maestro/runtime/__init__.py` — public runtime exports only.
 
@@ -90,16 +89,13 @@ The user approved this sequencing on 2026-07-16 to keep every task reviewable wi
 - Create: `maestro/tests/runtime/test_state_machine.py`
 
 **Interfaces:**
-- Produces: `RunIntent`, `GoalSpec`, `PlanStep`, `TypedPlan`, `RunRecord`, `StepRecord`, `ApprovalRecord`, `RuntimeErrorKind`, `RunPath`, `RunStatus`, `StepStatus`.
+- Produces: `RunIntent`, `RunRecord`, `StepRecord`, `ApprovalRecord`, `RuntimeErrorKind`, `RunPath`, `RunStatus`, `StepStatus`.
 - Produces: `transition_run(run, target, reason)` and `transition_step(step, target, reason)`; later tasks must never assign status directly.
 
 - [ ] **Step 1: Add failing schema tests**
 
 ```python
-from pydantic import ValidationError
-import pytest
-
-from maestro.runtime.models import GoalSpec, PlanStep, RunIntent, RunPath, TypedPlan
+from maestro.runtime.models import RunIntent, RunPath
 
 
 def test_run_intent_defaults_to_unselected_path() -> None:
@@ -108,12 +104,11 @@ def test_run_intent_defaults_to_unselected_path() -> None:
     assert intent.risk_signals == []
 
 
-def test_typed_plan_rejects_missing_dependency() -> None:
-    with pytest.raises(ValidationError, match="missing dependency"):
-        TypedPlan(
-            goal=GoalSpec(objective="汇总结果", success_criteria=["生成摘要"]),
-            steps=[PlanStep(step_id="summarize", kind="model", depends_on=["read"])],
-        )
+def test_runtime_has_no_typed_plan_contract() -> None:
+    import maestro.runtime.models as runtime_models
+    assert not hasattr(runtime_models, "GoalSpec")
+    assert not hasattr(runtime_models, "PlanStep")
+    assert not hasattr(runtime_models, "TypedPlan")
 ```
 
 - [ ] **Step 2: Run schema tests and verify import failure**
@@ -124,7 +119,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'maestro.runtime'`.
 
 - [ ] **Step 3: Implement the complete domain model**
 
-Define string enums for paths and statuses, and Pydantic models with immutable identifiers and validated plan dependencies. Use this exact public shape:
+Define string enums for paths and statuses, and Pydantic models with immutable identifiers. Use this exact public shape:
 
 ```python
 class RunPath(StrEnum):
@@ -182,48 +177,6 @@ class RunIntent(BaseModel):
     path: RunPath = RunPath.UNSELECTED
 
 
-class GoalSpec(BaseModel):
-    objective: str = Field(min_length=1)
-    constraints: list[str] = Field(default_factory=list)
-    success_criteria: list[str] = Field(min_length=1)
-    required_outputs: list[str] = Field(default_factory=list)
-    known_inputs: dict[str, object] = Field(default_factory=dict)
-    unknowns: list[str] = Field(default_factory=list)
-    risk_context: list[str] = Field(default_factory=list)
-
-
-class PlanStep(BaseModel):
-    step_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    kind: Literal["model", "skill", "tool", "mcp", "verify", "reconcile"]
-    capability: str | None = None
-    depends_on: list[str] = Field(default_factory=list)
-    input_refs: dict[str, str] = Field(default_factory=dict)
-    output_key: str | None = None
-    max_attempts: int = Field(default=1, ge=1, le=5)
-    timeout_seconds: int = Field(default=60, ge=1, le=3600)
-    requires_approval: bool = False
-    success_condition: str = Field(default="capability_succeeded", pattern=r"^[a-z][a-z0-9_]{0,63}$")
-
-
-class TypedPlan(BaseModel):
-    goal: GoalSpec
-    steps: list[PlanStep] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_graph(self) -> "TypedPlan":
-        ids = [step.step_id for step in self.steps]
-        if len(ids) != len(set(ids)):
-            raise ValueError("duplicate step id")
-        known = set(ids)
-        for step in self.steps:
-            missing = set(step.depends_on) - known
-            if missing:
-                raise ValueError(f"missing dependency: {sorted(missing)}")
-            if step.step_id in step.depends_on:
-                raise ValueError("step cannot depend on itself")
-        return self
-
-
 class ApprovalRecord(BaseModel):
     approval_id: str = Field(default_factory=lambda: str(uuid4()))
     run_id: str
@@ -258,8 +211,6 @@ class RunRecord(BaseModel):
     path: RunPath = RunPath.UNSELECTED
     status: RunStatus = RunStatus.CREATED
     intent: RunIntent | None = None
-    goal_spec: GoalSpec | None = None
-    typed_plan: TypedPlan | None = None
     steps: dict[str, StepRecord] = Field(default_factory=dict)
     pending_approvals: list[ApprovalRecord] = Field(default_factory=list)
     capability_versions: dict[str, str] = Field(default_factory=dict)
@@ -282,7 +233,7 @@ from maestro.runtime.models import RunRecord, RunStatus, StepRecord, StepStatus
 from maestro.runtime.state_machine import InvalidTransition, transition_run, transition_step
 
 
-def test_structured_run_cannot_downgrade() -> None:
+def test_controlled_run_cannot_downgrade() -> None:
     run = RunRecord(objective="x", status=RunStatus.RUNNING_STRUCTURED)
     with pytest.raises(InvalidTransition):
         transition_run(run, RunStatus.RUNNING_FAST, "downgrade")
@@ -724,7 +675,7 @@ def test_path_matrix(classifier, request, expected) -> None:
 
 - [ ] **Step 2: Add the non-downgrade risk test**
 
-Supply a fake model classification of `low` for a registered high-risk write capability and assert the result remains structured with `deterministic_high_risk_write` in `risk_signals`.
+Supply a fake model classification of `low` for a registered high-risk write capability and assert the result remains in controlled execution with `deterministic_high_risk_write` in `risk_signals`.
 
 - [ ] **Step 3: Run and verify failure**
 
@@ -734,7 +685,7 @@ Expected: FAIL because intent module does not exist.
 
 - [ ] **Step 4: Implement deterministic-first classification**
 
-The classifier first derives signals from capability metadata, number of requested Skills, fork context, background flag, external waits, and explicit high-risk user wording. It may call an injected model classifier only for additional complexity signals. Any deterministic structured signal forces `RunPath.STRUCTURED`; model output can add risk but cannot remove it.
+The classifier first derives signals from capability metadata, number of requested Skills, fork context, background flag, external waits, and explicit high-risk user wording. It may call an injected model classifier only for additional complexity signals. Any deterministic controlled-execution signal forces `RunPath.STRUCTURED`; model output can add risk but cannot remove it.
 
 - [ ] **Step 5: Pass and commit**
 
@@ -811,12 +762,6 @@ class ModelAction(BaseModel):
 class RuntimeModel(Protocol):
     async def next_turn(self, context: ContextBundle, capabilities: list[CapabilitySpec]) -> ModelAction:
         raise NotImplementedError
-
-    async def structure_goal(self, intent: RunIntent, context: ContextBundle) -> GoalSpec:
-        raise NotImplementedError
-
-    async def create_plan(self, goal: GoalSpec, capabilities: list[CapabilitySpec]) -> TypedPlan:
-        raise NotImplementedError
 ```
 
 Public events use one stable envelope:
@@ -833,7 +778,7 @@ class RunEvent(BaseModel):
 
 `EventPublisher.publish` first appends the equivalent JournalEvent and only then notifies subscribers, so an observed public event is always recoverable.
 
-`LLMRuntimeModel` adapts `LLMClient.chat_turn` and `LLMClient.classify`; it never executes a Tool itself.
+`LLMRuntimeModel` adapts `LLMClient.chat_turn` and `LLMClient.classify`; it never executes a Tool itself or generates a pre-built plan.
 
 - [ ] **Step 5: Implement the fast loop**
 
@@ -852,73 +797,66 @@ git commit -m "feat: execute bounded fast agent runs"
 
 ---
 
-### Task 8: GoalSpec, Typed Plan, and One-Way Upgrade
+### Task 8: Controlled Execution, Approval, Reconciliation, Cancellation, Recovery, and Child Runs
 
 **Files:**
-- Create: `maestro/src/maestro/runtime/planning.py`
 - Modify: `maestro/src/maestro/runtime/coordinator.py`
-- Create: `maestro/tests/runtime/test_structured_path.py`
 - Create: `maestro/tests/runtime/test_path_upgrade.py`
+- Create: `maestro/tests/runtime/test_approval.py`
+- Create: `maestro/tests/runtime/test_reconciliation.py`
+- Create: `maestro/tests/runtime/test_recovery.py`
+- Create: `maestro/tests/runtime/test_cancellation.py`
 
 **Interfaces:**
-- Consumes: `RuntimeModel.structure_goal/create_plan`, Task 1 schemas, Task 7 coordinator.
-- Produces: `PlanValidator.validate()`, structured executor, and `RunCoordinator.upgrade_to_structured()`.
+- Consumes: Task 1 state helpers and Task 7 coordinator.
+- Produces: controlled execution upgrade, `RunCoordinator.approve()`, `RunCoordinator.cancel()`, `RunRecovery.restore()`, and Child Run handling.
 
-- [ ] **Step 1: Write failing initial structured-path test**
+- [ ] **Step 1: Write failing controlled-execution and one-way-upgrade tests**
 
 ```python
-async def test_complex_request_structures_before_execution(runtime_harness) -> None:
-    runtime_harness.model.queue_goal(GoalSpec(objective="跨系统更新", success_criteria=["两个系统状态一致"]))
-    runtime_harness.model.queue_plan(TypedPlan(
-        goal=runtime_harness.model.goals[0],
-        steps=[
-            PlanStep(step_id="read", kind="tool", capability="read_erp", output_key="erp"),
-            PlanStep(step_id="write", kind="mcp", capability="write_mes", depends_on=["read"]),
-            PlanStep(step_id="verify", kind="verify", depends_on=["write"]),
-        ],
-    ))
+async def test_complex_request_uses_controlled_execution(runtime_harness) -> None:
     run = await runtime_harness.coordinator.start("读取 ERP 后更新 MES")
     assert run.path is RunPath.STRUCTURED
-    assert run.goal_spec is not None
-    assert run.typed_plan is not None
+    assert not hasattr(run, "goal_spec")
+    assert not hasattr(run, "typed_plan")
 ```
 
-- [ ] **Step 2: Write failing fast-to-structured upgrade test**
+- [ ] **Step 2: Write failing fast-to-controlled-execution upgrade test**
 
-Start with a fast read call, then have the model request a high-risk write. Assert the write executor has zero calls before upgrade, the same `run_id` is retained, consumed budget is retained, and events include exactly one `run.path_upgraded` before `goal.created`.
+Start with a fast read call, then have the model request a high-risk write. Assert the write executor has zero calls before upgrade, the same `run_id` is retained, consumed budget is retained, the working set is frozen as an Artifact, and events include exactly one `run.path_upgraded` before the next controlled model turn.
 
 - [ ] **Step 3: Write failing fork Child Run test**
 
-Load a `context: fork` Skill from Task 4 and assert the parent enters the structured path, creates a Child Run with `parent_run_id`, isolated context and a smaller step budget, intersects parent policy permissions with Skill `allowed-tools`, and returns only a structured result/Artifact reference to the parent.
+Load a `context: fork` Skill from Task 4 and assert the parent enters controlled execution, creates a Child Run with `parent_run_id`, isolated context and a smaller step budget, intersects parent policy permissions with Skill `allowed-tools`, and returns only a result/Artifact reference to the parent.
 
 - [ ] **Step 4: Run and verify failure**
 
-Run: `cd maestro && pytest tests/runtime/test_structured_path.py tests/runtime/test_path_upgrade.py -v`
+Run: `cd maestro && pytest tests/runtime/test_path_upgrade.py -v`
 
-Expected: FAIL because structured planning and upgrade are absent.
+Expected: FAIL because controlled execution upgrade is absent.
 
-- [ ] **Step 5: Implement plan validation**
+- [ ] **Step 5: Implement controlled execution and Child Runs**
 
-Reject cycles, missing capabilities, read/write metadata mismatches, unreachable steps, a write step without an idempotency/reconciliation route, and a success criterion with no verifier. Validation returns a new plan with topologically stable step order; it never edits the model object in place.
+Before upgrade, transition `running_fast -> structuring`, append the upgrade reason and frozen working-set Artifact, preserve the capability snapshot and counters, then continue one model action at a time with stricter budgets. Do not construct a DAG, topology, or plan-level dependencies. Every state change goes through Task 1 helpers. Never define a transition back to `running_fast`. A fork Skill creates a normal RunRecord with `parent_run_id`, its own ContextBundle and budget, the same pinned capability versions, and the intersection of parent and Skill permissions; the parent receives a `ChildRunResult`, not the child's full prompt history.
 
-- [ ] **Step 6: Implement structured execution, upgrade, and Child Runs**
+- [ ] **Step 6: Implement approval, reconciliation, cancellation, and recovery**
 
-Before upgrade, transition `running_fast -> structuring`, append the upgrade reason and frozen working-set Artifact, preserve the capability snapshot and counters, then generate GoalSpec/TypedPlan. Execute only ready steps; every state change goes through Task 1 helpers. Never define a transition back to `running_fast`. A fork Skill creates a normal RunRecord with `parent_run_id`, its own ContextBundle and budget, the same pinned capability versions, and the intersection of parent and Skill permissions; the parent receives a `ChildRunResult`, not the child's full prompt history.
+Approval creation stores normalized call hash, impact summary, policy reason, external-state token, expiration, and Run revision. Approval execution re-evaluates PolicyGate and calls the capability revalidator immediately before execution. Persist idempotency keys before execution. Unknown write outcomes enter reconciliation and call a registered reconciler, never the original executor. Cancellation stops scheduling new actions; a Run with unknown writes remains reconciling until a definitive result is journaled. `RunRecovery.restore` replays Journal, compares snapshot revision, and resumes only non-terminal Runs.
 
 - [ ] **Step 7: Pass tests and commit**
 
-Run: `cd maestro && pytest tests/runtime/test_structured_path.py tests/runtime/test_path_upgrade.py -v`
+Run: `cd maestro && pytest tests/runtime/test_path_upgrade.py tests/runtime/test_approval.py tests/runtime/test_reconciliation.py tests/runtime/test_recovery.py tests/runtime/test_cancellation.py -v`
 
 Expected: PASS.
 
 ```bash
-git add maestro/src/maestro/runtime/planning.py maestro/src/maestro/runtime/coordinator.py maestro/tests/runtime/test_structured_path.py maestro/tests/runtime/test_path_upgrade.py
-git commit -m "feat: execute and upgrade structured agent runs"
+git add maestro/src/maestro/runtime maestro/tests/runtime
+git commit -m "feat: govern controlled runtime execution"
 ```
 
 ---
 
-### Task 9: Approval, Revalidation, Reconciliation, Cancellation, and Recovery
+### Task 9: Controlled-Execution Governance Hardening
 
 **Files:**
 - Modify: `maestro/src/maestro/runtime/coordinator.py`
@@ -954,7 +892,7 @@ Make the executor raise `UnknownWriteOutcome` after recording the idempotency ke
 
 - [ ] **Step 3: Write failing retry and compensation-governance tests**
 
-Assert only `TRANSIENT_INFRASTRUCTURE` errors listed by `CapabilitySpec.retryable_errors` retry, only when the capability is idempotent and budget remains. Assert failure never invokes compensation implicitly; a compensation action must be an explicit PlanStep whose kind is `tool` or `mcp`, and it must pass PolicyGate like every other side effect.
+Assert only `TRANSIENT_INFRASTRUCTURE` errors listed by `CapabilitySpec.retryable_errors` retry, only when the capability is idempotent and budget remains. Assert failure never invokes compensation implicitly; a compensation action must be an explicit governed Tool or MCP call and must pass PolicyGate like every other side effect.
 
 - [ ] **Step 4: Write failing crash-replay and cancellation tests**
 
@@ -972,7 +910,7 @@ Approval creation stores normalized call hash, impact summary, policy reason, ex
 
 - [ ] **Step 7: Implement retry, reconciliation, and recovery**
 
-Persist idempotency keys before execution. Map failures to Task 1 `RuntimeErrorKind`; catch only explicitly configured transient errors for automatic retry and require idempotency plus remaining budget. Catch `UnknownWriteOutcome` into `reconciling`; call a registered reconciler, never the original executor. Compensation is scheduled only from an explicit PlanStep. `RunRecovery.restore` replays Journal, compares the snapshot revision, and resumes only non-terminal Runs.
+Persist idempotency keys before execution. Map failures to Task 1 `RuntimeErrorKind`; catch only explicitly configured transient errors for automatic retry and require idempotency plus remaining budget. Catch `UnknownWriteOutcome` into `reconciling`; call a registered reconciler, never the original executor. Compensation is an explicit governed action. `RunRecovery.restore` replays Journal, compares the snapshot revision, and resumes only non-terminal Runs.
 
 - [ ] **Step 8: Implement cooperative cancellation**
 
@@ -1223,7 +1161,7 @@ Define `RunPath`, `RunStatus`, `StepStatus`, `RunSnapshot`, `ApprovalView`, and 
 
 - [ ] **Step 6: Add RunTrace UI tests**
 
-Assert visual labels for `快速执行`, `已升级为结构化执行`, `等待确认`, `正在对账`, `已恢复`, and terminal states. Assert approval buttons are disabled while a revisioned approval request is in flight.
+Assert visual labels for `快速执行`, `已升级为受控执行`, `等待确认`, `正在对账`, `已恢复`, and terminal states. Assert approval buttons are disabled while a revisioned approval request is in flight.
 
 - [ ] **Step 7: Replace route-centric Workspace behavior**
 
@@ -1329,7 +1267,7 @@ Expected: all commands exit 0.
 Using the FastAPI test client or a locally started backend, verify:
 
 1. simple answer stays fast;
-2. multi-capability request starts structured;
+2. multi-capability request starts in controlled execution;
 3. fast high-risk discovery upgrades once;
 4. stale approval is replaced;
 5. unknown write outcome reconciles without retry;
@@ -1354,8 +1292,8 @@ git commit -m "refactor: replace legacy engines with agent runtime"
 - [ ] Every design invariant in `docs/superpowers/specs/2026-07-16-agent-runtime-redesign-design.md` maps to at least one named test above.
 - [ ] `RunCoordinator` is the only module calling `transition_run` and `transition_step` outside state-machine tests.
 - [ ] No capability executor is reachable without `PolicyGate.evaluate`.
-- [ ] The fast path has no GoalSpec/TypedPlan allocation unless it upgrades.
-- [ ] There is no structured-to-fast transition in code or tests.
+- [ ] Neither execution mode allocates a pre-built goal specification, plan graph, or plan-step contract.
+- [ ] There is no controlled-execution-to-fast transition in code or tests.
 - [ ] Skill metadata discovery, full `SKILL.md` loading, and auxiliary resource access are observably separate.
 - [ ] Tool/MCP output and Skill references remain untrusted context data.
 - [ ] Approval revision, external-state token, and capability version are revalidated before writes.
