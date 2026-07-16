@@ -97,10 +97,15 @@ class RunCoordinator:
         self, run: RunRecord, snapshot: CapabilitySnapshot | None = None
     ) -> RunRecord:
         if run.status is RunStatus.RUNNING_STRUCTURED:
-            return await self._run_controlled(run, snapshot or self._capabilities.snapshot())
+            pinned_snapshot = self._pinned_snapshot(run, snapshot)
+            if pinned_snapshot is None:
+                return self._fail(run, "capability_snapshot_unavailable")
+            return await self._run_controlled(run, pinned_snapshot)
         if run.status is not RunStatus.RUNNING_FAST:
             return run
-        snapshot = snapshot or self._capabilities.snapshot()
+        snapshot = self._pinned_snapshot(run, snapshot)
+        if snapshot is None:
+            return self._fail(run, "capability_snapshot_unavailable")
         assert run.intent is not None
         started_at = monotonic()
         calls_seen: dict[str, int] = {}
@@ -355,6 +360,14 @@ class RunCoordinator:
         if skill_allowed is not None:
             specs = [spec for spec in specs if spec.name in skill_allowed]
         return specs
+
+    def _pinned_snapshot(
+        self, run: RunRecord, snapshot: CapabilitySnapshot | None
+    ) -> CapabilitySnapshot | None:
+        candidate = snapshot or self._capabilities.snapshot()
+        if candidate.versions() != run.capability_versions:
+            return None
+        return candidate
 
     def _load_inline_skill(self, spec: CapabilitySpec, call: CapabilityCall, run: RunRecord) -> Any | None:
         if self._skill_catalog is None:

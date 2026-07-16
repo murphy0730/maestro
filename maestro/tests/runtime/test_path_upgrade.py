@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 
 from maestro.runtime.capabilities import CapabilityKind, CapabilityRegistry, CapabilitySpec, RiskLevel
-from maestro.runtime.context import ContextProvider
+from maestro.runtime.context import ContextItem, ContextProvider
 from maestro.runtime.coordinator import RunCoordinator
 from maestro.runtime.events import EventPublisher
 from maestro.runtime.intent import IntentClassifier
 from maestro.runtime.journal import JsonlJournal
-from maestro.runtime.models import RunPath, RunStatus
+from maestro.runtime.models import RunIntent, RunPath, RunRecord, RunStatus
 from maestro.runtime.policy import PolicyGate
 from maestro.runtime.skills import SkillCatalog
 from maestro.runtime.store import ArtifactStore, RunStore
@@ -138,6 +138,50 @@ async def test_upgrade_persists_the_running_controlled_snapshot_before_next_turn
     await coordinator.start("读取", tool_names=["read"], max_steps=6)
 
     assert model.observed_status is RunStatus.RUNNING_STRUCTURED
+
+
+async def test_resumed_controlled_run_rejects_a_replaced_capability_snapshot(
+    tmp_path: Path,
+) -> None:
+    registry = CapabilityRegistry()
+    original = CountingExecutor()
+    replacement = CountingExecutor()
+    registry.register(
+        CapabilitySpec(name="read", kind=CapabilityKind.TOOL, version="1", executor=original)
+    )
+    runs = RunStore(tmp_path / "runs")
+    coordinator = RunCoordinator(
+        model=FakeRuntimeModel(),
+        capabilities=registry,
+        intent_classifier=IntentClassifier(registry.snapshot()),
+        policy_gate=PolicyGate([]),
+        context_provider=ContextProvider(max_chars=8_000),
+        run_store=runs,
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        events=EventPublisher(JsonlJournal(tmp_path / "journal.jsonl")),
+    )
+    original_snapshot = registry.snapshot()
+    fast_run = RunRecord(
+        objective="读取",
+        path=RunPath.FAST,
+        status=RunStatus.RUNNING_FAST,
+        intent=RunIntent(objective="读取", candidate_capabilities=["read"], path=RunPath.FAST),
+        capability_versions=original_snapshot.versions(),
+    )
+    upgraded = coordinator._upgrade_to_controlled_execution(
+        fast_run, "high_risk_write", [ContextItem.from_run(fast_run)]
+    )
+    persisted = runs.load(upgraded.run_id)
+    registry.register(
+        CapabilitySpec(name="read", kind=CapabilityKind.TOOL, version="2", executor=replacement),
+        replace=True,
+    )
+
+    resumed = await coordinator.run_until_blocked(persisted)
+
+    assert resumed.status is RunStatus.FAILED
+    assert original.calls == 0
+    assert replacement.calls == 0
 
 
 async def test_fork_skill_uses_isolated_limited_child_run(tmp_path: Path) -> None:

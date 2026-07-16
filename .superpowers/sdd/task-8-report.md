@@ -27,7 +27,8 @@
 ## Concerns
 
 - `RunPath.STRUCTURED` and `RUNNING_STRUCTURED` are retained legacy names for compatibility, but this implementation treats them solely as controlled execution; it creates no plan, DAG, topology, or dependency model.
-- A parent with the minimum one-step budget cannot produce a numerically smaller valid child budget because `RunIntent.max_steps` is bounded at one; otherwise child budgets are halved.
+- A parent with a one-step budget now rejects fork creation before any Child Run is created, because no smaller valid child budget exists.
+- Resuming a controlled Run requires an exact local capability snapshot matching its pinned versions; if a host has evicted that version, the Run safely fails rather than using a newer capability.
 
 ## Review follow-up
 
@@ -35,4 +36,5 @@
 - Forking with a one-step parent is rejected before a Child Run is created.
 - Every controlled call, including Skill calls, consumes and persists one strict step; distinct Skills cannot bypass the controlled budget.
 - The post-upgrade `RUNNING_STRUCTURED` snapshot is saved before the next controlled model turn.
-- Follow-up verification: `pytest tests/runtime -q` — 138 passed; `pytest -q` — 432 passed.
+- Controlled recovery now validates the exact pinned capability versions before any model turn; replaced registry capabilities are never executed during resume.
+- Follow-up verification: `pytest tests/runtime -q` — 139 passed; `pytest -q` — 433 passed.
