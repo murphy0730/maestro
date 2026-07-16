@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from maestro.runtime.coordinator import RunCoordinator
 from maestro.runtime.events import EventPublisher
 from maestro.runtime.intent import IntentClassifier
 from maestro.runtime.journal import JsonlJournal
-from maestro.runtime.models import RunPath, RunStatus
+from maestro.runtime.models import ApprovalRecord, RunIntent, RunPath, RunRecord, RunStatus
 from maestro.runtime.policy import PolicyGate
 from maestro.runtime.skills import SkillCatalog
 from maestro.runtime.store import ArtifactStore, RunStore
@@ -134,3 +135,72 @@ async def test_inline_skill_expands_context_and_narrows_tools(tmp_path: Path) ->
     assert model.capability_names[1] == ["read"]
     assert read.calls == 0
     assert write.calls == 0
+
+
+async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_path: Path) -> None:
+    registry = CapabilityRegistry()
+    lookup = CountingExecutor({"payload": "x" * 128})
+    registry.register(CapabilitySpec(name="inspect", kind=CapabilityKind.SKILL))
+    registry.register(CapabilitySpec(name="lookup", kind=CapabilityKind.TOOL, executor=lookup))
+    skill = tmp_path / "skills" / "inspect" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: inspect\ndescription: inspect\ncontext: fork\n---\nInspect $ARGUMENTS\n")
+    catalog = SkillCatalog({"project": tmp_path / "skills"}, registry.snapshot())
+    catalog.discover()
+    model = FakeRuntimeModel()
+    model.queue_call("lookup", {"query": "WO-1"})
+    model.queue_call("inspect", {"arguments": "WO-1"})
+    publisher = EventPublisher(JsonlJournal(tmp_path / "journal.jsonl"))
+    coordinator = RunCoordinator(
+        model=model,
+        capabilities=registry,
+        intent_classifier=IntentClassifier(registry.snapshot()),
+        policy_gate=PolicyGate([]),
+        context_provider=ContextProvider(max_chars=8_000),
+        run_store=RunStore(tmp_path / "runs"),
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        events=publisher,
+        skill_catalog=catalog,
+        artifact_threshold_bytes=1,
+    )
+
+    snapshot = registry.snapshot()
+    approval = ApprovalRecord(
+        run_id="run-upgrade",
+        step_id="approve-write",
+        call_sha256="a" * 64,
+        impact_summary="already approved",
+        policy_reason="policy",
+        run_revision=4,
+        status="approved",
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    run = RunRecord(
+        run_id="run-upgrade",
+        objective="检查工单",
+        path=RunPath.FAST,
+        status=RunStatus.RUNNING_FAST,
+        intent=RunIntent(
+            objective="检查工单", candidate_capabilities=["lookup"], path=RunPath.FAST
+        ),
+        capability_versions=snapshot.versions(),
+        consumed_steps=4,
+        pending_approvals=[approval],
+    )
+
+    run = await coordinator.run_until_blocked(run, snapshot)
+
+    assert run.status is RunStatus.RUNNING_STRUCTURED
+    assert run.path is RunPath.STRUCTURED
+    assert run.run_id == "run-upgrade"
+    assert run.consumed_steps == 5
+    assert run.pending_approvals == [approval]
+    assert run.capability_versions == snapshot.versions()
+    assert "goal_spec" not in type(run).model_fields
+    assert "typed_plan" not in type(run).model_fields
+    assert RunStore(tmp_path / "runs").load(run.run_id) == run
+    history = publisher.history(run.run_id)
+    assert [event.type for event in history][-2:] == ["run.upgrading", "run.upgraded"]
+    assert history[-2].data["reason"] == "skill_upgrade_required"
+    assert history[-2].data["artifact_working_set"] == history[-1].data["artifact_working_set"]
+    assert history[-2].data["artifact_working_set"][0]["media_type"] == "application/json"

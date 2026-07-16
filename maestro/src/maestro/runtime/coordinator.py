@@ -129,7 +129,9 @@ class RunCoordinator:
             if spec.kind is CapabilityKind.SKILL:
                 loaded = self._load_inline_skill(spec, action.call, run)
                 if loaded is None:
-                    return self._fail(run, "skill_upgrade_required")
+                    return self._upgrade_to_controlled_execution(
+                        run, "skill_upgrade_required", context_items
+                    )
                 context_items.append(ContextItem.from_skill(loaded))
                 allowed = set(loaded.metadata.allowed_tools)
                 skill_allowed = allowed if parent_allowed is None else parent_allowed & allowed
@@ -204,6 +206,29 @@ class RunCoordinator:
     def _fail(self, run: RunRecord, reason: str) -> RunRecord:
         run = transition_run(run, RunStatus.FAILED, reason)
         self._save_and_publish(run, "run.failed", {"reason": reason})
+        return run
+
+    def _upgrade_to_controlled_execution(
+        self, run: RunRecord, reason: str, context_items: list[ContextItem]
+    ) -> RunRecord:
+        """Move one fast run into controlled execution without constructing a plan."""
+        artifact_working_set = [
+            item.ref.model_dump()
+            for item in context_items
+            if item.ref is not None
+        ]
+        run = transition_run(run, RunStatus.STRUCTURING, reason)
+        self._save_and_publish(
+            run,
+            "run.upgrading",
+            {"reason": reason, "artifact_working_set": artifact_working_set},
+        )
+        run = transition_run(run, RunStatus.RUNNING_STRUCTURED, reason)
+        self._save_and_publish(
+            run,
+            "run.upgraded",
+            {"reason": reason, "artifact_working_set": artifact_working_set},
+        )
         return run
 
     def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:

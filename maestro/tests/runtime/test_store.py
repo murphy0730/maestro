@@ -14,6 +14,22 @@ def test_snapshot_replace_is_atomic(tmp_path) -> None:
     assert not (tmp_path / "runs" / "r1.json.tmp").exists()
 
 
+def test_run_store_ignores_legacy_typed_plan_snapshot_fields(tmp_path) -> None:
+    store = RunStore(tmp_path / "runs")
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs" / "r1.json").write_text(
+        '{"run_id":"r1","objective":"x","goal_spec":{"objective":"x"},'
+        '"typed_plan":{"steps":[]}}'
+    )
+
+    loaded = store.load("r1")
+
+    assert "goal_spec" not in type(loaded).model_fields
+    assert "typed_plan" not in type(loaded).model_fields
+    assert "goal_spec" not in loaded.model_dump()
+    assert "typed_plan" not in loaded.model_dump()
+
+
 def test_artifact_returns_content_hash(tmp_path) -> None:
     ref = ArtifactStore(tmp_path / "artifacts").put(b"large result", "text/plain")
 
