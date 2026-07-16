@@ -95,12 +95,12 @@ class CapabilitySnapshot:
 
     def require(self, name: str) -> CapabilitySpec:
         try:
-            return deepcopy(self._specs[name])
+            return _copy_spec(self._specs[name])
         except KeyError as error:
             raise KeyError(f"unknown capability: {name}") from error
 
     def values(self) -> tuple[CapabilitySpec, ...]:
-        return tuple(deepcopy(spec) for spec in self._specs.values())
+        return tuple(_copy_spec(spec) for spec in self._specs.values())
 
     def versions(self) -> dict[str, str]:
         return {name: spec.content_sha256 for name, spec in self._specs.items()}
@@ -113,16 +113,22 @@ class CapabilityRegistry:
     def register(self, spec: CapabilitySpec, *, replace: bool = False) -> None:
         if spec.name in self._specs and not replace:
             raise ValueError(f"capability already registered: {spec.name}")
-        stored = deepcopy(spec)
+        stored = _copy_spec(spec)
         stored = dataclass_replace(stored, risk=_normalize_risk(stored.risk))
         stored = dataclass_replace(stored, content_sha256=_content_hash(stored))
         self._specs[stored.name] = stored
 
     def require(self, name: str) -> CapabilitySpec:
         try:
-            return deepcopy(self._specs[name])
+            return _copy_spec(self._specs[name])
         except KeyError as error:
             raise KeyError(f"unknown capability: {name}") from error
 
     def snapshot(self) -> CapabilitySnapshot:
-        return CapabilitySnapshot(deepcopy(self._specs))
+        return CapabilitySnapshot({name: _copy_spec(spec) for name, spec in self._specs.items()})
+
+
+def _copy_spec(spec: CapabilitySpec) -> CapabilitySpec:
+    """Copy mutable descriptor data while preserving the executable boundary identity."""
+    copied = deepcopy(spec)
+    return dataclass_replace(copied, executor=spec.executor)
