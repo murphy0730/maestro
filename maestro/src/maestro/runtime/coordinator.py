@@ -201,6 +201,8 @@ class RunCoordinator:
         while True:
             if monotonic() - started_at >= run.intent.max_seconds:
                 return self._fail(run, "time_exhausted")
+            if run.consumed_steps >= controlled_limit:
+                return self._fail(run, "controlled_budget_exhausted")
             action = await self._model.next_turn(
                 self._context_provider.assemble(context_items),
                 self._available(snapshot, parent_allowed, skill_allowed),
@@ -211,9 +213,9 @@ class RunCoordinator:
                 run = run.model_copy(update={"final_text": action.text})
                 self._save_and_publish(run, "run.completed", {"final_text": action.text})
                 return run
-            if run.consumed_steps >= controlled_limit:
-                return self._fail(run, "controlled_budget_exhausted")
             assert action.call is not None
+            run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
+            self._save_and_publish(run, "run.step_consumed", {})
             normalized = self._normalize(action.call)
             calls_seen[normalized] = calls_seen.get(normalized, 0) + 1
             if calls_seen[normalized] >= 3:
@@ -227,6 +229,8 @@ class RunCoordinator:
                 if loaded is None:
                     return self._fail(run, "missing_skill_catalog")
                 if loaded.mode == "fork":
+                    if run.intent.max_steps <= 1:
+                        return self._fail(run, "child_budget_not_smaller")
                     child_result, artifact = await self._run_child(
                         run, snapshot, loaded, parent_allowed
                     )
@@ -257,7 +261,6 @@ class RunCoordinator:
             if spec.executor is None:
                 return self._fail(run, "missing_executor")
             result = await spec.executor(action.call, None)
-            run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
             self._save_and_publish(
                 run, "capability.completed", {"name": spec.name, "status": result.status}
             )
@@ -402,6 +405,7 @@ class RunCoordinator:
             {"reason": reason, "artifact_working_set": artifact_working_set},
         )
         run = transition_run(run, RunStatus.RUNNING_STRUCTURED, reason)
+        self._run_store.save(run)
         return run
 
     def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:

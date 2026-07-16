@@ -77,11 +77,42 @@ def test_replay_rejects_unknown_events() -> None:
         JournalEvent(
             run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
         ),
-        JournalEvent(run_id="r1", sequence=1, type="run.failed"),
+        JournalEvent(run_id="r1", sequence=1, type="run.unknown"),
     ]
 
     with pytest.raises(ValueError, match="unknown"):
         replay_run(events)
+
+
+def test_replay_rebuilds_controlled_failure_and_rejects_later_events() -> None:
+    artifact = {
+        "artifact_id": "a" * 64,
+        "sha256": "a" * 64,
+        "media_type": "application/json",
+        "bytes": 1,
+    }
+    events = [
+        JournalEvent(run_id="r1", sequence=0, type="run.created", data={"objective": "x"}),
+        JournalEvent(run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}),
+        JournalEvent(
+            run_id="r1",
+            sequence=2,
+            type="run.path_upgraded",
+            data={"reason": "high_risk_write", "artifact_working_set": [artifact]},
+        ),
+        JournalEvent(
+            run_id="r1",
+            sequence=3,
+            type="run.failed",
+            data={"reason": "controlled_budget_exhausted"},
+        ),
+    ]
+
+    failed = replay_run(events)
+
+    assert failed.status is RunStatus.FAILED
+    with pytest.raises(ValueError, match="run.completed requires an active run"):
+        replay_run(events + [JournalEvent(run_id="r1", sequence=4, type="run.completed")])
 
 
 def test_replay_applies_ordered_controlled_execution_upgrade() -> None:

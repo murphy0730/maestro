@@ -167,8 +167,8 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
                 raise ValueError("run.completed requires run.created")
             if pending_upgrade is not None:
                 raise ValueError("run.completed cannot interrupt upgrade")
-            if run.status is RunStatus.COMPLETED:
-                raise ValueError("run.completed cannot occur twice")
+            if run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+                raise ValueError("run.completed requires an active run")
             final_text = event.data.get("final_text")
             if final_text is not None and not isinstance(final_text, str):
                 raise ValueError("run.completed final_text must be a string")
@@ -178,6 +178,17 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
                     "final_text": final_text,
                     "updated_at": event.occurred_at,
                 }
+            )
+        elif event.type == "run.failed":
+            if run is None or run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+                raise ValueError("run.failed requires an active run")
+            if pending_upgrade is not None:
+                raise ValueError("run.failed cannot interrupt upgrade")
+            reason = event.data.get("reason")
+            if not isinstance(reason, str) or not reason:
+                raise ValueError("run.failed requires a reason")
+            run = run.model_copy(
+                update={"status": RunStatus.FAILED, "updated_at": event.occurred_at}
             )
         elif event.type == "run.upgrading":
             if run is None:
@@ -216,11 +227,12 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
             "model.turn",
             "capability.completed",
             "artifact.created",
+            "run.step_consumed",
             "child_run.created",
             "child_run.completed",
         }:
-            if run is None:
-                raise ValueError(f"{event.type} requires run.created")
+            if run is None or run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+                raise ValueError(f"{event.type} requires an active run")
         else:
             raise ValueError(f"unknown journal event: {event.type}")
 
