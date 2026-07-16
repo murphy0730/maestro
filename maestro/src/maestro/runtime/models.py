@@ -70,6 +70,8 @@ class ApprovalRecord(BaseModel):
     policy_reason: str
     external_state_token: str | None = None
     run_revision: int
+    run_allowed_tools: list[str] | None = None
+    skill_allowed_tools: list[str] | None = None
     status: Literal["pending", "approved", "rejected", "expired"] = "pending"
     expires_at: datetime
 

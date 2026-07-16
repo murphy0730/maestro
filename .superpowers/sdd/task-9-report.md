@@ -44,3 +44,9 @@ Final remediation verification: focused approval/recovery/cancellation tests pas
 - A write marks its in-flight step durably. Cancellation during that interval remains `cancelling`; a definitive success then becomes `cancelled`, while an unknown outcome becomes `reconciling` and cannot be hidden by cancellation.
 
 Final verification after this update: focused tests `10 passed`, Runtime `152 passed`, backend `446 passed` (one existing deprecation warning).
+
+## Approval-boundary persistence follow-up
+
+`ApprovalRecord` now stores both the run allowlist and the skill allowlist at request time. Approval re-evaluation reconstructs `PolicyContext` from exactly these persisted boundaries. The fast-to-controlled upgrade now journals the `run.controlled_started` state projection through `_save_and_publish`, rather than performing an unjournaled direct snapshot save.
+
+Verification: Runtime `152 passed`; full backend `446 passed` (one existing deprecation warning).

@@ -265,7 +265,7 @@ class RunCoordinator:
                 ),
             )
             if decision.effect in {PolicyEffect.REQUIRE_CONFIRMATION, PolicyEffect.REQUIRE_RECONFIRMATION}:
-                return await self._request_approval(run, action.call, spec, decision)
+                return await self._request_approval(run, action.call, spec, decision, parent_allowed, skill_allowed)
             if decision.effect is not PolicyEffect.ALLOW:
                 return self._fail(run, decision.effect.value)
             if spec.executor is None:
@@ -423,7 +423,13 @@ class RunCoordinator:
             spec = snapshot.require(call.name)
             allowed = set(run.intent.candidate_capabilities) if run.intent and run.intent.candidate_capabilities else None
             decision = self._policy_gate.evaluate(
-                call, spec, PolicyContext(principal_id=principal_id, run_allowed_tools=allowed)
+                call,
+                spec,
+                PolicyContext(
+                    principal_id=principal_id,
+                    run_allowed_tools=set(approval.run_allowed_tools) if approval.run_allowed_tools else None,
+                    skill_allowed_tools=set(approval.skill_allowed_tools) if approval.skill_allowed_tools else None,
+                ),
             )
             token = await self._external_state_token(spec, call)
             if (
@@ -433,7 +439,7 @@ class RunCoordinator:
             ):
                 expired = approval.model_copy(update={"status": "expired"})
                 run = run.model_copy(update={"pending_approvals": [expired]})
-                return await self._request_approval(run, call, spec, decision, replace=True)
+                return await self._request_approval(run, call, spec, decision, allowed, approval.skill_allowed_tools and set(approval.skill_allowed_tools), replace=True)
             run = run.model_copy(update={"pending_approvals": []})
             run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "approval granted")
             if not self._run_store.compare_and_save(run, expected_revision):
@@ -484,7 +490,7 @@ class RunCoordinator:
         self._save_and_publish(run, "write.reconciled", {"step_id": step.step_id})
         return run
 
-    async def _request_approval(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, decision: Any, replace: bool = False) -> RunRecord:
+    async def _request_approval(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, decision: Any, run_allowed: set[str] | None = None, skill_allowed: set[str] | None = None, replace: bool = False) -> RunRecord:
         step_id = str(uuid4())
         token = await self._external_state_token(spec, call)
         step = StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump(), external_state_token=token)
@@ -493,7 +499,7 @@ class RunCoordinator:
             run = transition_run(run, RunStatus.WAITING_APPROVAL, "approval required")
         else:
             run = run.model_copy(update={"revision": run.revision + 1, "updated_at": datetime.now(UTC)})
-        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, expires_at=datetime.now(UTC) + timedelta(minutes=10))
+        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, run_allowed_tools=sorted(run_allowed) if run_allowed else None, skill_allowed_tools=sorted(skill_allowed) if skill_allowed else None, expires_at=datetime.now(UTC) + timedelta(minutes=10))
         run = run.model_copy(update={"pending_approvals": [approval]})
         self._save_and_publish(run, "approval.requested", {"approval_id": approval.approval_id, "snapshot_revision": run.revision})
         return run
@@ -577,7 +583,7 @@ class RunCoordinator:
             {"reason": reason, "artifact_working_set": artifact_working_set},
         )
         run = transition_run(run, RunStatus.RUNNING_STRUCTURED, reason)
-        self._run_store.save(run)
+        self._save_and_publish(run, "run.controlled_started", {})
         return run
 
     def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:
