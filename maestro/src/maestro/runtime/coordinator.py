@@ -521,21 +521,9 @@ class RunCoordinator:
             and run.consumed_steps < max(1, run.intent.max_steps // 2)
         ):
             run = self._save_and_publish(run, "write.retrying", {"step_id": step_id})
-            async with self._run_store.lock_for(run.run_id):
-                current = self._run_store.load(run.run_id)
-                if current.status is RunStatus.CANCELLING:
-                    cancelled = transition_run(current, RunStatus.CANCELLED, "cancelled before retry")
-                    return self._save_and_publish(
-                        cancelled, "run.cancelled", {"step_id": step_id}
-                    )
-                if current.status in {
-                    RunStatus.CANCELLED,
-                    RunStatus.RECONCILING,
-                    RunStatus.COMPLETED,
-                    RunStatus.FAILED,
-                }:
-                    return current
-                run = current
+            run, claimed = await self._claim_retry(run, step_id)
+            if not claimed:
+                return run
             try:
                 result = await spec.executor(call, key) if spec.executor is not None else result
             except UnknownWriteOutcome:
@@ -559,6 +547,45 @@ class RunCoordinator:
             return self._save_and_publish(run, "run.cancelled", {})
         run = run.model_copy(update={"inflight_step_id": None})
         return self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
+
+    async def _claim_retry(self, run: RunRecord, step_id: str) -> tuple[RunRecord, bool]:
+        """Persist exclusive retry ownership without holding a lock during execution."""
+        while True:
+            async with self._run_store.lock_for(run.run_id):
+                current = self._run_store.load(run.run_id)
+                if current.status is RunStatus.CANCELLING:
+                    cancelled = transition_run(current, RunStatus.CANCELLED, "cancelled before retry")
+                    return self._save_and_publish(cancelled, "run.cancelled", {"step_id": step_id}), False
+                if current.status in {
+                    RunStatus.CANCELLED,
+                    RunStatus.RECONCILING,
+                    RunStatus.COMPLETED,
+                    RunStatus.FAILED,
+                }:
+                    return current, False
+                step = current.steps.get(step_id)
+                expected_attempt = run.steps[step_id].attempt
+                if step is None or step.attempt != expected_attempt:
+                    return current, False
+                claimed_step = step.model_copy(update={"attempt": step.attempt + 1})
+                claimed = current.model_copy(
+                    update={
+                        "steps": {**current.steps, step_id: claimed_step},
+                        "revision": current.revision + 1,
+                        "updated_at": datetime.now(UTC),
+                    }
+                )
+                if self._run_store.compare_and_save(claimed, current.revision):
+                    self._publish(
+                        claimed,
+                        "write.retry_claimed",
+                        {
+                            "step_id": step_id,
+                            "snapshot_revision": claimed.revision,
+                            "run_snapshot": claimed.model_dump(mode="json"),
+                        },
+                    )
+                    return claimed, True
 
     async def _external_state_token(self, spec: CapabilitySpec, call: CapabilityCall) -> str | None:
         return await spec.revalidator(call) if spec.revalidator is not None else None

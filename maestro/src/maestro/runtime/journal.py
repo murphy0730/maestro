@@ -266,6 +266,7 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
             "write.unknown",
             "write.reconciled",
             "write.retrying",
+            "write.retry_claimed",
             "run.cancelling",
             "run.cancelled",
             "run.cancel_deferred",
@@ -285,7 +286,7 @@ _SNAPSHOT_EVENTS = frozenset(
         "run.created", "run.path_selected", "run.controlled_started", "run.path_upgraded",
         "run.completed", "run.failed", "run.step_consumed", "approval.requested",
         "approval.approved", "write.started", "write.unknown", "write.reconciled",
-        "write.retrying", "run.cancelling", "run.cancelled", "run.cancel_deferred",
+        "write.retrying", "write.retry_claimed", "run.cancelling", "run.cancelled", "run.cancel_deferred",
         "capability.completed",
     }
 )

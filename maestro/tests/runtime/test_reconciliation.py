@@ -105,6 +105,44 @@ async def test_cancel_between_transient_failure_and_retry_skips_second_execution
 
 
 @pytest.mark.asyncio
+async def test_cancel_after_retry_claim_allows_claimed_execution_then_cancels(tmp_path) -> None:
+    class CancelAfterClaimStore(RunStore):
+        cancelled = False
+
+        def compare_and_save(self, run, expected_revision):
+            saved = super().compare_and_save(run, expected_revision)
+            if saved and not self.cancelled and any(step.attempt == 1 for step in run.steps.values()):
+                self.cancelled = True
+                current = self.load(run.run_id)
+                cancelling = transition_run(current, RunStatus.CANCELLING, "cancel requested")
+                assert super().compare_and_save(cancelling, current.revision)
+            return saved
+
+    class Flaky:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, _call, _key):
+            self.calls += 1
+            if self.calls == 1:
+                return CapabilityResult(status="failed", error_kind=RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE)
+            return CapabilityResult(status="succeeded")
+
+    harness = RuntimeHarness(tmp_path)
+    store = CancelAfterClaimStore(tmp_path / "runs")
+    harness.coordinator._run_store = store
+    executor = Flaky()
+    harness.registry.register(CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, idempotent=True, retryable_errors=frozenset({RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE}), executor=executor))
+    harness.model.queue_call("write")
+
+    run = await harness.coordinator.start("write")
+
+    assert store.cancelled is True
+    assert executor.calls == 2
+    assert run.status is RunStatus.CANCELLED
+
+
+@pytest.mark.asyncio
 async def test_failed_write_never_invokes_compensation_implicitly(tmp_path) -> None:
     harness = RuntimeHarness(tmp_path)
 
