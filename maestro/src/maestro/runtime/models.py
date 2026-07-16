@@ -102,6 +102,7 @@ class RunRecord(BaseModel):
     capability_versions: dict[str, str] = Field(default_factory=dict)
     consumed_steps: int = 0
     requires_reconciliation: bool = False
+    inflight_step_id: str | None = None
     final_text: str | None = None
     revision: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

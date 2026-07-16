@@ -5,6 +5,7 @@ import os
 import re
 import asyncio
 import threading
+import fcntl
 from collections import defaultdict
 from pathlib import Path
 
@@ -79,15 +80,22 @@ class RunStore:
 
     def compare_and_save(self, run: RunRecord, expected_revision: int) -> bool:
         """Atomically replace a snapshot only when its stored revision still matches."""
-        with self._write_locks[_validate_storage_id(run.run_id)]:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        run_id = _validate_storage_id(run.run_id)
+        lock_path = self.directory / f"{run_id}.lock"
+        with lock_path.open("a+b") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             try:
-                current = self.load(run.run_id)
-            except FileNotFoundError:
-                return False
-            if current.revision != expected_revision:
-                return False
-            self.save(run)
-            return True
+                try:
+                    current = self.load(run.run_id)
+                except FileNotFoundError:
+                    return False
+                if current.revision != expected_revision:
+                    return False
+                self.save(run)
+                return True
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 class ArtifactStore:

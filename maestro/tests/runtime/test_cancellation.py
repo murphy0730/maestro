@@ -46,5 +46,5 @@ async def test_cancel_during_inflight_write_cannot_be_overwritten_by_completion(
     release.set()
     completed = await task
 
-    assert cancelled.status is RunStatus.CANCELLED
+    assert cancelled.status is RunStatus.CANCELLING
     assert completed.status is RunStatus.CANCELLED

@@ -436,7 +436,13 @@ class RunCoordinator:
                 return await self._request_approval(run, call, spec, decision, replace=True)
             run = run.model_copy(update={"pending_approvals": []})
             run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "approval granted")
-            self._save_and_publish(run, "approval.approved", {"approval_id": approval_id})
+            if not self._run_store.compare_and_save(run, expected_revision):
+                raise ValueError("stale approval revision")
+            self._publish(
+                run,
+                "approval.approved",
+                {"approval_id": approval_id, "snapshot_revision": run.revision, "run_snapshot": run.model_dump(mode="json")},
+            )
         return await self._execute_write(run, call, spec, step.step_id)
 
     async def cancel(self, run_id: str) -> RunRecord:
@@ -449,6 +455,8 @@ class RunCoordinator:
                 return run
             run = transition_run(run, RunStatus.CANCELLING, "cancel requested")
             self._save_and_publish(run, "run.cancelling", {})
+            if run.inflight_step_id is not None:
+                return run
             run = transition_run(run, RunStatus.CANCELLED, "cancelled safely")
             self._save_and_publish(run, "run.cancelled", {})
             return run
@@ -495,7 +503,7 @@ class RunCoordinator:
         key = str(uuid4())
         step = run.steps.get(step_id) or StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump())
         step = step.model_copy(update={"idempotency_key": key, "call": call.model_dump()})
-        run = run.model_copy(update={"steps": {**run.steps, step_id: step}})
+        run = run.model_copy(update={"steps": {**run.steps, step_id: step}, "inflight_step_id": step_id})
         self._save_and_publish(run, "write.started", {"step_id": step_id, "idempotency_key": key})
         try:
             result = await spec.executor(call, key) if spec.executor is not None else CapabilityResult(status="failed", error_message="missing_executor")
@@ -523,11 +531,17 @@ class RunCoordinator:
             run = current
         if result.status == "unknown":
             run = transition_run(run, RunStatus.RECONCILING, "unknown write outcome")
-            run = run.model_copy(update={"requires_reconciliation": True})
+            run = run.model_copy(update={"requires_reconciliation": True, "inflight_step_id": None})
             self._save_and_publish(run, "write.unknown", {"step_id": step_id})
             return run
         if result.status == "failed":
             return self._fail(run, result.error_message or "write_failed")
+        if run.status is RunStatus.CANCELLING:
+            run = run.model_copy(update={"inflight_step_id": None})
+            run = transition_run(run, RunStatus.CANCELLED, "cancelled after definitive write")
+            self._save_and_publish(run, "run.cancelled", {})
+            return run
+        run = run.model_copy(update={"inflight_step_id": None})
         self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
         return run
 

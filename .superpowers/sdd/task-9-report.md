@@ -36,3 +36,11 @@ No `GoalSpec`, `TypedPlan`, `PlanStep`, DAG/planning logic, or manufacturing-dom
 - Added adversarial tests for concurrent approval, expiry, terminal restore rejection, same-revision snapshot tampering, and in-flight cancellation.
 
 Final remediation verification: focused approval/recovery/cancellation tests pass, Runtime tests pass (`151 passed`), and full backend tests pass (`446 passed`, one existing Starlette/httpx deprecation warning).
+
+## Final concurrency remediation
+
+- `RunStore.compare_and_save` now uses an advisory per-run filesystem lock (`flock`) around revision comparison and atomic replacement, so independent store instances share the same CAS boundary.
+- Approval execution claims the approved transition through that persistent CAS before invoking a side effect.
+- A write marks its in-flight step durably. Cancellation during that interval remains `cancelling`; a definitive success then becomes `cancelled`, while an unknown outcome becomes `reconciling` and cannot be hidden by cancellation.
+
+Final verification after this update: focused tests `10 passed`, Runtime `152 passed`, backend `446 passed` (one existing deprecation warning).
