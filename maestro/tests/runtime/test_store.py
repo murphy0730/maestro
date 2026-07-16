@@ -14,6 +14,18 @@ def test_snapshot_replace_is_atomic(tmp_path) -> None:
     assert not (tmp_path / "runs" / "r1.json.tmp").exists()
 
 
+def test_independent_run_stores_cannot_overwrite_a_newer_revision(tmp_path) -> None:
+    first = RunStore(tmp_path / "runs")
+    second = RunStore(tmp_path / "runs")
+    original = RunRecord(run_id="r1", objective="x")
+    first.save(original)
+    newer = original.model_copy(update={"revision": 1})
+
+    assert first.compare_and_save(newer, expected_revision=0) is True
+    assert second.compare_and_save(original, expected_revision=0) is False
+    assert second.load("r1").revision == 1
+
+
 def test_run_store_ignores_legacy_typed_plan_snapshot_fields(tmp_path) -> None:
     store = RunStore(tmp_path / "runs")
     (tmp_path / "runs").mkdir()

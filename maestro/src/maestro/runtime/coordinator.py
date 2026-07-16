@@ -85,15 +85,15 @@ class RunCoordinator:
             intent=intent,
             capability_versions=snapshot.versions(),
         )
-        self._save_and_publish(run, "run.created", {"objective": objective, "run_id": run.run_id})
+        run = self._save_and_publish(run, "run.created", {"objective": objective, "run_id": run.run_id})
         if intent.path is RunPath.STRUCTURED:
             run = transition_run(run, RunStatus.STRUCTURING, "intent requires structure")
-            self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
+            run = self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
             run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "controlled execution ready")
-            self._save_and_publish(run, "run.controlled_started", {})
+            run = self._save_and_publish(run, "run.controlled_started", {})
             return await self._run_controlled(run, snapshot)
         run = transition_run(run, RunStatus.RUNNING_FAST, "intent selects fast path")
-        self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
+        run = self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
         return await self.run_until_blocked(run, snapshot)
 
     async def run_until_blocked(
@@ -125,7 +125,7 @@ class RunCoordinator:
             if action.kind == "final":
                 run = transition_run(run, RunStatus.COMPLETED, "model final")
                 run = run.model_copy(update={"final_text": action.text})
-                self._save_and_publish(run, "run.completed", {"final_text": action.text})
+                run = self._save_and_publish(run, "run.completed", {"final_text": action.text})
                 return run
             if run.consumed_steps >= run.intent.max_steps:
                 return self._fail(run, "budget_exhausted")
@@ -175,7 +175,7 @@ class RunCoordinator:
                 return self._fail(run, "missing_executor")
             result = await spec.executor(action.call, None)
             run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
-            self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
+            run = self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
             content = result.content
             encoded = json.dumps(content, ensure_ascii=False, default=str).encode()
             if len(encoded) > self._artifact_threshold_bytes:
@@ -219,11 +219,11 @@ class RunCoordinator:
             if action.kind == "final":
                 run = transition_run(run, RunStatus.COMPLETED, "model final")
                 run = run.model_copy(update={"final_text": action.text})
-                self._save_and_publish(run, "run.completed", {"final_text": action.text})
+                run = self._save_and_publish(run, "run.completed", {"final_text": action.text})
                 return run
             assert action.call is not None
             run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
-            self._save_and_publish(run, "run.step_consumed", {})
+            run = self._save_and_publish(run, "run.step_consumed", {})
             normalized = self._normalize(action.call)
             calls_seen[normalized] = calls_seen.get(normalized, 0) + 1
             if calls_seen[normalized] >= 3:
@@ -273,7 +273,7 @@ class RunCoordinator:
             if spec.writes:
                 return await self._execute_write(run, action.call, spec)
             result = await spec.executor(action.call, None)
-            self._save_and_publish(
+            run = self._save_and_publish(
                 run, "capability.completed", {"name": spec.name, "status": result.status}
             )
             self._append_result_context(context_items, run, spec.name, result.content)
@@ -303,11 +303,11 @@ class RunCoordinator:
             intent=child_intent,
             capability_versions=parent.capability_versions,
         )
-        self._save_and_publish(child, "run.created", {"objective": child.objective, "run_id": child.run_id})
+        child = self._save_and_publish(child, "run.created", {"objective": child.objective, "run_id": child.run_id})
         child = transition_run(child, RunStatus.STRUCTURING, "fork skill requires controlled execution")
-        self._save_and_publish(child, "run.path_selected", {"path": child.path.value})
+        child = self._save_and_publish(child, "run.path_selected", {"path": child.path.value})
         child = transition_run(child, RunStatus.RUNNING_STRUCTURED, "child controlled execution ready")
-        self._save_and_publish(child, "run.controlled_started", {})
+        child = self._save_and_publish(child, "run.controlled_started", {})
         self._publish(parent, "child_run.created", {"child_run_id": child.run_id})
         child = await self._run_controlled(
             child,
@@ -398,8 +398,7 @@ class RunCoordinator:
 
     def _fail(self, run: RunRecord, reason: str) -> RunRecord:
         run = transition_run(run, RunStatus.FAILED, reason)
-        self._save_and_publish(run, "run.failed", {"reason": reason})
-        return run
+        return self._save_and_publish(run, "run.failed", {"reason": reason})
 
     async def approve(
         self, run_id: str, approval_id: str, approved: bool, principal_id: str, expected_revision: int
@@ -427,8 +426,8 @@ class RunCoordinator:
                 spec,
                 PolicyContext(
                     principal_id=principal_id,
-                    run_allowed_tools=set(approval.run_allowed_tools) if approval.run_allowed_tools else None,
-                    skill_allowed_tools=set(approval.skill_allowed_tools) if approval.skill_allowed_tools else None,
+                    run_allowed_tools=set(approval.run_allowed_tools) if approval.run_allowed_tools is not None else None,
+                    skill_allowed_tools=set(approval.skill_allowed_tools) if approval.skill_allowed_tools is not None else None,
                 ),
             )
             token = await self._external_state_token(spec, call)
@@ -439,7 +438,9 @@ class RunCoordinator:
             ):
                 expired = approval.model_copy(update={"status": "expired"})
                 run = run.model_copy(update={"pending_approvals": [expired]})
-                return await self._request_approval(run, call, spec, decision, allowed, approval.skill_allowed_tools and set(approval.skill_allowed_tools), replace=True)
+                if decision.effect is PolicyEffect.DENY:
+                    return self._fail(run, decision.reason)
+                return await self._request_approval(run, call, spec, decision, allowed, set(approval.skill_allowed_tools) if approval.skill_allowed_tools is not None else None, replace=True)
             run = run.model_copy(update={"pending_approvals": []})
             run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "approval granted")
             if not self._run_store.compare_and_save(run, expected_revision):
@@ -455,17 +456,15 @@ class RunCoordinator:
         async with self._run_store.lock_for(run_id):
             run = self._run_store.load(run_id)
             if run.status is RunStatus.RECONCILING or run.requires_reconciliation:
-                self._save_and_publish(run, "run.cancel_deferred", {"reason": "requires_reconciliation"})
-                return run
+                return self._save_and_publish(run, "run.cancel_deferred", {"reason": "requires_reconciliation"})
             if run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
                 return run
             run = transition_run(run, RunStatus.CANCELLING, "cancel requested")
-            self._save_and_publish(run, "run.cancelling", {})
+            run = self._save_and_publish(run, "run.cancelling", {})
             if run.inflight_step_id is not None:
                 return run
             run = transition_run(run, RunStatus.CANCELLED, "cancelled safely")
-            self._save_and_publish(run, "run.cancelled", {})
-            return run
+            return self._save_and_publish(run, "run.cancelled", {})
 
     async def reconcile(self, run_id: str) -> RunRecord:
         run = self._run_store.load(run_id)
@@ -487,8 +486,7 @@ class RunCoordinator:
             return self._fail(run, result.error_message or "reconciliation_failed")
         run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "reconciled")
         run = run.model_copy(update={"requires_reconciliation": False})
-        self._save_and_publish(run, "write.reconciled", {"step_id": step.step_id})
-        return run
+        return self._save_and_publish(run, "write.reconciled", {"step_id": step.step_id})
 
     async def _request_approval(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, decision: Any, run_allowed: set[str] | None = None, skill_allowed: set[str] | None = None, replace: bool = False) -> RunRecord:
         step_id = str(uuid4())
@@ -499,10 +497,9 @@ class RunCoordinator:
             run = transition_run(run, RunStatus.WAITING_APPROVAL, "approval required")
         else:
             run = run.model_copy(update={"revision": run.revision + 1, "updated_at": datetime.now(UTC)})
-        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, run_allowed_tools=sorted(run_allowed) if run_allowed else None, skill_allowed_tools=sorted(skill_allowed) if skill_allowed else None, expires_at=datetime.now(UTC) + timedelta(minutes=10))
+        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, run_allowed_tools=sorted(run_allowed) if run_allowed is not None else None, skill_allowed_tools=sorted(skill_allowed) if skill_allowed is not None else None, expires_at=datetime.now(UTC) + timedelta(minutes=10))
         run = run.model_copy(update={"pending_approvals": [approval]})
-        self._save_and_publish(run, "approval.requested", {"approval_id": approval.approval_id, "snapshot_revision": run.revision})
-        return run
+        return self._save_and_publish(run, "approval.requested", {"approval_id": approval.approval_id})
 
     async def _execute_write(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, step_id: str | None = None) -> RunRecord:
         step_id = step_id or str(uuid4())
@@ -510,7 +507,7 @@ class RunCoordinator:
         step = run.steps.get(step_id) or StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump())
         step = step.model_copy(update={"idempotency_key": key, "call": call.model_dump()})
         run = run.model_copy(update={"steps": {**run.steps, step_id: step}, "inflight_step_id": step_id})
-        self._save_and_publish(run, "write.started", {"step_id": step_id, "idempotency_key": key})
+        run = self._save_and_publish(run, "write.started", {"step_id": step_id, "idempotency_key": key})
         try:
             result = await spec.executor(call, key) if spec.executor is not None else CapabilityResult(status="failed", error_message="missing_executor")
         except UnknownWriteOutcome:
@@ -523,7 +520,7 @@ class RunCoordinator:
             and run.intent is not None
             and run.consumed_steps < max(1, run.intent.max_steps // 2)
         ):
-            self._save_and_publish(run, "write.retrying", {"step_id": step_id})
+            run = self._save_and_publish(run, "write.retrying", {"step_id": step_id})
             try:
                 result = await spec.executor(call, key) if spec.executor is not None else result
             except UnknownWriteOutcome:
@@ -538,18 +535,15 @@ class RunCoordinator:
         if result.status == "unknown":
             run = transition_run(run, RunStatus.RECONCILING, "unknown write outcome")
             run = run.model_copy(update={"requires_reconciliation": True, "inflight_step_id": None})
-            self._save_and_publish(run, "write.unknown", {"step_id": step_id})
-            return run
+            return self._save_and_publish(run, "write.unknown", {"step_id": step_id})
         if result.status == "failed":
             return self._fail(run, result.error_message or "write_failed")
         if run.status is RunStatus.CANCELLING:
             run = run.model_copy(update={"inflight_step_id": None})
             run = transition_run(run, RunStatus.CANCELLED, "cancelled after definitive write")
-            self._save_and_publish(run, "run.cancelled", {})
-            return run
+            return self._save_and_publish(run, "run.cancelled", {})
         run = run.model_copy(update={"inflight_step_id": None})
-        self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
-        return run
+        return self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
 
     async def _external_state_token(self, spec: CapabilitySpec, call: CapabilityCall) -> str | None:
         return await spec.revalidator(call) if spec.revalidator is not None else None
@@ -577,17 +571,37 @@ class RunCoordinator:
         artifact_working_set = [artifact.model_dump()]
         context_items.append(ContextItem.from_artifact(artifact))
         run = transition_run(run, RunStatus.STRUCTURING, reason)
-        self._save_and_publish(
+        run = self._save_and_publish(
             run,
             "run.path_upgraded",
             {"reason": reason, "artifact_working_set": artifact_working_set},
         )
         run = transition_run(run, RunStatus.RUNNING_STRUCTURED, reason)
-        self._save_and_publish(run, "run.controlled_started", {})
+        run = self._save_and_publish(run, "run.controlled_started", {})
         return run
 
-    def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:
-        self._run_store.save(run)
+    def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> RunRecord:
+        """Persist one monotonic snapshot; never replace a newer Run with a stale copy."""
+        while True:
+            try:
+                current = self._run_store.load(run.run_id)
+            except FileNotFoundError:
+                candidate = run
+                expected_revision = -1
+            else:
+                if run.revision < current.revision:
+                    candidate = self._retry_stale_write(current, run, event_type)
+                    if candidate is None:
+                        return current
+                    expected_revision = current.revision
+                else:
+                    expected_revision = current.revision
+                    candidate = run if run.revision == current.revision + 1 else run.model_copy(
+                        update={"revision": current.revision + 1, "updated_at": datetime.now(UTC)}
+                    )
+            if self._run_store.compare_and_save(candidate, expected_revision):
+                run = candidate
+                break
         self._publish(
             run,
             event_type,
@@ -597,6 +611,31 @@ class RunCoordinator:
                 "run_snapshot": run.model_dump(mode="json"),
             },
         )
+        return run
+
+    @staticmethod
+    def _retry_stale_write(current: RunRecord, _requested: RunRecord, event_type: str) -> RunRecord | None:
+        """Reapply only terminal safety transitions to the freshly loaded snapshot."""
+        if event_type == "write.unknown":
+            target = RunStatus.RECONCILING
+            update = {"requires_reconciliation": True, "inflight_step_id": None}
+        elif event_type == "run.cancelled" and current.status is RunStatus.CANCELLING:
+            target = RunStatus.CANCELLED
+            update = {"inflight_step_id": None}
+        elif event_type == "run.cancelling":
+            target = RunStatus.CANCELLING
+            update = {}
+        elif event_type == "run.failed":
+            target = RunStatus.FAILED
+            update = {}
+        else:
+            return None
+        if current.status is target:
+            return current
+        try:
+            return transition_run(current, target, event_type).model_copy(update=update)
+        except ValueError:
+            return None
 
     def _publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:
         self._events.publish(

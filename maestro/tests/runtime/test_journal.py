@@ -8,7 +8,7 @@ from maestro.runtime.journal import (
     JsonlJournal,
     replay_run,
 )
-from maestro.runtime.models import RunPath, RunStatus
+from maestro.runtime.models import RunPath, RunRecord, RunStatus
 
 
 def test_journal_survives_new_instance(tmp_path) -> None:
@@ -354,3 +354,38 @@ def test_journal_preserves_append_order_not_event_timestamps(tmp_path) -> None:
         "run.completed",
         "run.created",
     ]
+
+
+def test_replay_rejects_snapshot_on_non_published_event() -> None:
+    run = RunRecord(run_id="r1", objective="x")
+    with pytest.raises(ValueError, match="cannot contain a run snapshot"):
+        replay_run([
+            JournalEvent(run_id="r1", sequence=0, type="run.created", data={"objective": "x"}),
+            JournalEvent(run_id="r1", sequence=1, type="model.turn", data={"run_snapshot": run.model_dump(mode="json")}),
+        ])
+
+
+def test_replay_rejects_snapshot_with_skipped_revision() -> None:
+    created = RunRecord(run_id="r1", objective="x")
+    running = created.model_copy(update={"path": RunPath.FAST, "status": RunStatus.RUNNING_FAST, "revision": 1})
+    completed = running.model_copy(update={"status": RunStatus.COMPLETED, "revision": 3})
+    with pytest.raises(ValueError, match="revision"):
+        replay_run([
+            JournalEvent(run_id="r1", sequence=0, type="run.created", data={"run_snapshot": created.model_dump(mode="json"), "snapshot_revision": 0}),
+            JournalEvent(run_id="r1", sequence=1, type="run.path_selected", data={"run_snapshot": running.model_dump(mode="json"), "snapshot_revision": 1}),
+            JournalEvent(run_id="r1", sequence=2, type="run.completed", data={"run_snapshot": completed.model_dump(mode="json"), "snapshot_revision": 3}),
+        ])
+
+
+def test_replay_restores_a_snapshot_from_the_last_non_state_event() -> None:
+    created = RunRecord(run_id="r1", objective="x")
+    running = created.model_copy(update={"path": RunPath.FAST, "status": RunStatus.RUNNING_FAST, "revision": 1})
+    latest = running.model_copy(update={"consumed_steps": 1, "revision": 2})
+
+    restored = replay_run([
+        JournalEvent(run_id="r1", sequence=0, type="run.created", data={"run_snapshot": created.model_dump(mode="json"), "snapshot_revision": 0}),
+        JournalEvent(run_id="r1", sequence=1, type="run.path_selected", data={"run_snapshot": running.model_dump(mode="json"), "snapshot_revision": 1}),
+        JournalEvent(run_id="r1", sequence=2, type="capability.completed", data={"run_snapshot": latest.model_dump(mode="json"), "snapshot_revision": 2}),
+    ])
+
+    assert restored == latest

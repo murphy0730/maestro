@@ -48,3 +48,29 @@ async def test_cancel_during_inflight_write_cannot_be_overwritten_by_completion(
 
     assert cancelled.status is RunStatus.CANCELLING
     assert completed.status is RunStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_inflight_unknown_write_requires_reconciliation(tmp_path) -> None:
+    harness = RuntimeHarness(tmp_path)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingUnknownExecutor:
+        async def __call__(self, _call, _key):
+            started.set()
+            await release.wait()
+            raise UnknownWriteOutcome()
+
+    harness.registry.register(CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, executor=BlockingUnknownExecutor()))
+    harness.model.queue_call("write")
+    task = asyncio.create_task(harness.coordinator.start("write"))
+    await started.wait()
+    run_id = next(path.stem for path in harness.coordinator._run_store.directory.glob("*.json"))
+
+    assert (await harness.coordinator.cancel(run_id)).status is RunStatus.CANCELLING
+    release.set()
+    completed = await task
+
+    assert completed.status is RunStatus.RECONCILING
+    assert completed.requires_reconciliation is True

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from maestro.runtime.models import RunPath, RunRecord, RunStatus
 from maestro.runtime.store import ArtifactRef, is_reproducible_artifact_ref
+from maestro.runtime.state_machine import transition_run
 
 
 class JournalCorruption(ValueError):
@@ -105,12 +106,31 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
     for event in ordered:
         snapshot = event.data.get("run_snapshot")
         if snapshot is not None:
+            if event.type not in _SNAPSHOT_EVENTS:
+                raise ValueError(f"{event.type} cannot contain a run snapshot")
             try:
                 projected = RunRecord.model_validate(snapshot)
             except ValidationError as error:
                 raise ValueError(f"{event.type} contains an invalid run snapshot") from error
             if projected.run_id != event.run_id:
                 raise ValueError(f"{event.type} snapshot run_id does not match")
+            snapshot_revision = event.data.get("snapshot_revision")
+            if snapshot_revision != projected.revision:
+                raise ValueError(f"{event.type} snapshot revision does not match event")
+            if run is not None:
+                if projected.revision != run.revision + 1:
+                    raise ValueError(f"{event.type} snapshot revision is not continuous")
+                if projected.status is not run.status:
+                    try:
+                        transitioned = transition_run(run, projected.status, event.type)
+                    except ValueError as error:
+                        raise ValueError(f"{event.type} has an invalid state transition") from error
+                    if transitioned.path is not projected.path:
+                        raise ValueError(f"{event.type} snapshot path does not match transition")
+                if not _snapshot_status_matches_event(event.type, projected.status):
+                    raise ValueError(f"{event.type} snapshot has an invalid status")
+            elif projected.revision != 0 or event.type != "run.created":
+                raise ValueError(f"{event.type} snapshot must start with run.created revision 0")
             run = projected
             continue
         if event.type == "run.created":
@@ -258,6 +278,39 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
     if run is None:
         raise ValueError("missing run.created")
     return run
+
+
+_SNAPSHOT_EVENTS = frozenset(
+    {
+        "run.created", "run.path_selected", "run.controlled_started", "run.path_upgraded",
+        "run.completed", "run.failed", "run.step_consumed", "approval.requested",
+        "approval.approved", "write.started", "write.unknown", "write.reconciled",
+        "write.retrying", "run.cancelling", "run.cancelled", "run.cancel_deferred",
+        "capability.completed",
+    }
+)
+
+
+def _snapshot_status_matches_event(event_type: str, status: RunStatus) -> bool:
+    expected = {
+        "run.created": {RunStatus.CREATED},
+        "run.path_selected": {RunStatus.RUNNING_FAST, RunStatus.STRUCTURING},
+        "run.completed": RunStatus.COMPLETED,
+        "run.failed": RunStatus.FAILED,
+        "run.controlled_started": RunStatus.RUNNING_STRUCTURED,
+        "run.path_upgraded": RunStatus.RUNNING_STRUCTURED,
+        "approval.requested": RunStatus.WAITING_APPROVAL,
+        "approval.approved": RunStatus.RUNNING_STRUCTURED,
+        "write.unknown": RunStatus.RECONCILING,
+        "write.reconciled": RunStatus.RUNNING_STRUCTURED,
+        "run.cancelling": RunStatus.CANCELLING,
+        "run.cancelled": RunStatus.CANCELLED,
+    }.get(event_type)
+    if expected is None:
+        return True
+    if isinstance(expected, set):
+        return status in expected
+    return status is expected
 
 
 def _upgrade_data(event: JournalEvent) -> dict[str, object]:

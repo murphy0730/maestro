@@ -89,7 +89,10 @@ class RunStore:
                 try:
                     current = self.load(run.run_id)
                 except FileNotFoundError:
-                    return False
+                    if expected_revision != -1:
+                        return False
+                    self.save(run)
+                    return True
                 if current.revision != expected_revision:
                     return False
                 self.save(run)

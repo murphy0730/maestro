@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from maestro.runtime.capabilities import CapabilityKind, CapabilitySpec, RiskLevel
-from maestro.runtime.models import RunStatus
+from maestro.runtime.capabilities import CapabilityCall, CapabilityKind, CapabilitySpec, RiskLevel
+from maestro.runtime.models import ApprovalRecord, RunIntent, RunPath, RunRecord, RunStatus, StepRecord
 from test_fast_loop import RuntimeHarness
 
 
@@ -90,3 +90,31 @@ async def test_concurrent_approval_is_claimed_once(tmp_path) -> None:
     )
 
     assert sum(isinstance(item, ValueError) for item in results) == 1
+
+
+@pytest.mark.asyncio
+async def test_approval_reassessment_keeps_empty_initial_skill_allowlist_and_denies(tmp_path) -> None:
+    harness = RuntimeHarness(tmp_path)
+    executor = harness.add_tool("write")
+    snapshot = harness.registry.snapshot()
+    call = CapabilityCall(name="write")
+    approval = ApprovalRecord(
+        run_id="skill-denied", step_id="s1", call_sha256=harness.coordinator._call_sha256(call),
+        impact_summary="write", policy_reason="approval", run_revision=1,
+        skill_allowed_tools=[], expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    run = RunRecord(
+        run_id="skill-denied", objective="x", path=RunPath.STRUCTURED,
+        status=RunStatus.WAITING_APPROVAL,
+        intent=RunIntent(objective="x", path=RunPath.STRUCTURED),
+        capability_versions=snapshot.versions(), revision=1,
+        steps={"s1": StepRecord(run_id="skill-denied", step_id="s1", kind="write", call=call.model_dump())},
+        pending_approvals=[approval],
+    )
+    harness.coordinator._run_store.save(run)
+
+    resumed = await harness.coordinator.approve(run.run_id, approval.approval_id, True, "u1", 1)
+
+    assert resumed.status is RunStatus.FAILED
+    assert [item.status for item in resumed.pending_approvals] == ["expired"]
+    assert executor.calls == 0
