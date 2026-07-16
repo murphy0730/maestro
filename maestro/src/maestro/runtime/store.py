@@ -3,6 +3,9 @@
 import hashlib
 import os
 import re
+import asyncio
+import threading
+from collections import defaultdict
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -45,6 +48,12 @@ def is_reproducible_artifact_ref(ref: ArtifactRef) -> bool:
 class RunStore:
     def __init__(self, directory: Path | str) -> None:
         self.directory = Path(directory)
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._write_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
+
+    def lock_for(self, run_id: str) -> asyncio.Lock:
+        """Return the process-local serialization lock for one Run."""
+        return self._locks[_validate_storage_id(run_id)]
 
     def save(self, run: RunRecord) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -67,6 +76,18 @@ class RunStore:
         return RunRecord.model_validate_json(
             (self.directory / f"{run_id}.json").read_bytes()
         )
+
+    def compare_and_save(self, run: RunRecord, expected_revision: int) -> bool:
+        """Atomically replace a snapshot only when its stored revision still matches."""
+        with self._write_locks[_validate_storage_id(run.run_id)]:
+            try:
+                current = self.load(run.run_id)
+            except FileNotFoundError:
+                return False
+            if current.revision != expected_revision:
+                return False
+            self.save(run)
+            return True
 
 
 class ArtifactStore:

@@ -103,6 +103,16 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
     run: RunRecord | None = None
     pending_upgrade: dict[str, object] | None = None
     for event in ordered:
+        snapshot = event.data.get("run_snapshot")
+        if snapshot is not None:
+            try:
+                projected = RunRecord.model_validate(snapshot)
+            except ValidationError as error:
+                raise ValueError(f"{event.type} contains an invalid run snapshot") from error
+            if projected.run_id != event.run_id:
+                raise ValueError(f"{event.type} snapshot run_id does not match")
+            run = projected
+            continue
         if event.type == "run.created":
             if run is not None:
                 raise ValueError("run.created must be the first event")

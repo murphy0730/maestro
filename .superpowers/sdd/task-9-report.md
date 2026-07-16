@@ -26,3 +26,13 @@ The final complete backend run passed with `441 passed` and one pre-existing Sta
 ## Scope guard
 
 No `GoalSpec`, `TypedPlan`, `PlanStep`, DAG/planning logic, or manufacturing-domain behavior was added. Run status transitions remain in `RunCoordinator` through `transition_run`.
+
+## Review remediation
+
+- `RunStore` now exposes a per-run async serialization lock plus `compare_and_save`; approval claiming occurs under that lock and replacement approvals advance the run revision, so a concurrent caller observes a stale revision.
+- Approval checks expiry, preserves the run allowlist during policy re-evaluation, and converts expiry, changed external state, denial, or any confirmation/reconfirmation decision into a fresh approval rather than executing.
+- Cancellation is serialized with state changes. An executor completing after cancellation reloads the current snapshot and returns the already-cancelled run instead of writing its stale result; unknown writes remain reconciling.
+- Every persisted runtime event now carries a validated `run_snapshot`. Journal replay applies that snapshot as the projection, and recovery rejects terminal runs plus any mismatch of the complete projection and stored snapshot, including same-revision content tampering.
+- Added adversarial tests for concurrent approval, expiry, terminal restore rejection, same-revision snapshot tampering, and in-flight cancellation.
+
+Final remediation verification: focused approval/recovery/cancellation tests pass, Runtime tests pass (`151 passed`), and full backend tests pass (`446 passed`, one existing Starlette/httpx deprecation warning).

@@ -21,13 +21,17 @@ class RunRecovery:
         events = self._journal.read(run_id)
         if not events:
             raise UnsafeRecovery("missing journal")
+        if snapshot.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+            raise UnsafeRecovery("terminal runs cannot be restored")
         try:
-            replay_run(events)
+            projection = replay_run(events)
         except ValueError as error:
             raise UnsafeRecovery("journal cannot be replayed") from error
         revisions = [event.data.get("snapshot_revision") for event in events]
         if not isinstance(revisions[-1], int) or revisions[-1] != snapshot.revision:
             raise UnsafeRecovery("snapshot revision does not match journal")
+        if projection.model_dump(mode="json") != snapshot.model_dump(mode="json"):
+            raise UnsafeRecovery("snapshot does not match journal projection")
         if self._coordinator._pinned_snapshot(snapshot, None) is None:
             raise UnsafeRecovery("capability snapshot unavailable")
         return snapshot
