@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from maestro.runtime.models import RunPath, RunRecord, RunStatus
+from maestro.runtime.store import ArtifactRef
 
 
 class JournalCorruption(ValueError):
@@ -100,6 +101,7 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
             raise ValueError("event sequences must be continuous and non-decreasing")
 
     run: RunRecord | None = None
+    pending_upgrade: dict[str, object] | None = None
     for event in ordered:
         if event.type == "run.created":
             if run is not None:
@@ -132,6 +134,8 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
         elif event.type == "run.completed":
             if run is None:
                 raise ValueError("run.completed requires run.created")
+            if pending_upgrade is not None:
+                raise ValueError("run.completed cannot interrupt upgrade")
             if run.status is RunStatus.COMPLETED:
                 raise ValueError("run.completed cannot occur twice")
             final_text = event.data.get("final_text")
@@ -144,9 +148,58 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
                     "updated_at": event.occurred_at,
                 }
             )
+        elif event.type == "run.upgrading":
+            if run is None:
+                raise ValueError("run.upgrading requires run.created")
+            if (
+                run.path is not RunPath.FAST
+                or run.status is RunStatus.COMPLETED
+                or pending_upgrade is not None
+            ):
+                raise ValueError("run.upgrading requires a fast run")
+            pending_upgrade = _upgrade_data(event)
+            run = run.model_copy(
+                update={
+                    "path": RunPath.STRUCTURED,
+                    "status": RunStatus.STRUCTURING,
+                    "updated_at": event.occurred_at,
+                }
+            )
+        elif event.type == "run.upgraded":
+            if (
+                run is None
+                or pending_upgrade is None
+                or run.status is not RunStatus.STRUCTURING
+            ):
+                raise ValueError("run.upgraded requires run.upgrading")
+            if _upgrade_data(event) != pending_upgrade:
+                raise ValueError("run.upgraded must preserve upgrade data")
+            run = run.model_copy(
+                update={
+                    "status": RunStatus.RUNNING_STRUCTURED,
+                    "updated_at": event.occurred_at,
+                }
+            )
+            pending_upgrade = None
         else:
             raise ValueError(f"unknown journal event: {event.type}")
 
     if run is None:
         raise ValueError("missing run.created")
     return run
+
+
+def _upgrade_data(event: JournalEvent) -> dict[str, object]:
+    reason = event.data.get("reason")
+    artifacts = event.data.get("artifact_working_set")
+    if not isinstance(reason, str) or not reason:
+        raise ValueError(f"{event.type} requires a reason")
+    if not isinstance(artifacts, list):
+        raise ValueError(f"{event.type} requires an artifact working set")
+    try:
+        frozen_artifacts = [
+            ArtifactRef.model_validate(artifact).model_dump() for artifact in artifacts
+        ]
+    except ValidationError as error:
+        raise ValueError(f"{event.type} requires valid artifact references") from error
+    return {"reason": reason, "artifact_working_set": frozen_artifacts}

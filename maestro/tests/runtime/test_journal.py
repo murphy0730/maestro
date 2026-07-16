@@ -84,6 +84,135 @@ def test_replay_rejects_unknown_events() -> None:
         replay_run(events)
 
 
+def test_replay_applies_ordered_controlled_execution_upgrade() -> None:
+    artifact_working_set = [
+        {
+            "artifact_id": "a" * 64,
+            "sha256": "a" * 64,
+            "media_type": "application/json",
+            "bytes": 12,
+        }
+    ]
+    events = [
+        JournalEvent(
+            run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+        ),
+        JournalEvent(
+            run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}
+        ),
+        JournalEvent(
+            run_id="r1",
+            sequence=2,
+            type="run.upgrading",
+            data={
+                "reason": "skill_upgrade_required",
+                "artifact_working_set": artifact_working_set,
+            },
+        ),
+        JournalEvent(
+            run_id="r1",
+            sequence=3,
+            type="run.upgraded",
+            data={
+                "reason": "skill_upgrade_required",
+                "artifact_working_set": artifact_working_set,
+            },
+        ),
+    ]
+
+    structuring = replay_run(events[:-1])
+    replayed = replay_run(events)
+
+    assert structuring.status is RunStatus.STRUCTURING
+    assert replayed.path is RunPath.STRUCTURED
+    assert replayed.status is RunStatus.RUNNING_STRUCTURED
+
+
+@pytest.mark.parametrize(
+    ("events", "message"),
+    [
+        (
+            [
+                JournalEvent(
+                    run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+                ),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=1,
+                    type="run.upgraded",
+                    data={"reason": "skill_upgrade_required", "artifact_working_set": []},
+                ),
+            ],
+            "run.upgraded requires run.upgrading",
+        ),
+        (
+            [
+                JournalEvent(
+                    run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+                ),
+                JournalEvent(
+                    run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}
+                ),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=2,
+                    type="run.upgrading",
+                    data={"reason": "skill_upgrade_required", "artifact_working_set": []},
+                ),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=3,
+                    type="run.upgraded",
+                    data={"reason": "other", "artifact_working_set": []},
+                ),
+            ],
+            "run.upgraded must preserve upgrade data",
+        ),
+        (
+            [
+                JournalEvent(
+                    run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+                ),
+                JournalEvent(
+                    run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}
+                ),
+                JournalEvent(run_id="r1", sequence=2, type="run.completed"),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=3,
+                    type="run.upgrading",
+                    data={"reason": "skill_upgrade_required", "artifact_working_set": []},
+                ),
+            ],
+            "run.upgrading requires a fast run",
+        ),
+        (
+            [
+                JournalEvent(
+                    run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+                ),
+                JournalEvent(
+                    run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}
+                ),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=2,
+                    type="run.upgrading",
+                    data={"reason": "skill_upgrade_required", "artifact_working_set": []},
+                ),
+                JournalEvent(run_id="r1", sequence=3, type="run.completed"),
+            ],
+            "run.completed cannot interrupt upgrade",
+        ),
+    ],
+)
+def test_replay_rejects_illegal_controlled_execution_upgrade_order(
+    events: list[JournalEvent], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        replay_run(events)
+
+
 def test_journal_preserves_append_order_not_event_timestamps(tmp_path) -> None:
     path = tmp_path / "journal.jsonl"
     first = JournalEvent(run_id="r1", type="run.created", data={"objective": "x"})

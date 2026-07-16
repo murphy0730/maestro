@@ -140,7 +140,12 @@ async def test_inline_skill_expands_context_and_narrows_tools(tmp_path: Path) ->
 async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_path: Path) -> None:
     registry = CapabilityRegistry()
     lookup = CountingExecutor({"payload": "x" * 128})
-    registry.register(CapabilitySpec(name="inspect", kind=CapabilityKind.SKILL))
+    controlled_executor = CountingExecutor()
+    registry.register(
+        CapabilitySpec(
+            name="inspect", kind=CapabilityKind.SKILL, executor=controlled_executor
+        )
+    )
     registry.register(CapabilitySpec(name="lookup", kind=CapabilityKind.TOOL, executor=lookup))
     skill = tmp_path / "skills" / "inspect" / "SKILL.md"
     skill.parent.mkdir(parents=True)
@@ -196,6 +201,7 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
     assert run.consumed_steps == 5
     assert run.pending_approvals == [approval]
     assert run.capability_versions == snapshot.versions()
+    assert controlled_executor.calls == 0
     assert "goal_spec" not in type(run).model_fields
     assert "typed_plan" not in type(run).model_fields
     assert RunStore(tmp_path / "runs").load(run.run_id) == run
