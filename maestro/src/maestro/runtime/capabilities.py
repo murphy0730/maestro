@@ -39,6 +39,12 @@ class CapabilityResult(BaseModel):
 
 
 CapabilityExecutor = Callable[[CapabilityCall, str | None], Awaitable[CapabilityResult]]
+CapabilityRevalidator = Callable[[CapabilityCall], Awaitable[str | None]]
+CapabilityReconciler = Callable[[CapabilityCall, str], Awaitable[CapabilityResult]]
+
+
+class UnknownWriteOutcome(Exception):
+    """The external system may have accepted a write, but did not confirm it."""
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,8 @@ class CapabilitySpec:
     version: str = "1"
     content_sha256: str = ""
     executor: CapabilityExecutor | None = None
+    revalidator: CapabilityRevalidator | None = None
+    reconciler: CapabilityReconciler | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "risk", _normalize_risk(self.risk))
@@ -131,4 +139,9 @@ class CapabilityRegistry:
 def _copy_spec(spec: CapabilitySpec) -> CapabilitySpec:
     """Copy mutable descriptor data while preserving the executable boundary identity."""
     copied = deepcopy(spec)
-    return dataclass_replace(copied, executor=spec.executor)
+    return dataclass_replace(
+        copied,
+        executor=spec.executor,
+        revalidator=spec.revalidator,
+        reconciler=spec.reconciler,
+    )

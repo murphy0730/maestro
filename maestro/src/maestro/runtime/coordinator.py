@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
 from maestro.runtime.capabilities import (
     CapabilityCall,
@@ -11,12 +12,14 @@ from maestro.runtime.capabilities import (
     CapabilityRegistry,
     CapabilitySnapshot,
     CapabilitySpec,
+    CapabilityResult,
+    UnknownWriteOutcome,
 )
 from maestro.runtime.context import ContextItem, ContextProvider
 from maestro.runtime.events import EventPublisher, RunEvent
 from maestro.runtime.intent import IntentClassifier, IntentRequest
 from maestro.runtime.model import RuntimeModel
-from maestro.runtime.models import ChildRunResult, RunPath, RunRecord, RunStatus
+from maestro.runtime.models import ApprovalRecord, ChildRunResult, RunPath, RunRecord, RunStatus, RuntimeErrorKind, StepRecord
 from maestro.runtime.policy import PolicyContext, PolicyEffect, PolicyGate
 from maestro.runtime.skills import LoadedSkill, SkillCatalog
 from maestro.runtime.state_machine import transition_run
@@ -261,10 +264,14 @@ class RunCoordinator:
                     skill_allowed_tools=skill_allowed,
                 ),
             )
+            if decision.effect in {PolicyEffect.REQUIRE_CONFIRMATION, PolicyEffect.REQUIRE_RECONFIRMATION}:
+                return await self._request_approval(run, action.call, spec, decision)
             if decision.effect is not PolicyEffect.ALLOW:
                 return self._fail(run, decision.effect.value)
             if spec.executor is None:
                 return self._fail(run, "missing_executor")
+            if spec.writes:
+                return await self._execute_write(run, action.call, spec)
             result = await spec.executor(action.call, None)
             self._save_and_publish(
                 run, "capability.completed", {"name": spec.name, "status": result.status}
@@ -394,6 +401,128 @@ class RunCoordinator:
         self._save_and_publish(run, "run.failed", {"reason": reason})
         return run
 
+    async def approve(
+        self, run_id: str, approval_id: str, approved: bool, principal_id: str, expected_revision: int
+    ) -> RunRecord:
+        run = self._run_store.load(run_id)
+        if run.status is not RunStatus.WAITING_APPROVAL or run.revision != expected_revision:
+            raise ValueError("stale approval revision")
+        approval = next((item for item in run.pending_approvals if item.approval_id == approval_id), None)
+        if approval is None or approval.status != "pending" or approval.run_revision != expected_revision:
+            raise ValueError("unknown or stale approval")
+        if not approved:
+            return self._fail(run, "approval_rejected")
+        step = run.steps.get(approval.step_id)
+        if step is None or step.call is None:
+            return self._fail(run, "approval_action_missing")
+        call = CapabilityCall.model_validate(step.call)
+        snapshot = self._pinned_snapshot(run, None)
+        if snapshot is None:
+            return self._fail(run, "capability_snapshot_unavailable")
+        spec = snapshot.require(call.name)
+        decision = self._policy_gate.evaluate(call, spec, PolicyContext(principal_id=principal_id))
+        if decision.effect is PolicyEffect.DENY:
+            return self._fail(run, decision.effect.value)
+        token = await self._external_state_token(spec, call)
+        if token != approval.external_state_token:
+            expired = approval.model_copy(update={"status": "expired"})
+            run = run.model_copy(update={"pending_approvals": [expired]})
+            return await self._request_approval(run, call, spec, decision, replace=True)
+        run = run.model_copy(update={"pending_approvals": []})
+        run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "approval granted")
+        self._save_and_publish(run, "approval.approved", {"approval_id": approval_id})
+        return await self._execute_write(run, call, spec, step.step_id)
+
+    async def cancel(self, run_id: str) -> RunRecord:
+        run = self._run_store.load(run_id)
+        if run.status is RunStatus.RECONCILING or run.requires_reconciliation:
+            self._save_and_publish(run, "run.cancel_deferred", {"reason": "requires_reconciliation"})
+            return run
+        if run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+            return run
+        run = transition_run(run, RunStatus.CANCELLING, "cancel requested")
+        self._save_and_publish(run, "run.cancelling", {})
+        run = transition_run(run, RunStatus.CANCELLED, "cancelled safely")
+        self._save_and_publish(run, "run.cancelled", {})
+        return run
+
+    async def reconcile(self, run_id: str) -> RunRecord:
+        run = self._run_store.load(run_id)
+        if run.status is not RunStatus.RECONCILING:
+            return run
+        step = next((item for item in run.steps.values() if item.idempotency_key and item.call), None)
+        if step is None or step.call is None:
+            return self._fail(run, "reconciliation_action_missing")
+        snapshot = self._pinned_snapshot(run, None)
+        if snapshot is None:
+            return self._fail(run, "capability_snapshot_unavailable")
+        spec = snapshot.require(CapabilityCall.model_validate(step.call).name)
+        if spec.reconciler is None:
+            return self._fail(run, "missing_reconciler")
+        result = await spec.reconciler(CapabilityCall.model_validate(step.call), step.idempotency_key)
+        if result.status == "unknown":
+            return run
+        if result.status == "failed":
+            return self._fail(run, result.error_message or "reconciliation_failed")
+        run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "reconciled")
+        run = run.model_copy(update={"requires_reconciliation": False})
+        self._save_and_publish(run, "write.reconciled", {"step_id": step.step_id})
+        return run
+
+    async def _request_approval(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, decision: Any, replace: bool = False) -> RunRecord:
+        step_id = str(uuid4())
+        token = await self._external_state_token(spec, call)
+        step = StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump(), external_state_token=token)
+        run = run.model_copy(update={"steps": {**run.steps, step_id: step}})
+        if run.status is not RunStatus.WAITING_APPROVAL:
+            run = transition_run(run, RunStatus.WAITING_APPROVAL, "approval required")
+        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, expires_at=datetime.now(UTC) + timedelta(minutes=10))
+        run = run.model_copy(update={"pending_approvals": [approval]})
+        self._save_and_publish(run, "approval.requested", {"approval_id": approval.approval_id, "snapshot_revision": run.revision})
+        return run
+
+    async def _execute_write(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, step_id: str | None = None) -> RunRecord:
+        step_id = step_id or str(uuid4())
+        key = str(uuid4())
+        step = run.steps.get(step_id) or StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump())
+        step = step.model_copy(update={"idempotency_key": key, "call": call.model_dump()})
+        run = run.model_copy(update={"steps": {**run.steps, step_id: step}})
+        self._save_and_publish(run, "write.started", {"step_id": step_id, "idempotency_key": key})
+        try:
+            result = await spec.executor(call, key) if spec.executor is not None else CapabilityResult(status="failed", error_message="missing_executor")
+        except UnknownWriteOutcome:
+            result = CapabilityResult(status="unknown")
+        if (
+            result.status == "failed"
+            and spec.idempotent
+            and result.error_kind is RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE
+            and result.error_kind in spec.retryable_errors
+            and run.intent is not None
+            and run.consumed_steps < max(1, run.intent.max_steps // 2)
+        ):
+            self._save_and_publish(run, "write.retrying", {"step_id": step_id})
+            try:
+                result = await spec.executor(call, key) if spec.executor is not None else result
+            except UnknownWriteOutcome:
+                result = CapabilityResult(status="unknown")
+        if result.status == "unknown":
+            run = transition_run(run, RunStatus.RECONCILING, "unknown write outcome")
+            run = run.model_copy(update={"requires_reconciliation": True})
+            self._save_and_publish(run, "write.unknown", {"step_id": step_id})
+            return run
+        if result.status == "failed":
+            return self._fail(run, result.error_message or "write_failed")
+        self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
+        return run
+
+    async def _external_state_token(self, spec: CapabilitySpec, call: CapabilityCall) -> str | None:
+        return await spec.revalidator(call) if spec.revalidator is not None else None
+
+    @staticmethod
+    def _call_sha256(call: CapabilityCall) -> str:
+        import hashlib
+        return hashlib.sha256(RunCoordinator._normalize(call).encode()).hexdigest()
+
     def _upgrade_to_controlled_execution(
         self, run: RunRecord, reason: str, context_items: list[ContextItem]
     ) -> RunRecord:
@@ -423,7 +552,7 @@ class RunCoordinator:
 
     def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:
         self._run_store.save(run)
-        self._publish(run, event_type, data)
+        self._publish(run, event_type, {**data, "snapshot_revision": run.revision})
 
     def _publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:
         self._events.publish(

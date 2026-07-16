@@ -230,6 +230,15 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
             "run.step_consumed",
             "child_run.created",
             "child_run.completed",
+            "approval.requested",
+            "approval.approved",
+            "write.started",
+            "write.unknown",
+            "write.reconciled",
+            "write.retrying",
+            "run.cancelling",
+            "run.cancelled",
+            "run.cancel_deferred",
         }:
             if run is None or run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
                 raise ValueError(f"{event.type} requires an active run")

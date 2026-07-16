@@ -84,6 +84,8 @@ class StepRecord(BaseModel):
     output_ref: str | None = None
     error_kind: RuntimeErrorKind | None = None
     error_message: str | None = None
+    call: dict[str, object] | None = None
+    external_state_token: str | None = None
     revision: int = 0
 
 

@@ -48,3 +48,7 @@ class EventPublisher:
 
     def history(self, run_id: str) -> list[RunEvent]:
         return [RunEvent.model_validate(event.model_dump()) for event in self._journal.read(run_id)]
+
+    @property
+    def journal(self) -> JsonlJournal:
+        return self._journal
