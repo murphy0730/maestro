@@ -1,7 +1,5 @@
 from maestro.runtime.models import (
     ApprovalRecord,
-    GoalSpec,
-    PlanStep,
     RunIntent,
     RunPath,
     RunRecord,
@@ -9,7 +7,6 @@ from maestro.runtime.models import (
     RuntimeErrorKind,
     StepRecord,
     StepStatus,
-    TypedPlan,
 )
 from maestro.runtime.state_machine import (
     RUN_TRANSITIONS,
@@ -21,9 +18,7 @@ from maestro.runtime.state_machine import (
 
 __all__ = [
     "ApprovalRecord",
-    "GoalSpec",
     "InvalidTransition",
-    "PlanStep",
     "RunIntent",
     "RunPath",
     "RunRecord",
@@ -33,7 +28,6 @@ __all__ = [
     "StepRecord",
     "StepStatus",
     "STEP_TRANSITIONS",
-    "TypedPlan",
     "transition_run",
     "transition_step",
 ]

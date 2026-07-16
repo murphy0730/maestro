@@ -7,7 +7,6 @@ from pydantic import BaseModel, model_validator
 from maestro.foundation.llm import LLMClient
 from maestro.runtime.capabilities import CapabilityCall, CapabilitySpec
 from maestro.runtime.context import ContextBundle
-from maestro.runtime.models import GoalSpec, RunIntent, TypedPlan
 
 
 class ModelAction(BaseModel):
@@ -28,12 +27,6 @@ class RuntimeModel(Protocol):
     async def next_turn(
         self, context: ContextBundle, capabilities: list[CapabilitySpec]
     ) -> ModelAction: ...
-
-    async def structure_goal(self, intent: RunIntent, context: ContextBundle) -> GoalSpec: ...
-
-    async def create_plan(
-        self, goal: GoalSpec, capabilities: list[CapabilitySpec]
-    ) -> TypedPlan: ...
 
 
 class LLMRuntimeModel:
@@ -63,20 +56,3 @@ class LLMRuntimeModel:
                 kind="call", call=CapabilityCall(name=call.name, arguments=call.arguments)
             )
         return ModelAction(kind="final", text=turn.text)
-
-    async def structure_goal(self, intent: RunIntent, context: ContextBundle) -> GoalSpec:
-        return await self._llm.classify(
-            context.system_context,
-            intent.model_dump_json(),
-            GoalSpec,
-        )
-
-    async def create_plan(
-        self, goal: GoalSpec, capabilities: list[CapabilitySpec]
-    ) -> TypedPlan:
-        capability_names = ", ".join(capability.name for capability in capabilities)
-        return await self._llm.classify(
-            f"Create a typed plan using only these capabilities: {capability_names}",
-            goal.model_dump_json(),
-            TypedPlan,
-        )

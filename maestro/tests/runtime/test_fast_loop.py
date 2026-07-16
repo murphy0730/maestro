@@ -62,8 +62,8 @@ async def test_simple_answer_stays_fast(runtime_harness: RuntimeHarness) -> None
     run = await runtime_harness.coordinator.start("解释 OEE")
 
     assert run.path is RunPath.FAST
-    assert run.goal_spec is None
-    assert run.typed_plan is None
+    assert "goal_spec" not in type(run).model_fields
+    assert "typed_plan" not in type(run).model_fields
     assert run.status is RunStatus.COMPLETED
     assert runtime_harness.events.types == [
         "run.created", "run.path_selected", "model.turn", "run.completed"

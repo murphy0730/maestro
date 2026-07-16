@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class RunPath(StrEnum):
@@ -61,50 +61,6 @@ class RunIntent(BaseModel):
     path: RunPath = RunPath.UNSELECTED
 
 
-class GoalSpec(BaseModel):
-    objective: str = Field(min_length=1)
-    constraints: list[str] = Field(default_factory=list)
-    success_criteria: list[str] = Field(min_length=1)
-    required_outputs: list[str] = Field(default_factory=list)
-    known_inputs: dict[str, object] = Field(default_factory=dict)
-    unknowns: list[str] = Field(default_factory=list)
-    risk_context: list[str] = Field(default_factory=list)
-
-
-class PlanStep(BaseModel):
-    step_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$", frozen=True)
-    kind: Literal["model", "skill", "tool", "mcp", "verify", "reconcile"]
-    capability: str | None = None
-    depends_on: list[str] = Field(default_factory=list)
-    input_refs: dict[str, str] = Field(default_factory=dict)
-    output_key: str | None = None
-    max_attempts: int = Field(default=1, ge=1, le=5)
-    timeout_seconds: int = Field(default=60, ge=1, le=3600)
-    requires_approval: bool = False
-    success_condition: str = Field(
-        default="capability_succeeded", pattern=r"^[a-z][a-z0-9_]{0,63}$"
-    )
-
-
-class TypedPlan(BaseModel):
-    goal: GoalSpec
-    steps: list[PlanStep] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_graph(self) -> "TypedPlan":
-        ids = [step.step_id for step in self.steps]
-        if len(ids) != len(set(ids)):
-            raise ValueError("duplicate step id")
-        known = set(ids)
-        for step in self.steps:
-            missing = set(step.depends_on) - known
-            if missing:
-                raise ValueError(f"missing dependency: {sorted(missing)}")
-            if step.step_id in step.depends_on:
-                raise ValueError("step cannot depend on itself")
-        return self
-
-
 class ApprovalRecord(BaseModel):
     approval_id: str = Field(default_factory=lambda: str(uuid4()), frozen=True)
     run_id: str = Field(frozen=True)
@@ -139,8 +95,6 @@ class RunRecord(BaseModel):
     path: RunPath = RunPath.UNSELECTED
     status: RunStatus = RunStatus.CREATED
     intent: RunIntent | None = None
-    goal_spec: GoalSpec | None = None
-    typed_plan: TypedPlan | None = None
     steps: dict[str, StepRecord] = Field(default_factory=dict)
     pending_approvals: list[ApprovalRecord] = Field(default_factory=list)
     capability_versions: dict[str, str] = Field(default_factory=dict)

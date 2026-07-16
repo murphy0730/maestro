@@ -5,7 +5,6 @@ from collections import deque
 from maestro.runtime.capabilities import CapabilityCall, CapabilityResult
 from maestro.runtime.context import ContextBundle
 from maestro.runtime.model import ModelAction
-from maestro.runtime.models import GoalSpec, RunIntent, TypedPlan
 
 
 class FakeRuntimeModel:
@@ -28,13 +27,6 @@ class FakeRuntimeModel:
         self.contexts.append(context)
         self.capability_names.append([capability.name for capability in capabilities])
         return self._actions.popleft()
-
-    async def structure_goal(self, intent: RunIntent, context: ContextBundle) -> GoalSpec:
-        return GoalSpec(objective=intent.objective, success_criteria=["complete"])
-
-    async def create_plan(self, goal: GoalSpec, capabilities: list[object]) -> TypedPlan:
-        raise AssertionError("structured planning is not part of the fast-loop task")
-
 
 class RecordingEvents:
     def __init__(self) -> None:
