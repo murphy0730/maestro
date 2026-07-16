@@ -104,3 +104,11 @@ class RunRecord(BaseModel):
     revision: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ChildRunResult(BaseModel):
+    """The bounded information a parent can receive from an isolated child run."""
+
+    child_run_id: str
+    status: RunStatus
+    artifact_ref: str

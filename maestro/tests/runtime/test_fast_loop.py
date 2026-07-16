@@ -155,6 +155,7 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
     model = FakeRuntimeModel()
     model.queue_call("lookup", {"query": "WO-1"})
     model.queue_call("inspect", {"arguments": "WO-1"})
+    model.queue_final("受控执行已继续。")
     publisher = EventPublisher(JsonlJournal(tmp_path / "journal.jsonl"))
     coordinator = RunCoordinator(
         model=model,
@@ -195,7 +196,7 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
 
     run = await coordinator.run_until_blocked(run, snapshot)
 
-    assert run.status is RunStatus.RUNNING_STRUCTURED
+    assert run.status is RunStatus.COMPLETED
     assert run.path is RunPath.STRUCTURED
     assert run.run_id == "run-upgrade"
     assert run.consumed_steps == 5
@@ -206,7 +207,6 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
     assert "typed_plan" not in type(run).model_fields
     assert RunStore(tmp_path / "runs").load(run.run_id) == run
     history = publisher.history(run.run_id)
-    assert [event.type for event in history][-2:] == ["run.upgrading", "run.upgraded"]
-    assert history[-2].data["reason"] == "skill_upgrade_required"
-    assert history[-2].data["artifact_working_set"] == history[-1].data["artifact_working_set"]
-    assert history[-2].data["artifact_working_set"][0]["media_type"] == "application/json"
+    upgrade = next(event for event in history if event.type == "run.path_upgraded")
+    assert upgrade.data["reason"] == "skill_upgrade_required"
+    assert upgrade.data["artifact_working_set"][0]["media_type"] == "application/json"

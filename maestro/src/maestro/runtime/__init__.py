@@ -1,5 +1,6 @@
 from maestro.runtime.models import (
     ApprovalRecord,
+    ChildRunResult,
     RunIntent,
     RunPath,
     RunRecord,
@@ -18,6 +19,7 @@ from maestro.runtime.state_machine import (
 
 __all__ = [
     "ApprovalRecord",
+    "ChildRunResult",
     "InvalidTransition",
     "RunIntent",
     "RunPath",

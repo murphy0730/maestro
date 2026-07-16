@@ -145,6 +145,23 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
                     "updated_at": event.occurred_at,
                 }
             )
+        elif event.type == "run.controlled_started":
+            if run is None or run.status is not RunStatus.STRUCTURING:
+                raise ValueError("run.controlled_started requires structuring")
+            run = run.model_copy(
+                update={"status": RunStatus.RUNNING_STRUCTURED, "updated_at": event.occurred_at}
+            )
+        elif event.type == "run.path_upgraded":
+            if run is None or run.path is not RunPath.FAST or run.status is not RunStatus.RUNNING_FAST:
+                raise ValueError("run.path_upgraded requires a fast run")
+            _upgrade_data(event)
+            run = run.model_copy(
+                update={
+                    "path": RunPath.STRUCTURED,
+                    "status": RunStatus.RUNNING_STRUCTURED,
+                    "updated_at": event.occurred_at,
+                }
+            )
         elif event.type == "run.completed":
             if run is None:
                 raise ValueError("run.completed requires run.created")
@@ -195,6 +212,15 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
                 }
             )
             pending_upgrade = None
+        elif event.type in {
+            "model.turn",
+            "capability.completed",
+            "artifact.created",
+            "child_run.created",
+            "child_run.completed",
+        }:
+            if run is None:
+                raise ValueError(f"{event.type} requires run.created")
         else:
             raise ValueError(f"unknown journal event: {event.type}")
 

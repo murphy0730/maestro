@@ -16,11 +16,11 @@ from maestro.runtime.context import ContextItem, ContextProvider
 from maestro.runtime.events import EventPublisher, RunEvent
 from maestro.runtime.intent import IntentClassifier, IntentRequest
 from maestro.runtime.model import RuntimeModel
-from maestro.runtime.models import RunPath, RunRecord, RunStatus
+from maestro.runtime.models import ChildRunResult, RunPath, RunRecord, RunStatus
 from maestro.runtime.policy import PolicyContext, PolicyEffect, PolicyGate
-from maestro.runtime.skills import SkillCatalog
+from maestro.runtime.skills import LoadedSkill, SkillCatalog
 from maestro.runtime.state_machine import transition_run
-from maestro.runtime.store import ArtifactStore, RunStore
+from maestro.runtime.store import ArtifactRef, ArtifactStore, RunStore
 
 
 class RunCoordinator:
@@ -86,7 +86,9 @@ class RunCoordinator:
         if intent.path is RunPath.STRUCTURED:
             run = transition_run(run, RunStatus.STRUCTURING, "intent requires structure")
             self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
-            return run
+            run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "controlled execution ready")
+            self._save_and_publish(run, "run.controlled_started", {})
+            return await self._run_controlled(run, snapshot)
         run = transition_run(run, RunStatus.RUNNING_FAST, "intent selects fast path")
         self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
         return await self.run_until_blocked(run, snapshot)
@@ -94,6 +96,8 @@ class RunCoordinator:
     async def run_until_blocked(
         self, run: RunRecord, snapshot: CapabilitySnapshot | None = None
     ) -> RunRecord:
+        if run.status is RunStatus.RUNNING_STRUCTURED:
+            return await self._run_controlled(run, snapshot or self._capabilities.snapshot())
         if run.status is not RunStatus.RUNNING_FAST:
             return run
         snapshot = snapshot or self._capabilities.snapshot()
@@ -126,11 +130,19 @@ class RunCoordinator:
                 spec = snapshot.require(action.call.name)
             except KeyError:
                 return self._fail(run, "unknown_capability")
+            if spec.writes:
+                upgraded = self._upgrade_to_controlled_execution(run, "high_risk_write", context_items)
+                return await self._run_controlled(
+                    upgraded, snapshot, context_items, parent_allowed, skill_allowed
+                )
             if spec.kind is CapabilityKind.SKILL:
                 loaded = self._load_inline_skill(spec, action.call, run)
                 if loaded is None:
-                    return self._upgrade_to_controlled_execution(
+                    upgraded = self._upgrade_to_controlled_execution(
                         run, "skill_upgrade_required", context_items
+                    )
+                    return await self._run_controlled(
+                        upgraded, snapshot, context_items, parent_allowed, skill_allowed
                     )
                 context_items.append(ContextItem.from_skill(loaded))
                 allowed = set(loaded.metadata.allowed_tools)
@@ -169,6 +181,164 @@ class RunCoordinator:
                         text=json.dumps(content, ensure_ascii=False, default=str),
                     )
                 )
+
+    async def _run_controlled(
+        self,
+        run: RunRecord,
+        snapshot: CapabilitySnapshot,
+        context_items: list[ContextItem] | None = None,
+        parent_allowed: set[str] | None = None,
+        skill_allowed: set[str] | None = None,
+    ) -> RunRecord:
+        """Execute sequential model actions with controlled budgets and no plan graph."""
+        assert run.intent is not None
+        context_items = context_items or [ContextItem.from_run(run)]
+        if parent_allowed is None:
+            parent_allowed = set(run.intent.candidate_capabilities) or None
+        controlled_limit = max(1, run.intent.max_steps // 2)
+        started_at = monotonic()
+        calls_seen: dict[str, int] = {}
+        while True:
+            if monotonic() - started_at >= run.intent.max_seconds:
+                return self._fail(run, "time_exhausted")
+            action = await self._model.next_turn(
+                self._context_provider.assemble(context_items),
+                self._available(snapshot, parent_allowed, skill_allowed),
+            )
+            self._publish(run, "model.turn", {"kind": action.kind})
+            if action.kind == "final":
+                run = transition_run(run, RunStatus.COMPLETED, "model final")
+                run = run.model_copy(update={"final_text": action.text})
+                self._save_and_publish(run, "run.completed", {"final_text": action.text})
+                return run
+            if run.consumed_steps >= controlled_limit:
+                return self._fail(run, "controlled_budget_exhausted")
+            assert action.call is not None
+            normalized = self._normalize(action.call)
+            calls_seen[normalized] = calls_seen.get(normalized, 0) + 1
+            if calls_seen[normalized] >= 3:
+                return self._fail(run, "cycle_detected")
+            try:
+                spec = snapshot.require(action.call.name)
+            except KeyError:
+                return self._fail(run, "unknown_capability")
+            if spec.kind is CapabilityKind.SKILL:
+                loaded = self._load_skill(spec, action.call, run)
+                if loaded is None:
+                    return self._fail(run, "missing_skill_catalog")
+                if loaded.mode == "fork":
+                    child_result, artifact = await self._run_child(
+                        run, snapshot, loaded, parent_allowed
+                    )
+                    context_items.append(ContextItem.from_artifact(artifact))
+                    self._publish(run, "child_run.completed", child_result.model_dump())
+                    continue
+                if loaded.mode != "inline":
+                    return self._fail(run, "unsupported_skill_context")
+                context_items.append(ContextItem.from_skill(loaded))
+                allowed = set(loaded.metadata.allowed_tools)
+                skill_allowed = allowed if parent_allowed is None else parent_allowed & allowed
+                continue
+            if spec.kind not in {CapabilityKind.TOOL, CapabilityKind.MCP}:
+                return self._fail(run, "unsupported_capability")
+            if not self._arguments_match_schema(action.call.arguments, spec.input_schema):
+                return self._fail(run, "schema_input")
+            decision = self._policy_gate.evaluate(
+                action.call,
+                spec,
+                PolicyContext(
+                    principal_id=run.intent.principal_id,
+                    run_allowed_tools=parent_allowed,
+                    skill_allowed_tools=skill_allowed,
+                ),
+            )
+            if decision.effect is not PolicyEffect.ALLOW:
+                return self._fail(run, decision.effect.value)
+            if spec.executor is None:
+                return self._fail(run, "missing_executor")
+            result = await spec.executor(action.call, None)
+            run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
+            self._save_and_publish(
+                run, "capability.completed", {"name": spec.name, "status": result.status}
+            )
+            self._append_result_context(context_items, run, spec.name, result.content)
+
+    async def _run_child(
+        self,
+        parent: RunRecord,
+        snapshot: CapabilitySnapshot,
+        loaded: LoadedSkill,
+        parent_allowed: set[str] | None,
+    ) -> tuple[ChildRunResult, ArtifactRef]:
+        assert parent.intent is not None
+        skill_allowed = set(loaded.metadata.allowed_tools)
+        child_allowed = skill_allowed if parent_allowed is None else parent_allowed & skill_allowed
+        child_intent = parent.intent.model_copy(
+            update={
+                "objective": loaded.metadata.description,
+                "requested_skills": [],
+                "candidate_capabilities": sorted(child_allowed),
+                "max_steps": max(1, parent.intent.max_steps // 2),
+                "path": RunPath.STRUCTURED,
+            }
+        )
+        child = RunRecord(
+            parent_run_id=parent.run_id,
+            objective=child_intent.objective,
+            intent=child_intent,
+            capability_versions=parent.capability_versions,
+        )
+        self._save_and_publish(child, "run.created", {"objective": child.objective, "run_id": child.run_id})
+        child = transition_run(child, RunStatus.STRUCTURING, "fork skill requires controlled execution")
+        self._save_and_publish(child, "run.path_selected", {"path": child.path.value})
+        child = transition_run(child, RunStatus.RUNNING_STRUCTURED, "child controlled execution ready")
+        self._save_and_publish(child, "run.controlled_started", {})
+        self._publish(parent, "child_run.created", {"child_run_id": child.run_id})
+        child = await self._run_controlled(
+            child,
+            snapshot,
+            [ContextItem.from_run(child), ContextItem.from_skill(loaded)],
+            child_allowed,
+            child_allowed,
+        )
+        artifact = self._artifact_store.put(
+            json.dumps(
+                {"child_run_id": child.run_id, "status": child.status.value, "final_text": child.final_text},
+                ensure_ascii=False,
+            ).encode(),
+            "application/json",
+        )
+        self._publish(child, "artifact.created", artifact.model_dump())
+        return (
+            ChildRunResult(
+                child_run_id=child.run_id,
+                status=child.status,
+                artifact_ref=artifact.artifact_id,
+            ),
+            artifact,
+        )
+
+    def _append_result_context(
+        self, context_items: list[ContextItem], run: RunRecord, name: str, content: object | None
+    ) -> None:
+        encoded = json.dumps(content, ensure_ascii=False, default=str).encode()
+        if len(encoded) > self._artifact_threshold_bytes:
+            artifact = self._artifact_store.put(encoded, "application/json")
+            context_items.append(ContextItem.from_artifact(artifact))
+            self._publish(run, "artifact.created", artifact.model_dump())
+            return
+        context_items.append(
+            ContextItem(key=f"capability:{name}", text=json.dumps(content, ensure_ascii=False, default=str))
+        )
+
+    def _load_skill(
+        self, spec: CapabilitySpec, call: CapabilityCall, run: RunRecord
+    ) -> LoadedSkill | None:
+        if self._skill_catalog is None:
+            return None
+        return self._skill_catalog.load(
+            spec.name, arguments=str(call.arguments.get("arguments", "")), session_id=run.run_id
+        )
 
     def _available(
         self,
@@ -212,23 +382,26 @@ class RunCoordinator:
         self, run: RunRecord, reason: str, context_items: list[ContextItem]
     ) -> RunRecord:
         """Move one fast run into controlled execution without constructing a plan."""
-        artifact_working_set = [
-            item.ref.model_dump()
+        frozen_working_set = [
+            {
+                "key": item.key,
+                "text": item.text,
+                "artifact": item.ref.model_dump() if item.ref is not None else None,
+            }
             for item in context_items
-            if item.ref is not None
         ]
+        artifact = self._artifact_store.put(
+            json.dumps(frozen_working_set, ensure_ascii=False).encode(), "application/json"
+        )
+        artifact_working_set = [artifact.model_dump()]
+        context_items.append(ContextItem.from_artifact(artifact))
         run = transition_run(run, RunStatus.STRUCTURING, reason)
         self._save_and_publish(
             run,
-            "run.upgrading",
+            "run.path_upgraded",
             {"reason": reason, "artifact_working_set": artifact_working_set},
         )
         run = transition_run(run, RunStatus.RUNNING_STRUCTURED, reason)
-        self._save_and_publish(
-            run,
-            "run.upgraded",
-            {"reason": reason, "artifact_working_set": artifact_working_set},
-        )
         return run
 
     def _save_and_publish(self, run: RunRecord, event_type: str, data: dict[str, object]) -> None:
