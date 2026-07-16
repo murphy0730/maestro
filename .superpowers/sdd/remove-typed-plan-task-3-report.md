@@ -18,3 +18,9 @@ Completed the Task 3 scope without changing manufacturing business capabilities.
 ## Concerns
 
 None. `RunPath.STRUCTURED` and the related persisted status enum values remain as compatibility-neutral names for controlled execution; neither denotes a plan graph.
+
+## Follow-up Review Fixes
+
+- The Task 7 fast-loop example now proves removed fields are absent from `model_fields`; it no longer reads them as attributes.
+- Task 8 now contains only the controlled-execution upgrade and Child Run work. Task 9 owns approval, revalidation, reconciliation, cancellation, and recovery, so each task introduces and verifies its own behavior while preserving a green suite boundary.
+- The original design now calls for re-evaluating current controlled-execution state when pinned capability versions change, not replanning. It also documents the stable persisted/API meaning of `structured`, `structuring`, and `running_structured`, and removes the duplicate work-set freeze instruction.

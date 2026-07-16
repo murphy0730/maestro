@@ -222,6 +222,8 @@ class RunRecord(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 ```
 
+`STRUCTURED`、`STRUCTURING` 和 `RUNNING_STRUCTURED` 是稳定的持久化/API 值；在本计划中它们表示受控执行模式及其过渡，绝不表示预先构建的计划图。
+
 Import `UTC`, `datetime`, `StrEnum`, `Literal`, and `uuid4`. Every update creates a Pydantic copy; no task mutates model collections in place.
 
 - [ ] **Step 4: Add failing transition tests**
@@ -720,8 +722,8 @@ async def test_simple_answer_stays_fast(runtime_harness) -> None:
     runtime_harness.model.queue_final("OEE 是设备综合效率。")
     run = await runtime_harness.coordinator.start("解释 OEE")
     assert run.path is RunPath.FAST
-    assert run.goal_spec is None
-    assert run.typed_plan is None
+    assert "goal_spec" not in type(run).model_fields
+    assert "typed_plan" not in type(run).model_fields
     assert run.status is RunStatus.COMPLETED
     assert runtime_harness.events.types == [
         "run.created", "run.path_selected", "model.turn", "run.completed"
@@ -797,19 +799,15 @@ git commit -m "feat: execute bounded fast agent runs"
 
 ---
 
-### Task 8: Controlled Execution, Approval, Reconciliation, Cancellation, Recovery, and Child Runs
+### Task 8: Controlled Execution Upgrade and Child Runs
 
 **Files:**
 - Modify: `maestro/src/maestro/runtime/coordinator.py`
 - Create: `maestro/tests/runtime/test_path_upgrade.py`
-- Create: `maestro/tests/runtime/test_approval.py`
-- Create: `maestro/tests/runtime/test_reconciliation.py`
-- Create: `maestro/tests/runtime/test_recovery.py`
-- Create: `maestro/tests/runtime/test_cancellation.py`
 
 **Interfaces:**
 - Consumes: Task 1 state helpers and Task 7 coordinator.
-- Produces: controlled execution upgrade, `RunCoordinator.approve()`, `RunCoordinator.cancel()`, `RunRecovery.restore()`, and Child Run handling.
+- Produces: controlled execution upgrade and Child Run handling.
 
 - [ ] **Step 1: Write failing controlled-execution and one-way-upgrade tests**
 
@@ -839,24 +837,20 @@ Expected: FAIL because controlled execution upgrade is absent.
 
 Before upgrade, transition `running_fast -> structuring`, append the upgrade reason and frozen working-set Artifact, preserve the capability snapshot and counters, then continue one model action at a time with stricter budgets. Do not construct a DAG, topology, or plan-level dependencies. Every state change goes through Task 1 helpers. Never define a transition back to `running_fast`. A fork Skill creates a normal RunRecord with `parent_run_id`, its own ContextBundle and budget, the same pinned capability versions, and the intersection of parent and Skill permissions; the parent receives a `ChildRunResult`, not the child's full prompt history.
 
-- [ ] **Step 6: Implement approval, reconciliation, cancellation, and recovery**
+- [ ] **Step 6: Pass tests and commit**
 
-Approval creation stores normalized call hash, impact summary, policy reason, external-state token, expiration, and Run revision. Approval execution re-evaluates PolicyGate and calls the capability revalidator immediately before execution. Persist idempotency keys before execution. Unknown write outcomes enter reconciliation and call a registered reconciler, never the original executor. Cancellation stops scheduling new actions; a Run with unknown writes remains reconciling until a definitive result is journaled. `RunRecovery.restore` replays Journal, compares snapshot revision, and resumes only non-terminal Runs.
-
-- [ ] **Step 7: Pass tests and commit**
-
-Run: `cd maestro && pytest tests/runtime/test_path_upgrade.py tests/runtime/test_approval.py tests/runtime/test_reconciliation.py tests/runtime/test_recovery.py tests/runtime/test_cancellation.py -v`
+Run: `cd maestro && pytest tests/runtime/test_path_upgrade.py -v`
 
 Expected: PASS.
 
 ```bash
-git add maestro/src/maestro/runtime maestro/tests/runtime
-git commit -m "feat: govern controlled runtime execution"
+git add maestro/src/maestro/runtime/coordinator.py maestro/tests/runtime/test_path_upgrade.py
+git commit -m "feat: upgrade controlled runtime execution"
 ```
 
 ---
 
-### Task 9: Controlled-Execution Governance Hardening
+### Task 9: Approval, Revalidation, Reconciliation, Cancellation, and Recovery
 
 **Files:**
 - Modify: `maestro/src/maestro/runtime/coordinator.py`
