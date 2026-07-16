@@ -2,6 +2,8 @@ import pytest
 
 from maestro.runtime.capabilities import CapabilityKind, CapabilityResult, CapabilitySpec, UnknownWriteOutcome
 from maestro.runtime.models import RunStatus, RuntimeErrorKind
+from maestro.runtime.state_machine import transition_run
+from maestro.runtime.store import RunStore
 from test_fast_loop import RuntimeHarness
 
 
@@ -63,6 +65,43 @@ async def test_only_idempotent_configured_transient_write_retries(tmp_path) -> N
 
     assert run.status is RunStatus.RUNNING_STRUCTURED
     assert executor.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_between_transient_failure_and_retry_skips_second_execution(tmp_path) -> None:
+    class CancelAfterRetryingStore(RunStore):
+        cancelled = False
+
+        def compare_and_save(self, run, expected_revision):
+            if run.inflight_step_id:
+                current = self.load(run.run_id)
+                if not self.cancelled and current.inflight_step_id and run.status is RunStatus.RUNNING_STRUCTURED:
+                    self.cancelled = True
+                    cancelling = transition_run(current, RunStatus.CANCELLING, "cancel requested")
+                    assert super().compare_and_save(cancelling, current.revision)
+                    return False
+            return super().compare_and_save(run, expected_revision)
+
+    class Flaky:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, _call, _key):
+            self.calls += 1
+            return CapabilityResult(status="failed", error_kind=RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE)
+
+    harness = RuntimeHarness(tmp_path)
+    store = CancelAfterRetryingStore(tmp_path / "runs")
+    harness.coordinator._run_store = store
+    executor = Flaky()
+    harness.registry.register(CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, idempotent=True, retryable_errors=frozenset({RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE}), executor=executor))
+    harness.model.queue_call("write")
+
+    run = await harness.coordinator.start("write")
+
+    assert store.cancelled is True
+    assert executor.calls == 1
+    assert run.status is RunStatus.CANCELLED
 
 
 @pytest.mark.asyncio

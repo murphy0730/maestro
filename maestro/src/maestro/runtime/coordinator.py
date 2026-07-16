@@ -521,6 +521,21 @@ class RunCoordinator:
             and run.consumed_steps < max(1, run.intent.max_steps // 2)
         ):
             run = self._save_and_publish(run, "write.retrying", {"step_id": step_id})
+            async with self._run_store.lock_for(run.run_id):
+                current = self._run_store.load(run.run_id)
+                if current.status is RunStatus.CANCELLING:
+                    cancelled = transition_run(current, RunStatus.CANCELLED, "cancelled before retry")
+                    return self._save_and_publish(
+                        cancelled, "run.cancelled", {"step_id": step_id}
+                    )
+                if current.status in {
+                    RunStatus.CANCELLED,
+                    RunStatus.RECONCILING,
+                    RunStatus.COMPLETED,
+                    RunStatus.FAILED,
+                }:
+                    return current
+                run = current
             try:
                 result = await spec.executor(call, key) if spec.executor is not None else result
             except UnknownWriteOutcome:
