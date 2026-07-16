@@ -129,6 +129,28 @@ def test_replay_applies_ordered_controlled_execution_upgrade() -> None:
 
 
 @pytest.mark.parametrize(
+    ("path", "status"),
+    [
+        (RunPath.FAST.value, RunStatus.RUNNING_FAST),
+        (RunPath.STRUCTURED.value, RunStatus.STRUCTURING),
+    ],
+)
+def test_replay_path_selection_enters_matching_state(path: str, status: RunStatus) -> None:
+    replayed = replay_run(
+        [
+            JournalEvent(
+                run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+            ),
+            JournalEvent(
+                run_id="r1", sequence=1, type="run.path_selected", data={"path": path}
+            ),
+        ]
+    )
+
+    assert replayed.status is status
+
+
+@pytest.mark.parametrize(
     ("events", "message"),
     [
         (
@@ -204,12 +226,81 @@ def test_replay_applies_ordered_controlled_execution_upgrade() -> None:
             ],
             "run.completed cannot interrupt upgrade",
         ),
+        (
+            [
+                JournalEvent(
+                    run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+                ),
+                JournalEvent(
+                    run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}
+                ),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=2,
+                    type="run.upgrading",
+                    data={"reason": "skill_upgrade_required", "artifact_working_set": []},
+                ),
+                JournalEvent(
+                    run_id="r1", sequence=3, type="run.path_selected", data={"path": "fast"}
+                ),
+                JournalEvent(
+                    run_id="r1",
+                    sequence=4,
+                    type="run.upgraded",
+                    data={"reason": "skill_upgrade_required", "artifact_working_set": []},
+                ),
+            ],
+            "run.path_selected requires an unselected run",
+        ),
     ],
 )
 def test_replay_rejects_illegal_controlled_execution_upgrade_order(
     events: list[JournalEvent], message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
+        replay_run(events)
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        {
+            "artifact_id": "b" * 64,
+            "sha256": "a" * 64,
+            "media_type": "application/json",
+            "bytes": 1,
+        },
+        {
+            "artifact_id": "a" * 64,
+            "sha256": "not-a-hash",
+            "media_type": "application/json",
+            "bytes": 1,
+        },
+        {
+            "artifact_id": "a" * 64,
+            "sha256": "a" * 64,
+            "media_type": "application/json",
+            "bytes": -1,
+        },
+    ],
+)
+def test_replay_rejects_non_reproducible_upgrade_artifact(artifact: dict[str, object]) -> None:
+    events = [
+        JournalEvent(
+            run_id="r1", sequence=0, type="run.created", data={"objective": "x"}
+        ),
+        JournalEvent(
+            run_id="r1", sequence=1, type="run.path_selected", data={"path": "fast"}
+        ),
+        JournalEvent(
+            run_id="r1",
+            sequence=2,
+            type="run.upgrading",
+            data={"reason": "skill_upgrade_required", "artifact_working_set": [artifact]},
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="valid artifact references"):
         replay_run(events)
 
 

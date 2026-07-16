@@ -5,15 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from html import escape
-import re
 from typing import Protocol, Sequence
 
 from maestro.runtime.models import RunRecord, StepRecord
 from maestro.runtime.skills import LoadedSkill
-from maestro.runtime.store import ArtifactRef
-
-
-_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+from maestro.runtime.store import ArtifactRef, is_reproducible_artifact_ref
 
 
 class Priority(IntEnum):
@@ -56,12 +52,7 @@ class ContextItem:
     def _validate_artifact_ref(self) -> None:
         if not isinstance(self.ref, ArtifactRef):
             raise ValueError("P3 context requires an ArtifactRef")
-        if (
-            self.ref.artifact_id != self.ref.sha256
-            or not _SHA256_PATTERN.fullmatch(self.ref.artifact_id)
-            or self.ref.bytes < 0
-            or not self.ref.media_type
-        ):
+        if not is_reproducible_artifact_ref(self.ref):
             raise ValueError("P3 context requires a valid reproducible artifact reference")
 
     @classmethod

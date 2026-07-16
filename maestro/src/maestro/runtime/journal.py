@@ -11,7 +11,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from maestro.runtime.models import RunPath, RunRecord, RunStatus
-from maestro.runtime.store import ArtifactRef
+from maestro.runtime.store import ArtifactRef, is_reproducible_artifact_ref
 
 
 class JournalCorruption(ValueError):
@@ -121,15 +121,29 @@ def replay_run(events: Iterable[JournalEvent]) -> RunRecord:
         elif event.type == "run.path_selected":
             if run is None:
                 raise ValueError("run.path_selected requires run.created")
-            if run.status is RunStatus.COMPLETED:
-                raise ValueError("run.path_selected cannot follow run.completed")
+            if (
+                run.status is not RunStatus.CREATED
+                or run.path is not RunPath.UNSELECTED
+                or pending_upgrade is not None
+            ):
+                raise ValueError("run.path_selected requires an unselected run")
             path = event.data.get("path")
             try:
                 selected_path = RunPath(path)
             except (TypeError, ValueError) as error:
                 raise ValueError("run.path_selected requires a valid path") from error
+            if selected_path not in {RunPath.FAST, RunPath.STRUCTURED}:
+                raise ValueError("run.path_selected requires a selected path")
             run = run.model_copy(
-                update={"path": selected_path, "updated_at": event.occurred_at}
+                update={
+                    "path": selected_path,
+                    "status": (
+                        RunStatus.RUNNING_FAST
+                        if selected_path is RunPath.FAST
+                        else RunStatus.STRUCTURING
+                    ),
+                    "updated_at": event.occurred_at,
+                }
             )
         elif event.type == "run.completed":
             if run is None:
@@ -202,4 +216,7 @@ def _upgrade_data(event: JournalEvent) -> dict[str, object]:
         ]
     except ValidationError as error:
         raise ValueError(f"{event.type} requires valid artifact references") from error
+    references = [ArtifactRef.model_validate(artifact) for artifact in frozen_artifacts]
+    if not all(is_reproducible_artifact_ref(ref) for ref in references):
+        raise ValueError(f"{event.type} requires valid artifact references")
     return {"reason": reason, "artifact_working_set": frozen_artifacts}

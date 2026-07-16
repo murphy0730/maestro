@@ -79,3 +79,31 @@ Result: `27 passed`.
 ```
 
 Result: `419 passed, 1 warning` (the same existing Starlette `TestClient` deprecation warning).
+
+## Final review follow-up: replay state and artifact integrity
+
+`run.path_selected` is now replayed only once from `CREATED` / `UNSELECTED`; FAST enters `RUNNING_FAST` and STRUCTURED enters `STRUCTURING`, matching the state machine. Any path-selection event during or after a controlled upgrade is rejected, so a forged `path=fast` event cannot turn a structured run into an inconsistent path/status pair.
+
+Artifact validation was extracted into `is_reproducible_artifact_ref()` in the store and reused by Context and Journal replay. It requires a lowercase 64-character SHA-256 content address, `artifact_id == sha256`, non-negative byte size, and a media type. Replay rejects malformed ID/hash pairs and negative byte sizes before accepting an upgrade event.
+
+Final-review RED:
+
+```text
+./.venv/bin/pytest tests/runtime/test_journal.py -v
+```
+
+Result: the adversarial upgrade-to-`path_selected fast` sequence and all three malformed ArtifactRef cases were accepted before the fix.
+
+Final-review GREEN:
+
+```text
+./.venv/bin/pytest tests/runtime/test_journal.py tests/runtime/test_fast_loop.py tests/runtime/test_store.py tests/runtime/test_context.py -v
+```
+
+Result: `48 passed`.
+
+```text
+./.venv/bin/pytest
+```
+
+Result: `425 passed, 1 warning` (the same existing Starlette `TestClient` deprecation warning).

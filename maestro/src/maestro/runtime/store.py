@@ -30,6 +30,18 @@ class ArtifactRef(BaseModel):
     bytes: int
 
 
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def is_reproducible_artifact_ref(ref: ArtifactRef) -> bool:
+    return (
+        ref.artifact_id == ref.sha256
+        and _SHA256_PATTERN.fullmatch(ref.artifact_id) is not None
+        and ref.bytes >= 0
+        and bool(ref.media_type)
+    )
+
+
 class RunStore:
     def __init__(self, directory: Path | str) -> None:
         self.directory = Path(directory)
