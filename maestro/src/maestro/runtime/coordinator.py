@@ -619,7 +619,7 @@ class RunCoordinator:
         if event_type == "write.unknown":
             target = RunStatus.RECONCILING
             update = {"requires_reconciliation": True, "inflight_step_id": None}
-        elif event_type == "run.cancelled" and current.status is RunStatus.CANCELLING:
+        elif event_type in {"run.cancelled", "capability.completed"} and current.status is RunStatus.CANCELLING:
             target = RunStatus.CANCELLED
             update = {"inflight_step_id": None}
         elif event_type == "run.cancelling":

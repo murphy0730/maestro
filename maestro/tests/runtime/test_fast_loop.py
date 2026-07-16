@@ -10,10 +10,11 @@ from maestro.runtime.context import ContextProvider
 from maestro.runtime.coordinator import RunCoordinator
 from maestro.runtime.events import EventPublisher
 from maestro.runtime.intent import IntentClassifier
-from maestro.runtime.journal import JsonlJournal
+from maestro.runtime.journal import JsonlJournal, replay_run
 from maestro.runtime.models import ApprovalRecord, RunIntent, RunPath, RunRecord, RunStatus
 from maestro.runtime.policy import PolicyGate
 from maestro.runtime.skills import SkillCatalog
+from maestro.runtime.state_machine import transition_run
 from maestro.runtime.store import ArtifactStore, RunStore
 from fakes import CountingExecutor, FakeRuntimeModel, RecordingEvents
 
@@ -184,8 +185,6 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
     run = RunRecord(
         run_id="run-upgrade",
         objective="检查工单",
-        path=RunPath.FAST,
-        status=RunStatus.RUNNING_FAST,
         intent=RunIntent(
             objective="检查工单", candidate_capabilities=["lookup"], path=RunPath.FAST
         ),
@@ -194,6 +193,11 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
         pending_approvals=[approval],
     )
 
+    run = coordinator._save_and_publish(
+        run, "run.created", {"objective": run.objective, "run_id": run.run_id}
+    )
+    run = transition_run(run, RunStatus.RUNNING_FAST, "intent selects fast path")
+    run = coordinator._save_and_publish(run, "run.path_selected", {"path": run.path.value})
     run = await coordinator.run_until_blocked(run, snapshot)
 
     assert run.status is RunStatus.COMPLETED
@@ -210,3 +214,5 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
     upgrade = next(event for event in history if event.type == "run.path_upgraded")
     assert upgrade.data["reason"] == "skill_upgrade_required"
     assert upgrade.data["artifact_working_set"][0]["media_type"] == "application/json"
+    assert upgrade.data["run_snapshot"]["status"] == RunStatus.STRUCTURING.value
+    assert replay_run(publisher.journal.read(run.run_id)).status is RunStatus.COMPLETED

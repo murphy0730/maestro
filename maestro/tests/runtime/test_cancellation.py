@@ -3,6 +3,8 @@ import asyncio
 
 from maestro.runtime.capabilities import CapabilityKind, CapabilityResult, CapabilitySpec, UnknownWriteOutcome
 from maestro.runtime.models import RunStatus
+from maestro.runtime.state_machine import transition_run
+from maestro.runtime.store import RunStore
 from test_fast_loop import RuntimeHarness
 
 
@@ -74,3 +76,30 @@ async def test_cancel_during_inflight_unknown_write_requires_reconciliation(tmp_
 
     assert completed.status is RunStatus.RECONCILING
     assert completed.requires_reconciliation is True
+
+
+@pytest.mark.asyncio
+async def test_definitive_write_completion_retries_after_cancel_cas_race(tmp_path) -> None:
+    class CancelRacingStore(RunStore):
+        raced = False
+
+        def compare_and_save(self, run, expected_revision):
+            if not self.raced and run.steps and run.inflight_step_id is None and run.status is RunStatus.RUNNING_STRUCTURED:
+                self.raced = True
+                current = self.load(run.run_id)
+                cancelling = transition_run(current, RunStatus.CANCELLING, "cancel requested")
+                assert super().compare_and_save(cancelling, current.revision)
+                return False
+            return super().compare_and_save(run, expected_revision)
+
+    harness = RuntimeHarness(tmp_path)
+    store = CancelRacingStore(tmp_path / "runs")
+    harness.coordinator._run_store = store
+    harness.registry.register(CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, executor=harness.add_tool("placeholder")))
+    harness.model.queue_call("write")
+
+    completed = await harness.coordinator.start("write")
+
+    assert store.raced is True
+    assert completed.status is RunStatus.CANCELLED
+    assert completed.inflight_step_id is None

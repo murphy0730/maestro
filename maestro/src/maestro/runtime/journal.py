@@ -298,7 +298,7 @@ def _snapshot_status_matches_event(event_type: str, status: RunStatus) -> bool:
         "run.completed": RunStatus.COMPLETED,
         "run.failed": RunStatus.FAILED,
         "run.controlled_started": RunStatus.RUNNING_STRUCTURED,
-        "run.path_upgraded": RunStatus.RUNNING_STRUCTURED,
+        "run.path_upgraded": RunStatus.STRUCTURING,
         "approval.requested": RunStatus.WAITING_APPROVAL,
         "approval.approved": RunStatus.RUNNING_STRUCTURED,
         "write.unknown": RunStatus.RECONCILING,
