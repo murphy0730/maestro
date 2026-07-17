@@ -6,7 +6,7 @@ import re
 from typing import Mapping
 import unicodedata
 
-from maestro.runtime.capabilities import CapabilitySnapshot
+from maestro.runtime.capabilities import CapabilityRegistry, CapabilitySnapshot
 from maestro.skills.parser import DEFAULT_TOOL_ALIASES, parse_runtime_frontmatter
 from maestro.skills.schemas import RuntimeSkillFrontmatter, SkillValidationError
 
@@ -51,7 +51,7 @@ class LoadedSkill:
 class SkillCatalog:
     """Read-only Runtime skill discovery with bounded metadata loading."""
 
-    def __init__(self, sources: Mapping[str, Path], capabilities: CapabilitySnapshot) -> None:
+    def __init__(self, sources: Mapping[str, Path], capabilities: CapabilitySnapshot | CapabilityRegistry) -> None:
         unknown = set(sources) - set(_SOURCE_PRECEDENCE)
         if unknown:
             raise ValueError(f"unknown skill sources: {sorted(unknown)}")
@@ -60,6 +60,11 @@ class SkillCatalog:
         self.io_log: list[str] = []
         self.inactive: list[SkillMetadata] = []
         self._active: dict[str, SkillMetadata] = {}
+
+    def _snapshot(self) -> CapabilitySnapshot:
+        if isinstance(self._capabilities, CapabilityRegistry):
+            return self._capabilities.snapshot()
+        return self._capabilities
 
     def discover(self) -> dict[str, SkillMetadata]:
         selected: dict[str, SkillMetadata] = {}
@@ -149,7 +154,7 @@ class SkillCatalog:
         for requested in frontmatter.allowed_tools or []:
             name = DEFAULT_TOOL_ALIASES.get(requested, requested)
             try:
-                self._capabilities.require(name)
+                self._snapshot().require(name)
             except KeyError as error:
                 raise SkillValidationError(f"allowed-tools contains unknown capability: {requested}") from error
             allowed.append(name)

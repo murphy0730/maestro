@@ -20,7 +20,7 @@
 {"session_id":"s1","message":"解释 OEE","source":"chat","skill_names":[],"artifact_ids":[]}
 ```
 
-`source` 可为 `chat`、`expert`、`event` 或 `resume`。返回 202 和完整 Run 快照；其中包括 `run_id`、`path`、`status` 与 `intent`。
+`source` 可为 `chat`、`expert`、`event` 或 `resume`。服务器先持久化初始快照、立即返回 202，再在后台执行 Run；返回快照包括 `run_id`、`path`、`status` 与 `intent`。
 
 `GET /runs/{run_id}` 返回最新 Run 快照。
 
@@ -40,5 +40,9 @@ data: {"final_text":"..."}
 
 ```
 
-客户端以 `Last-Event-ID` 恢复，服务器重放其后的 Journal 事件。公开事件包括：
+客户端以 `Last-Event-ID` 恢复，服务器先订阅实时事件、再稳定重放其后的 Journal 事件，因此不会有 replay/live 间隙或重复。公开事件包括：
 `run.created`、`run.path_selected`、`run.path_upgraded`、`run.waiting_approval`、`run.reconciling`、`run.completed`、`run.failed`、`run.cancelled`、`step.started`、`step.succeeded`、`step.failed`、`approval.requested`、`approval.expired`、`approval.resolved`、`artifact.created`、`token.delta`。
+
+## Extensions
+
+宿主可在启动后通过 `Platform.capabilities.register(...)` 注册通用 Tool 能力；`Platform.mcp.register(...)` 注册 MCP transport 的本地能力描述与执行器。风险、写入与幂等元数据由本地注册者提供，不能由远端描述降低。Skill 发现会在每个 Run 意图判断时读取当前能力注册表。

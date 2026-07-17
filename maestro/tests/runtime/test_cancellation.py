@@ -53,6 +53,33 @@ async def test_cancel_during_inflight_write_cannot_be_overwritten_by_completion(
 
 
 @pytest.mark.asyncio
+async def test_cancel_is_idempotent_while_a_write_is_cancelling(tmp_path) -> None:
+    harness = RuntimeHarness(tmp_path)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingExecutor:
+        async def __call__(self, _call, _key):
+            started.set()
+            await release.wait()
+            return CapabilityResult(status="succeeded")
+
+    harness.registry.register(CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, executor=BlockingExecutor()))
+    harness.model.queue_call("write")
+    task = asyncio.create_task(harness.coordinator.start("write"))
+    await started.wait()
+    run_id = next(path.stem for path in harness.coordinator._run_store.directory.glob("*.json"))
+
+    first = await harness.coordinator.cancel(run_id)
+    second = await harness.coordinator.cancel(run_id)
+    release.set()
+    await task
+
+    assert first.status is RunStatus.CANCELLING
+    assert second.status is RunStatus.CANCELLING
+
+
+@pytest.mark.asyncio
 async def test_cancel_during_inflight_unknown_write_requires_reconciliation(tmp_path) -> None:
     harness = RuntimeHarness(tmp_path)
     started = asyncio.Event()

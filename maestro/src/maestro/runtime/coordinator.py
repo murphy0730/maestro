@@ -68,7 +68,33 @@ class RunCoordinator:
         requested_skills: list[str] | None = None,
         max_steps: int = 12,
         max_seconds: int = 300,
+        session_id: str = "default",
     ) -> RunRecord:
+        run = await self.create(
+            objective,
+            source=source,
+            principal_id=principal_id,
+            tool_names=tool_names,
+            requested_skills=requested_skills,
+            max_steps=max_steps,
+            max_seconds=max_seconds,
+            session_id=session_id,
+        )
+        return await self.execute(run.run_id)
+
+    async def create(
+        self,
+        objective: str,
+        *,
+        source: str = "chat",
+        principal_id: str = "local-user",
+        tool_names: list[str] | None = None,
+        requested_skills: list[str] | None = None,
+        max_steps: int = 12,
+        max_seconds: int = 300,
+        session_id: str = "default",
+    ) -> RunRecord:
+        """Persist an executable Run before scheduling any model work."""
         request = IntentRequest(
             message=objective,
             source=source,
@@ -82,6 +108,7 @@ class RunCoordinator:
         snapshot = self._capabilities.snapshot()
         run = RunRecord(
             objective=objective,
+            session_id=session_id,
             intent=intent,
             capability_versions=snapshot.versions(),
         )
@@ -91,10 +118,15 @@ class RunCoordinator:
             run = self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
             run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "controlled execution ready")
             run = self._save_and_publish(run, "run.controlled_started", {})
-            return await self._run_controlled(run, snapshot)
+            return run
         run = transition_run(run, RunStatus.RUNNING_FAST, "intent selects fast path")
         run = self._save_and_publish(run, "run.path_selected", {"path": run.path.value})
-        return await self.run_until_blocked(run, snapshot)
+        return run
+
+    async def execute(self, run_id: str) -> RunRecord:
+        """Continue a previously persisted Run using its pinned capability snapshot."""
+        run = self._run_store.load(run_id)
+        return await self.run_until_blocked(run)
 
     async def run_until_blocked(
         self, run: RunRecord, snapshot: CapabilitySnapshot | None = None
@@ -458,6 +490,8 @@ class RunCoordinator:
             if run.status is RunStatus.RECONCILING or run.requires_reconciliation:
                 return self._save_and_publish(run, "run.cancel_deferred", {"reason": "requires_reconciliation"})
             if run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+                return run
+            if run.status is RunStatus.CANCELLING:
                 return run
             run = transition_run(run, RunStatus.CANCELLING, "cancel requested")
             run = self._save_and_publish(run, "run.cancelling", {})

@@ -25,8 +25,14 @@ class EventPublisher:
         self._journal = journal
         self._subscribers: list[Callable[[RunEvent], None]] = []
 
-    def subscribe(self, subscriber: Callable[[RunEvent], None]) -> None:
+    def subscribe(self, subscriber: Callable[[RunEvent], None]) -> Callable[[], None]:
         self._subscribers.append(subscriber)
+        def unsubscribe() -> None:
+            try:
+                self._subscribers.remove(subscriber)
+            except ValueError:
+                pass
+        return unsubscribe
 
     def publish(self, event: RunEvent) -> RunEvent:
         saved = self._journal.append(

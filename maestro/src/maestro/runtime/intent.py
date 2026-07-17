@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from maestro.runtime.capabilities import CapabilitySnapshot, RiskLevel
+from maestro.runtime.capabilities import CapabilityRegistry, CapabilitySnapshot, RiskLevel
 from maestro.runtime.models import RunIntent, RunPath
 from maestro.runtime.skills import SkillMetadata
 
@@ -49,13 +49,13 @@ class IntentClassifier:
 
     def __init__(
         self,
-        capabilities: CapabilitySnapshot,
+        capabilities: CapabilitySnapshot | CapabilityRegistry,
         *,
-        skills: Mapping[str, SkillMetadata] | None = None,
+        skills: Mapping[str, SkillMetadata] | Callable[[], Mapping[str, SkillMetadata]] | None = None,
         model_classifier: ModelClassifier | None = None,
     ) -> None:
         self._capabilities = capabilities
-        self._skills = dict(skills or {})
+        self._skills = skills or {}
         self._model_classifier = model_classifier
 
     def build(self, request: IntentRequest) -> RunIntent:
@@ -86,8 +86,9 @@ class IntentClassifier:
 
     def _candidate_capabilities(self, request: IntentRequest) -> list[str]:
         names = list(request.tool_names)
+        skills = self._skill_metadata()
         for skill_name in request.requested_skills:
-            skill = self._skills.get(skill_name)
+            skill = skills.get(skill_name)
             if skill is not None:
                 names.extend(skill.allowed_tools)
         return list(dict.fromkeys(names))
@@ -99,7 +100,7 @@ class IntentClassifier:
         complexity: list[str] = []
         for name in candidate_capabilities:
             try:
-                capability = self._capabilities.require(name)
+                capability = self._snapshot().require(name)
             except KeyError:
                 risks.append("unknown_capability")
                 continue
@@ -122,12 +123,23 @@ class IntentClassifier:
             complexity.append("explicit_complex_wording")
         return list(dict.fromkeys(risks)), list(dict.fromkeys(complexity))
 
+    def _snapshot(self) -> CapabilitySnapshot:
+        if isinstance(self._capabilities, CapabilityRegistry):
+            return self._capabilities.snapshot()
+        return self._capabilities
+
     def _requests_fork(self, request: IntentRequest) -> bool:
+        skills = self._skill_metadata()
         for name in request.requested_skills:
-            skill = self._skills.get(name)
+            skill = skills.get(name)
             if skill is not None and skill.context == "fork":
                 return True
         return False
+
+    def _skill_metadata(self) -> Mapping[str, SkillMetadata]:
+        if callable(self._skills):
+            return self._skills()
+        return self._skills
 
     def _model_signals(self, request: IntentRequest) -> list[str]:
         if self._model_classifier is None:

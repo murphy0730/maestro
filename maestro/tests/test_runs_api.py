@@ -14,6 +14,14 @@ def test_create_run_returns_identity(tmp_path, monkeypatch) -> None:
     assert response.status_code == 202
     assert response.json()["path"] in {"fast", "structured"}
     assert response.json()["run_id"]
+    assert response.json()["status"] in {"running_fast", "running_structured"}
+
+
+def test_invalid_session_id_is_rejected_before_a_run_is_created(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        response = client.post("/runs", json={"session_id": "../escape", "message": "hello"})
+        assert response.status_code == 422
+        assert list(client.app.state.platform.run_store.directory.glob("*.json")) == []
 
 
 def test_event_source_creates_same_governed_run(tmp_path, monkeypatch) -> None:
@@ -46,3 +54,10 @@ def test_stream_replays_after_last_event_id(tmp_path, monkeypatch) -> None:
         resumed = client.get(f"/runs/{run_id}/stream", headers={"Last-Event-ID": event_ids[0]})
     assert event_ids[0] not in resumed.text
     assert "event: run.completed" in resumed.text
+
+
+def test_stream_projects_runtime_events_to_v1_names(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        created = client.post("/runs", json={"message": "hello"})
+        response = client.get(f"/runs/{created.json()['run_id']}/stream")
+    assert "event: token.delta" in response.text

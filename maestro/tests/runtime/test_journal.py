@@ -389,3 +389,15 @@ def test_replay_restores_a_snapshot_from_the_last_non_state_event() -> None:
     ])
 
     assert restored == latest
+
+
+def test_event_subscription_can_be_removed(tmp_path) -> None:
+    from datetime import UTC, datetime
+    from maestro.runtime.events import EventPublisher, RunEvent
+
+    publisher = EventPublisher(JsonlJournal(tmp_path / "journal.jsonl"))
+    received: list[str] = []
+    unsubscribe = publisher.subscribe(lambda event: received.append(event.type))
+    unsubscribe()
+    publisher.publish(RunEvent(run_id="run", type="run.created", occurred_at=datetime.now(UTC)))
+    assert received == []

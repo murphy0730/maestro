@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from maestro.runtime.events import RunEvent
-from maestro.runtime.models import RunRecord
+from maestro.runtime.models import RunRecord, RunStatus
 
 router = APIRouter()
 
@@ -43,25 +43,27 @@ def _dump_run(run: RunRecord) -> dict:
 @router.post("/runs", status_code=202)
 async def create_run(payload: CreateRunRequest, request: Request):
     platform = request.app.state.platform
+    try:
+        platform.session_store.ensure(payload.session_id)
+    except ValueError as error:
+        raise _error(422, "invalid_session_id", str(error)) from error
     for artifact_id in payload.artifact_ids:
         try:
             platform.artifact_store.get(artifact_id)
         except (FileNotFoundError, ValueError):
             raise _error(404, "artifact_not_found", "artifact not found") from None
-    run = await platform.runtime.start(
-        payload.message, source=payload.source, requested_skills=payload.skill_names
+    run = await platform.runtime.create(
+        payload.message, source=payload.source, requested_skills=payload.skill_names,
+        session_id=payload.session_id,
     )
-    run = run.model_copy(update={"session_id": payload.session_id})
-    platform.run_store.save(run)
-    try:
-        platform.session_store.ensure(payload.session_id)
-    except ValueError as error:
-        raise _error(422, "invalid_session_id", str(error)) from error
     platform.session_store.append_message(
         payload.session_id, "user", payload.message,
         artifact_ids=payload.artifact_ids, skill_names=payload.skill_names,
     )
     platform.session_store.set_active_run(payload.session_id, run.run_id)
+    task = asyncio.create_task(platform.runtime.execute(run.run_id))
+    request.app.state.run_tasks.add(task)
+    task.add_done_callback(request.app.state.run_tasks.discard)
     return _dump_run(run)
 
 
@@ -71,6 +73,27 @@ async def get_run(run_id: str, request: Request):
         return _dump_run(request.app.state.platform.run_store.load(run_id))
     except (FileNotFoundError, ValueError):
         raise _error(404, "run_not_found", "run not found", run_id) from None
+
+
+_EVENT_PROJECTION = {
+    "model.turn": "token.delta",
+    "write.started": "step.started",
+    "capability.completed": "step.succeeded",
+    "write.unknown": "run.reconciling",
+    "approval.approved": "approval.resolved",
+    "approval.requested": "approval.requested",
+}
+
+
+def _project(event: RunEvent) -> list[RunEvent]:
+    """Expose stable v1 names without changing the durable internal Journal."""
+    projected = event.model_copy(update={"type": _EVENT_PROJECTION.get(event.type, event.type)})
+    if event.type != "approval.requested":
+        return [projected]
+    return [
+        projected.model_copy(update={"event_id": f"{event.event_id}.waiting", "type": "run.waiting_approval"}),
+        projected,
+    ]
 
 
 def _sse(event: RunEvent) -> str:
@@ -84,17 +107,35 @@ async def stream_run(run_id: str, request: Request):
         platform.run_store.load(run_id)
     except (FileNotFoundError, ValueError):
         raise _error(404, "run_not_found", "run not found", run_id) from None
+    queue: asyncio.Queue[RunEvent] = asyncio.Queue()
+    unsubscribe = platform.runtime._events.subscribe(
+        lambda event: queue.put_nowait(event) if event.run_id == run_id else None
+    )
     after = request.headers.get("Last-Event-ID")
-    events = platform.runtime._events.history(run_id)
+    all_events = [item for event in platform.runtime._events.history(run_id) for item in _project(event)]
+    known_ids = {event.event_id for event in all_events}
+    events = all_events
     if after:
         found = next((index for index, event in enumerate(events) if event.event_id == after), None)
         events = events[found + 1 :] if found is not None else events
 
     async def body() -> AsyncIterator[str]:
-        for event in events:
-            yield _sse(event)
-        # Runs are driven to a blocking terminal/approval state before POST returns.
-        await asyncio.sleep(0)
+        sent = set(known_ids)
+        try:
+            for event in events:
+                yield _sse(event)
+            terminal = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.WAITING_APPROVAL, RunStatus.RECONCILING}
+            if platform.run_store.load(run_id).status in terminal:
+                return
+            while True:
+                for event in _project(await queue.get()):
+                    if event.event_id not in sent:
+                        sent.add(event.event_id)
+                        yield _sse(event)
+                if platform.run_store.load(run_id).status in terminal:
+                    return
+        finally:
+            unsubscribe()
 
     return StreamingResponse(body(), media_type="text/event-stream")
 

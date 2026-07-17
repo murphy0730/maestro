@@ -13,6 +13,7 @@ from maestro.config import Settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.platform = build_platform()
+    app.state.run_tasks = set()
     yield
 
 
