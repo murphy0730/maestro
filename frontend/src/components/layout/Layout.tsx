@@ -11,7 +11,7 @@ import { isMacDesktop } from '@/lib/platform';
  * chrome (sidebar/topbar) starts below it instead of colliding with them.
  */
 interface LayoutProps {
-  sidebar: ReactNode;
+  sidebar?: ReactNode;
   topBar: ReactNode;
   conversation: ReactNode;
   panel?: ReactNode;
