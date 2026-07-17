@@ -35,10 +35,20 @@ class Platform:
     def refresh_skills(self) -> dict:
         """Make discovered Claude Skills callable by the generic Runtime."""
         discovered = self.skill_catalog.discover()
-        discovered_names = set(discovered)
-        for name in self._registered_skill_names - discovered_names:
+        registered: dict = {}
+        rejected: set[str] = set()
+        for name in self._registered_skill_names - set(discovered):
             self.capabilities.unregister(name, kind=CapabilityKind.SKILL)
         for metadata in discovered.values():
+            try:
+                existing = self.capabilities.require(metadata.name)
+            except KeyError:
+                existing = None
+            # A Skill package is never allowed to replace an operational
+            # capability merely because it has the same display name.
+            if existing is not None and existing.kind is not CapabilityKind.SKILL:
+                rejected.add(metadata.name)
+                continue
             self.capabilities.register(
                 CapabilitySpec(
                     name=metadata.name,
@@ -48,8 +58,10 @@ class Platform:
                 ),
                 replace=True,
             )
-        self._registered_skill_names = discovered_names
-        return discovered
+            registered[metadata.name] = metadata
+        self.skill_catalog.reject(rejected)
+        self._registered_skill_names = set(registered)
+        return registered
 
 
 def build_platform(settings: Settings | None = None, llm: LLMClient | None = None) -> Platform:

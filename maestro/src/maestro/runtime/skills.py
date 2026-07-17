@@ -83,6 +83,13 @@ class SkillCatalog:
         self.inactive = inactive
         return dict(selected)
 
+    def reject(self, names: set[str]) -> None:
+        """Hide discovered Skills that collide with non-Skill capabilities."""
+        for name in names:
+            metadata = self._active.pop(name, None)
+            if metadata is not None:
+                self.inactive.append(replace(metadata, active=False))
+
     def load(self, name: str, *, arguments: str = "", session_id: str = "") -> LoadedSkill:
         metadata = self._active.get(name) or self._find_by_directory_name(name)
         if metadata is None:

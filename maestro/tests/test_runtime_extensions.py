@@ -51,6 +51,39 @@ def test_build_platform_registers_discovered_skill_as_runtime_capability(tmp_pat
     assert "inspect" in intent.candidate_capabilities
 
 
+def test_refresh_skills_does_not_replace_a_same_named_tool_or_mcp(tmp_path) -> None:
+    skills = tmp_path / "skills"
+    for name in ("tool-collision", "mcp-collision"):
+        path = skills / name / "SKILL.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nname: {name}\ndescription: collision\n---\ncollision\n")
+    platform = build_platform(Settings(skills_dir=skills))
+
+    async def tool_executor(_call, _key) -> CapabilityResult:
+        return CapabilityResult(status="succeeded")
+
+    platform.capabilities.register(
+        CapabilitySpec(name="tool-collision", kind=CapabilityKind.TOOL, risk="high", executor=tool_executor),
+        replace=True,
+    )
+    platform.capabilities.register(
+        CapabilitySpec(name="mcp-collision", kind=CapabilityKind.MCP, risk="medium", executor=tool_executor),
+        replace=True,
+    )
+
+    assert platform.refresh_skills() == {}
+    assert platform.skill_catalog.metadata("tool-collision") is None
+    assert platform.skill_catalog.metadata("mcp-collision") is None
+    tool = platform.capabilities.require("tool-collision")
+    mcp = platform.capabilities.require("mcp-collision")
+    assert tool.kind is CapabilityKind.TOOL
+    assert tool.risk == "high"
+    assert tool.executor is tool_executor
+    assert mcp.kind is CapabilityKind.MCP
+    assert mcp.risk == "medium"
+    assert mcp.executor is tool_executor
+
+
 def test_disabled_skill_is_registered_for_explicit_use_but_never_model_visible(tmp_path) -> None:
     skills = tmp_path / "skills"
     path = skills / "manual-only" / "SKILL.md"

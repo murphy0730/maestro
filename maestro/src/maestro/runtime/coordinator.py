@@ -156,6 +156,11 @@ class RunCoordinator:
         )
         if not prepared:
             return self._fail(run, "skill_unavailable")
+        run, prepared = await self._run_explicit_manual_forks(
+            run, snapshot, context_items, parent_allowed
+        )
+        if not prepared:
+            return self._fail(run, "skill_unavailable")
         while True:
             if monotonic() - started_at >= run.intent.max_seconds:
                 return self._fail(run, "time_exhausted")
@@ -254,6 +259,11 @@ class RunCoordinator:
         if is_initial_execution:
             prepared, skill_allowed = self._apply_explicit_manual_skills(
                 run, context_items, parent_allowed, skill_allowed
+            )
+            if not prepared:
+                return self._fail(run, "skill_unavailable")
+            run, prepared = await self._run_explicit_manual_forks(
+                run, snapshot, context_items, parent_allowed
             )
             if not prepared:
                 return self._fail(run, "skill_unavailable")
@@ -445,6 +455,8 @@ class RunCoordinator:
                 loaded = self._skill_catalog.load(name, session_id=run.run_id)
             except (KeyError, OSError, UnicodeError):
                 return False, skill_allowed
+            if loaded.mode == "fork":
+                continue
             if loaded.mode != "inline":
                 return False, skill_allowed
             context_items.append(ContextItem.from_skill(loaded))
@@ -452,6 +464,42 @@ class RunCoordinator:
             allowed = allowed if parent_allowed is None else parent_allowed & allowed
             skill_allowed = allowed if skill_allowed is None else skill_allowed & allowed
         return True, skill_allowed
+
+    async def _run_explicit_manual_forks(
+        self,
+        run: RunRecord,
+        snapshot: CapabilitySnapshot,
+        context_items: list[ContextItem],
+        parent_allowed: set[str] | None,
+    ) -> tuple[RunRecord, bool]:
+        """Run user-selected manual fork Skills in an isolated Child Run.
+
+        Manual-only Skills are deliberately absent from the model capability
+        list.  A user can still explicitly select a fork Skill; that selection
+        takes the same bounded Child Run path as a model-selected fork.
+        """
+        if self._skill_catalog is None or run.intent is None:
+            return run, True
+        for name in run.intent.requested_skills:
+            metadata = self._skill_catalog.metadata(name)
+            if (
+                metadata is None
+                or not metadata.disable_model_invocation
+                or metadata.context != "fork"
+            ):
+                continue
+            try:
+                loaded = self._skill_catalog.load(name, session_id=run.run_id)
+            except (KeyError, OSError, UnicodeError):
+                return run, False
+            if run.intent.max_steps <= 1:
+                return self._fail(run, "child_budget_not_smaller"), False
+            child_result, artifact = await self._run_child(
+                run, snapshot, loaded, parent_allowed
+            )
+            context_items.append(ContextItem.from_artifact(artifact))
+            self._publish(run, "child_run.completed", child_result.model_dump())
+        return run, True
 
     def _available(
         self,

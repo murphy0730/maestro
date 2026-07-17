@@ -266,6 +266,52 @@ async def test_fork_rejects_a_parent_budget_that_cannot_be_reduced(tmp_path: Pat
     assert not [event for event in publisher.history(parent.run_id) if event.type == "child_run.created"]
 
 
+async def test_explicit_manual_fork_uses_isolated_child_without_model_exposure(tmp_path: Path) -> None:
+    registry = CapabilityRegistry()
+    read = CountingExecutor({"order": "WO-1"})
+    registry.register(CapabilitySpec(name="manual-fork", kind=CapabilityKind.SKILL))
+    registry.register(CapabilitySpec(name="read", kind=CapabilityKind.TOOL, executor=read))
+    skill = tmp_path / "skills" / "manual-fork" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: manual-fork\ndescription: manual fork\ncontext: fork\n"
+        "disable-model-invocation: true\nallowed-tools: read\n---\nsecret child work\n"
+    )
+    catalog = SkillCatalog({"project": tmp_path / "skills"}, registry.snapshot())
+    catalog.discover()
+    model = FakeRuntimeModel()
+    model.queue_call("read", {"id": "WO-1"})
+    model.queue_final("child done")
+    model.queue_final("parent done")
+    publisher = EventPublisher(JsonlJournal(tmp_path / "journal.jsonl"))
+    runs = RunStore(tmp_path / "runs")
+    coordinator = RunCoordinator(
+        model=model,
+        capabilities=registry,
+        intent_classifier=IntentClassifier(registry.snapshot(), skills=catalog.discover()),
+        policy_gate=PolicyGate([]),
+        context_provider=ContextProvider(max_chars=8_000),
+        run_store=runs,
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        events=publisher,
+        skill_catalog=catalog,
+    )
+
+    parent = await coordinator.start(
+        "显式委派", requested_skills=["manual-fork"], tool_names=["read"], max_steps=8
+    )
+
+    created = [event for event in publisher.history(parent.run_id) if event.type == "child_run.created"]
+    assert parent.status is RunStatus.COMPLETED
+    assert len(created) == 1
+    child = runs.load(created[0].data["child_run_id"])
+    assert child.intent is not None
+    assert child.intent.max_steps < parent.intent.max_steps
+    assert child.intent.candidate_capabilities == ["read"]
+    assert all("manual-fork" not in names for names in model.capability_names)
+    assert read.calls == 1
+
+
 async def test_controlled_skills_consume_the_strict_step_budget(tmp_path: Path) -> None:
     registry = CapabilityRegistry()
     for name in ("first", "second", "third"):

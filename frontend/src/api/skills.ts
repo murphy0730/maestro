@@ -28,10 +28,9 @@ export function validateSkill(file: File): Promise<SkillValidationReport> {
   return apiUpload<SkillValidationReport>('/skills/validate', form);
 }
 
-export function trustSkill(name: string, packageSha256: string): Promise<SkillTrustStatus> {
+export function trustSkill(name: string, trusted: boolean): Promise<SkillTrustStatus> {
   return apiPost<SkillTrustStatus>(`/skills/${encodeURIComponent(name)}/trust`, {
-    package_sha256: packageSha256,
-    acknowledged_script_execution: true,
+    trusted,
   });
 }
 
