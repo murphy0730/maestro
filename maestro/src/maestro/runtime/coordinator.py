@@ -449,7 +449,11 @@ class RunCoordinator:
             if approval is None or approval.status != "pending" or approval.run_revision != expected_revision:
                 raise ValueError("unknown or stale approval")
             if not approved:
-                self._publish(run, "approval.resolved", {"approval_id": approval_id, "approved": False})
+                rejected = approval.model_copy(update={"status": "rejected"})
+                run = run.model_copy(update={"pending_approvals": [rejected]})
+                run = self._save_and_publish(
+                    run, "approval.resolved", {"approval_id": approval_id, "approved": False}
+                )
                 return self._fail(run, "approval_rejected")
             step = run.steps.get(approval.step_id)
             if step is None or step.call is None:

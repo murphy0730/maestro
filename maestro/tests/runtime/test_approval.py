@@ -58,6 +58,26 @@ async def test_stale_approval_revision_is_rejected(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rejected_approval_is_persisted_as_rejected(tmp_path) -> None:
+    harness = RuntimeHarness(tmp_path)
+    harness.registry.register(
+        CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, risk=RiskLevel.HIGH, executor=harness.add_tool("placeholder"))
+    )
+    harness.model.queue_call("write")
+    run = await harness.coordinator.start("write")
+    approval = run.pending_approvals[0]
+
+    rejected = await harness.coordinator.approve(
+        run.run_id, approval.approval_id, False, "u1", approval.run_revision
+    )
+    stored = harness.coordinator._run_store.load(run.run_id)
+
+    assert rejected.status is RunStatus.FAILED
+    assert [item.status for item in rejected.pending_approvals] == ["rejected"]
+    assert [item.status for item in stored.pending_approvals] == ["rejected"]
+
+
+@pytest.mark.asyncio
 async def test_expired_approval_is_replaced_without_execution(tmp_path) -> None:
     harness = RuntimeHarness(tmp_path)
     executor = harness.add_tool("placeholder")
