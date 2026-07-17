@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
+from datetime import UTC, datetime
 
 from maestro.api.app import create_app
+from maestro.runtime.events import RunEvent
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -61,3 +63,37 @@ def test_stream_projects_runtime_events_to_v1_names(tmp_path, monkeypatch) -> No
         created = client.post("/runs", json={"message": "hello"})
         response = client.get(f"/runs/{created.json()['run_id']}/stream")
     assert "event: token.delta" in response.text
+
+
+def test_stream_drains_event_published_after_history_before_terminal(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        created = client.post("/runs", json={"message": "hello"})
+        run_id = created.json()["run_id"]
+        events = client.app.state.platform.runtime._events
+        original_history = events.history
+
+        def history_with_interleaving(identifier):
+            history = original_history(identifier)
+            events.publish(RunEvent(run_id=identifier, type="run.completed", data={"late": True}, occurred_at=datetime.now(UTC)))
+            return history
+
+        events.history = history_with_interleaving
+        response = client.get(f"/runs/{run_id}/stream")
+    assert '"late": true' in response.text
+
+
+def test_stream_projects_failed_steps_and_approval_outcomes(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        created = client.post("/runs", json={"message": "hello"})
+        run_id = created.json()["run_id"]
+        events = client.app.state.platform.runtime._events
+        now = datetime.now(UTC)
+        events.history = lambda _identifier: [
+            RunEvent(run_id=run_id, type="capability.completed", data={"status": "failed"}, occurred_at=now),
+            RunEvent(run_id=run_id, type="approval.expired", data={}, occurred_at=now),
+            RunEvent(run_id=run_id, type="approval.resolved", data={}, occurred_at=now),
+        ]
+        response = client.get(f"/runs/{run_id}/stream")
+    assert "event: step.failed" in response.text
+    assert "event: approval.expired" in response.text
+    assert "event: approval.resolved" in response.text

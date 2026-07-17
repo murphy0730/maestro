@@ -87,7 +87,10 @@ _EVENT_PROJECTION = {
 
 def _project(event: RunEvent) -> list[RunEvent]:
     """Expose stable v1 names without changing the durable internal Journal."""
-    projected = event.model_copy(update={"type": _EVENT_PROJECTION.get(event.type, event.type)})
+    event_type = _EVENT_PROJECTION.get(event.type, event.type)
+    if event.type == "capability.completed":
+        event_type = "step.succeeded" if event.data.get("status") == "succeeded" else "step.failed"
+    projected = event.model_copy(update={"type": event_type})
     if event.type != "approval.requested":
         return [projected]
     return [
@@ -121,10 +124,19 @@ async def stream_run(run_id: str, request: Request):
 
     async def body() -> AsyncIterator[str]:
         sent = set(known_ids)
+        async def queued() -> AsyncIterator[str]:
+            while not queue.empty():
+                raw = queue.get_nowait()
+                for event in _project(raw):
+                    if event.event_id not in sent:
+                        sent.add(event.event_id)
+                        yield _sse(event)
         try:
             for event in events:
                 yield _sse(event)
             terminal = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.WAITING_APPROVAL, RunStatus.RECONCILING}
+            async for item in queued():
+                yield item
             if platform.run_store.load(run_id).status in terminal:
                 return
             while True:
@@ -132,6 +144,8 @@ async def stream_run(run_id: str, request: Request):
                     if event.event_id not in sent:
                         sent.add(event.event_id)
                         yield _sse(event)
+                async for item in queued():
+                    yield item
                 if platform.run_store.load(run_id).status in terminal:
                     return
         finally:

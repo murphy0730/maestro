@@ -206,6 +206,9 @@ class RunCoordinator:
             if spec.executor is None:
                 return self._fail(run, "missing_executor")
             result = await spec.executor(action.call, None)
+            if result.status != "succeeded":
+                self._publish(run, "step.failed", {"name": spec.name, "status": result.status})
+                return self._fail(run, result.error_message or "capability_failed")
             run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
             run = self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
             content = result.content
@@ -305,6 +308,9 @@ class RunCoordinator:
             if spec.writes:
                 return await self._execute_write(run, action.call, spec)
             result = await spec.executor(action.call, None)
+            if result.status != "succeeded":
+                self._publish(run, "step.failed", {"name": spec.name, "status": result.status})
+                return self._fail(run, result.error_message or "capability_failed")
             run = self._save_and_publish(
                 run, "capability.completed", {"name": spec.name, "status": result.status}
             )
@@ -443,6 +449,7 @@ class RunCoordinator:
             if approval is None or approval.status != "pending" or approval.run_revision != expected_revision:
                 raise ValueError("unknown or stale approval")
             if not approved:
+                self._publish(run, "approval.resolved", {"approval_id": approval_id, "approved": False})
                 return self._fail(run, "approval_rejected")
             step = run.steps.get(approval.step_id)
             if step is None or step.call is None:
@@ -470,6 +477,7 @@ class RunCoordinator:
             ):
                 expired = approval.model_copy(update={"status": "expired"})
                 run = run.model_copy(update={"pending_approvals": [expired]})
+                self._publish(run, "approval.expired", {"approval_id": approval_id})
                 if decision.effect is PolicyEffect.DENY:
                     return self._fail(run, decision.reason)
                 return await self._request_approval(run, call, spec, decision, allowed, set(approval.skill_allowed_tools) if approval.skill_allowed_tools is not None else None, replace=True)
@@ -574,6 +582,7 @@ class RunCoordinator:
             run = run.model_copy(update={"requires_reconciliation": True, "inflight_step_id": None})
             return self._save_and_publish(run, "write.unknown", {"step_id": step_id})
         if result.status == "failed":
+            self._publish(run, "step.failed", {"step_id": step_id, "status": result.status})
             return self._fail(run, result.error_message or "write_failed")
         if run.status is RunStatus.CANCELLING:
             run = run.model_copy(update={"inflight_step_id": None})
