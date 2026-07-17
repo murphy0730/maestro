@@ -14,7 +14,8 @@ export function RunTrace({ projection, onApprove, approvingId }: RunTraceProps) 
       <div className="flex items-center gap-2 text-text-secondary"><Circle size={14} className="text-accent" />{run.path === 'fast' ? '快速执行' : run.path === 'structured' ? '已升级为受控执行' : '准备执行'}</div>
       {run.status === 'waiting_approval' && <div className="flex items-center gap-2 text-auth-confirm"><ShieldAlert size={14} />等待确认</div>}
       {run.status === 'reconciling' && <div className="flex items-center gap-2 text-status-warning"><RefreshCw size={14} />正在对账</div>}
-      {run.status === 'waiting_external' && <div className="flex items-center gap-2 text-text-secondary"><RefreshCw size={14} />已恢复</div>}
+      {run.status === 'waiting_external' && <div className="flex items-center gap-2 text-text-secondary"><RefreshCw size={14} />等待外部完成</div>}
+      {projection.recovered && <div className="flex items-center gap-2 text-status-success"><CheckCircle2 size={14} />已恢复</div>}
       {Object.values(run.steps).map((step) => <div key={step.step_id} className="flex items-center gap-2 text-text-secondary"><CheckCircle2 size={14} className={step.status === 'failed' ? 'text-status-error' : step.status === 'succeeded' ? 'text-status-success' : 'text-text-tertiary'} />{step.kind}</div>)}
       {isTerminal && <div className={`flex items-center gap-2 ${run.status === 'completed' ? 'text-status-success' : 'text-status-error'}`}><XCircle size={14} />{labels[run.status as keyof typeof labels]}</div>}
     </div>
