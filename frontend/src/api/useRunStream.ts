@@ -58,6 +58,13 @@ export function useRunStream(sessionId: string) {
   }, [connect, reset, sessionId, setRun]);
   const approve = useCallback(async (approvalId: string, approved: boolean, revision: number) => { if (!activeRun.current) return; mergeRun(await resolveApproval(activeRun.current, approvalId, approved, revision)); void connect(activeRun.current); }, [connect, mergeRun]);
   const cancel = useCallback(async () => { if (!activeRun.current) return; mergeRun(await cancelRun(activeRun.current)); }, [mergeRun]);
+  useEffect(() => {
+    controller.current?.abort();
+    activeRun.current = undefined;
+    lastEventId.current = undefined;
+    seenEventIds.current.clear();
+    reset();
+  }, [reset, sessionId]);
   useEffect(() => () => controller.current?.abort(), []);
   return { start, approve, cancel, transport };
 }

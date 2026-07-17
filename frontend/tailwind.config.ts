@@ -4,7 +4,7 @@ import type { Config } from 'tailwindcss';
  * Maestro design tokens — Linear/Vercel restyle.
  * The CSS custom properties live in src/index.css (light = :root default,
  * dark = [data-theme='dark'] overrides); this file mirrors them as semantic
- * Tailwind utilities so JSX can use `bg-planning`, `text-route-query-fg`, etc.
+ * Tailwind utilities for Runtime UI semantic tokens.
  *
  * Every color references its CSS var so hues can differ per theme — no
  * raw hex here. Source of truth for the raw values is index.css, which in
@@ -36,38 +36,6 @@ const config: Config = {
         'border-default': 'var(--border-default)',
         'border-strong': 'var(--border-strong)',
         'border-accent': 'var(--border-accent)',
-
-        // ============================================================
-        // ROUTE CLASSIFICATION — four engine families
-        // ============================================================
-        // 排产 Planning — systemBlue
-        planning: {
-          DEFAULT: 'var(--route-planning)',
-          fg: 'var(--route-planning-fg)',
-          bg: 'var(--route-planning-bg)',
-          border: 'var(--route-planning-border)',
-        },
-        // 调度 Scheduling — systemOrange
-        scheduling: {
-          DEFAULT: 'var(--route-scheduling)',
-          fg: 'var(--route-scheduling-fg)',
-          bg: 'var(--route-scheduling-bg)',
-          border: 'var(--route-scheduling-border)',
-        },
-        // 查询 Query — teal/mint
-        query: {
-          DEFAULT: 'var(--route-query)',
-          fg: 'var(--route-query-fg)',
-          bg: 'var(--route-query-bg)',
-          border: 'var(--route-query-border)',
-        },
-        // 不确定 Uncertain — systemIndigo
-        uncertain: {
-          DEFAULT: 'var(--route-uncertain)',
-          fg: 'var(--route-uncertain-fg)',
-          bg: 'var(--route-uncertain-bg)',
-          border: 'var(--route-uncertain-border)',
-        },
 
         // ============================================================
         // STATUS — feedback states
@@ -109,7 +77,7 @@ const config: Config = {
         // ============================================================
         // SOLID FILLS — filled controls carry white text on both themes.
         // blue = 沟通与导航 (send / new chat / my bubble)
-        // green = 执行 (submit plan / dispatch)
+        // green = successful execution
         // ============================================================
         'blue-solid': 'var(--blue-solid)',
         'blue-solid-hover': 'var(--blue-solid-hover)',
@@ -117,7 +85,7 @@ const config: Config = {
         'green-solid-hover': 'var(--green-solid-hover)',
         'on-solid': 'var(--on-solid)',
 
-        // ---- Data-viz sequence (charts, gantt tracks) ----
+        // ---- Data-viz sequence ----
         'data-1': 'var(--data-1)',
         'data-2': 'var(--data-2)',
         'data-3': 'var(--data-3)',
@@ -213,14 +181,9 @@ const config: Config = {
         'elev-2': 'var(--shadow-elev-2)',
         'elev-3': 'var(--shadow-elev-3)',
         popover: 'var(--shadow-popover)',
-        // The glow family is retained by name so existing JSX keeps compiling,
-        // but this language has no glows: each resolves to a hairline ring.
+        // Each glow resolves to a restrained hairline ring.
         'glow-accent': '0 0 0 1px var(--accent-border)',
         'glow-accent-sm': '0 0 0 1px var(--accent-border)',
-        'glow-planning': '0 0 0 1px var(--route-planning-border)',
-        'glow-scheduling': '0 0 0 1px var(--route-scheduling-border)',
-        'glow-query': '0 0 0 1px var(--route-query-border)',
-        'glow-uncertain': '0 0 0 1px var(--route-uncertain-border)',
         'glow-success': '0 0 0 1px var(--auth-auto-border)',
         'glow-confirm': '0 0 0 1px var(--auth-confirm-border)',
         // inner top hairline highlight (per-theme via CSS var)

@@ -1,11 +1,8 @@
 import { createBrowserRouter, createHashRouter } from 'react-router-dom';
 import { Workspace } from '@/pages/Workspace';
-import { DesignTokens } from '@/pages/DesignTokens';
-
 
 /**
- * Routes. `/` is the main workspace; `/tasks` is the task list for a planning
- * run; `/design-tokens` is the token preview.
+ * `/` is the sole Runtime workspace.
  *
  * Under Electron the app is served from `file://`, where history-based routing
  * breaks — so use a hash router there and a browser router on the web.
@@ -18,9 +15,5 @@ export const router = createRouter([
   {
     path: '/',
     element: <Workspace />,
-  },
-  {
-    path: '/design-tokens',
-    element: <DesignTokens />,
   },
 ]);

@@ -28,4 +28,16 @@ describe('useRunStream', () => {
     await act(async () => { await result.current.start('x', [], []); });
     await waitFor(() => expect(useRunStore.getState().diagnostics[0]).toContain('future.event'));
   });
+
+  it('clears the prior run when the active session changes', async () => {
+    streamRun.mockImplementationOnce(async function* () { yield { event_id: '1', type: 'run.completed', data: { final_text: 'done' } }; });
+    const { result, rerender } = renderHook(({ sessionId }) => useRunStream(sessionId), { initialProps: { sessionId: 's1' } });
+    await act(async () => { await result.current.start('x', [], []); });
+    await waitFor(() => expect(useRunStore.getState().run?.run_id).toBe('r1'));
+
+    rerender({ sessionId: 's2' });
+
+    await waitFor(() => expect(useRunStore.getState().run).toBeNull());
+    expect(useRunStore.getState().tokens).toBe('');
+  });
 });
