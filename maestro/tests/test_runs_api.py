@@ -7,7 +7,11 @@ from maestro.runtime.events import RunEvent
 
 def _client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PRIVILEGED_API_TOKEN", "test-admin")
     return TestClient(create_app())
+
+
+_ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def test_create_run_returns_identity(tmp_path, monkeypatch) -> None:
@@ -55,10 +59,20 @@ def test_runtime_skill_endpoints_are_available_without_msw(tmp_path, monkeypatch
     with _client(tmp_path, monkeypatch) as client:
         content = b"---\nname: local-skill\ndescription: local\n---\nDo work.\n"
         assert client.post("/skills/validate", files={"file": ("SKILL.md", content, "text/markdown")}).json()["compatible"]
-        imported = client.post("/skills/import", files={"file": ("SKILL.md", content, "text/markdown")})
+        imported = client.post("/skills/import", files={"file": ("SKILL.md", content, "text/markdown")}, headers=_ADMIN)
         assert imported.status_code == 200
         assert client.get("/skills").json()["skills"][0]["name"] == "local-skill"
-        assert client.post("/skills/local-skill/trust", json={"trusted": True}).status_code == 200
+        assert client.post("/skills/local-skill/trust", json={"trusted": True}, headers=_ADMIN).status_code == 200
+
+
+def test_skill_mutation_endpoints_require_administrator(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        content = b"---\nname: guarded\ndescription: guarded\n---\nDo work.\n"
+        assert client.post("/skills/import", files={"file": ("SKILL.md", content, "text/markdown")}).status_code == 403
+        assert client.post("/skills/import", files={"file": ("SKILL.md", content, "text/markdown")}, headers=_ADMIN).status_code == 200
+        assert client.post("/skills/guarded/trust", json={"trusted": True}).status_code == 403
+        assert client.delete("/skills/guarded/trust").status_code == 403
+        assert client.delete("/skills/guarded").status_code == 403
 
 
 def test_stream_replays_after_last_event_id(tmp_path, monkeypatch) -> None:
@@ -74,6 +88,18 @@ def test_stream_replays_after_last_event_id(tmp_path, monkeypatch) -> None:
         resumed = client.get(f"/runs/{run_id}/stream", headers={"Last-Event-ID": event_ids[0]})
     assert event_ids[0] not in resumed.text
     assert "event: run.completed" in resumed.text
+
+
+def test_terminal_run_persists_assistant_reply_in_its_session(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        created = client.post("/runs", json={"session_id": "history", "message": "hello"})
+        assert created.status_code == 202
+        client.get(f"/runs/{created.json()['run_id']}/stream")
+        messages = client.get("/sessions/history/messages").json()
+
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert messages[1]["run_id"] == created.json()["run_id"]
+    assert messages[1]["content"]
 
 
 def test_stream_projects_runtime_events_to_v1_names(tmp_path, monkeypatch) -> None:

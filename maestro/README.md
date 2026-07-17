@@ -51,6 +51,11 @@ Skill 使用 Claude Code 兼容目录：每个 Skill 以 `SKILL.md` 开头，先
 才加载完整说明；`references/`、`scripts/` 和资产只在明确请求时读取。Skill 的 `allowed-tools`
 只能收窄权限，不能提高 Tool/MCP 的确定性风险等级。
 
+HTTP 的 `GET /skills` 与 `POST /skills/validate` 用于只读发现和预校验；导入、信任、撤销信任和删除
+（`POST /skills/import`、`POST/DELETE /skills/{name}/trust`、`DELETE /skills/{name}`）属于宿主管理 API，
+必须携带 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`，不是模型可调用能力。声明
+`disable-model-invocation: true` 的 Skill 不会出现在模型可调用能力列表中。
+
 ## 验证
 
 ```bash

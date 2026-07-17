@@ -27,6 +27,7 @@ class StoredMessage(BaseModel):
     ts: str
     artifact_ids: list[str] = Field(default_factory=list)
     skill_names: list[str] = Field(default_factory=list)
+    run_id: str | None = None
 
 
 class SessionStore:
@@ -110,18 +111,33 @@ class SessionStore:
             self._save_index()
             return True
 
-    def append_message(self, session_id: str, role: str, content: str, *, artifact_ids: list[str] | None = None, skill_names: list[str] | None = None) -> None:
+    def append_message(self, session_id: str, role: str, content: str, *, artifact_ids: list[str] | None = None, skill_names: list[str] | None = None, run_id: str | None = None) -> None:
         with self._lock:
             meta = self._sessions.get(session_id)
             if meta is None:
                 return
             path = self._message_file(session_id)
             messages = json.loads(path.read_text("utf-8")) if path.exists() else []
-            messages.append(StoredMessage(role=role, content=content, ts=self._now(), artifact_ids=artifact_ids or [], skill_names=skill_names or []).model_dump())
+            messages.append(StoredMessage(role=role, content=content, ts=self._now(), artifact_ids=artifact_ids or [], skill_names=skill_names or [], run_id=run_id).model_dump())
             path.write_text(json.dumps(messages, ensure_ascii=False), "utf-8")
             meta.message_count, meta.updated_at = len(messages), self._now()
             if role == "user" and meta.title == "新对话":
                 meta.title = content[:20] + ("…" if len(content) > 20 else "")
+            self._save_index()
+
+    def append_run_final(self, session_id: str, run_id: str, content: str) -> None:
+        """Persist a terminal assistant answer once, even if execution is resumed."""
+        with self._lock:
+            meta = self._sessions.get(session_id)
+            if meta is None:
+                return
+            path = self._message_file(session_id)
+            messages = json.loads(path.read_text("utf-8")) if path.exists() else []
+            if any(message.get("role") == "assistant" and message.get("run_id") == run_id for message in messages):
+                return
+            messages.append(StoredMessage(role="assistant", content=content, ts=self._now(), run_id=run_id).model_dump())
+            path.write_text(json.dumps(messages, ensure_ascii=False), "utf-8")
+            meta.message_count, meta.updated_at = len(messages), self._now()
             self._save_index()
 
     def get_messages(self, session_id: str) -> list[dict]:

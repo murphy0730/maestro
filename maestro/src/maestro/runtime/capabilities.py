@@ -132,6 +132,14 @@ class CapabilityRegistry:
         except KeyError as error:
             raise KeyError(f"unknown capability: {name}") from error
 
+    def unregister(self, name: str, *, kind: CapabilityKind | None = None) -> bool:
+        """Remove a capability only when it is still owned by the requested kind."""
+        current = self._specs.get(name)
+        if current is None or (kind is not None and current.kind is not kind):
+            return False
+        del self._specs[name]
+        return True
+
     def snapshot(self) -> CapabilitySnapshot:
         return CapabilitySnapshot({name: _copy_spec(spec) for name, spec in self._specs.items()})
 

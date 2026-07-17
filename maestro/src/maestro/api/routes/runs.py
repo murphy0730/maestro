@@ -62,7 +62,12 @@ async def create_run(payload: CreateRunRequest, request: Request):
         artifact_ids=payload.artifact_ids, skill_names=payload.skill_names,
     )
     platform.session_store.set_active_run(payload.session_id, run.run_id)
-    task = asyncio.create_task(platform.runtime.execute(run.run_id))
+    async def execute_and_persist_reply() -> None:
+        completed = await platform.runtime.execute(run.run_id)
+        if completed.final_text:
+            platform.session_store.append_run_final(completed.session_id, completed.run_id, completed.final_text)
+
+    task = asyncio.create_task(execute_and_persist_reply())
     request.app.state.run_tasks.add(task)
     task.add_done_callback(request.app.state.run_tasks.discard)
     return _dump_run(run)

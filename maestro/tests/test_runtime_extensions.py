@@ -2,6 +2,7 @@ from maestro.bootstrap import build_platform
 from maestro.config import Settings
 from maestro.runtime.capabilities import CapabilityKind, CapabilityResult, CapabilitySpec
 from maestro.runtime.intent import IntentRequest
+from maestro.runtime.models import RunStatus
 
 
 async def test_platform_accepts_mcp_registration_after_startup(tmp_path) -> None:
@@ -48,3 +49,53 @@ def test_build_platform_registers_discovered_skill_as_runtime_capability(tmp_pat
     assert "inspect" in platform.refresh_skills()
     intent = platform.runtime._intent_classifier.build(IntentRequest(message="inspect", requested_skills=["inspect"]))
     assert "inspect" in intent.candidate_capabilities
+
+
+def test_disabled_skill_is_registered_for_explicit_use_but_never_model_visible(tmp_path) -> None:
+    skills = tmp_path / "skills"
+    path = skills / "manual-only" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: manual-only\ndescription: manual\ndisable-model-invocation: true\n---\nmanual\n")
+    platform = build_platform(Settings(skills_dir=skills))
+
+    assert platform.capabilities.require("manual-only").kind is CapabilityKind.SKILL
+    assert "manual-only" not in {
+        spec.name for spec in platform.runtime._available(platform.capabilities.snapshot(), None, None)
+    }
+
+
+def test_refresh_removes_deleted_skill_capability(tmp_path) -> None:
+    skills = tmp_path / "skills"
+    path = skills / "temporary" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: temporary\ndescription: temporary\n---\ntemporary\n")
+    platform = build_platform(Settings(skills_dir=skills))
+    assert platform.capabilities.require("temporary").kind is CapabilityKind.SKILL
+
+    path.unlink()
+    path.parent.rmdir()
+    platform.refresh_skills()
+
+    try:
+        platform.capabilities.require("temporary")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("deleted Skill remained registered")
+
+
+async def test_run_with_deleted_skill_fails_terminally_instead_of_lingering(tmp_path) -> None:
+    skills = tmp_path / "skills"
+    path = skills / "gone" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: gone\ndescription: gone\n---\ngone\n")
+    platform = build_platform(Settings(skills_dir=skills))
+    run = await platform.runtime.create("use gone", requested_skills=["gone"])
+
+    path.unlink()
+    path.parent.rmdir()
+    platform.refresh_skills()
+    finished = await platform.runtime.execute(run.run_id)
+
+    assert finished.status is RunStatus.FAILED
+    assert finished.status not in {RunStatus.RUNNING_FAST, RunStatus.RUNNING_STRUCTURED}

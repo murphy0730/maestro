@@ -98,6 +98,14 @@ class SkillCatalog:
         prompt = prompt.replace("${CLAUDE_SESSION_ID}", session_id)
         return LoadedSkill(metadata=metadata, prompt=prompt, mode=metadata.context)
 
+    def model_invocable(self, name: str) -> bool:
+        """Whether a discovered Skill may be offered to model tool selection."""
+        metadata = self._active.get(name)
+        return metadata is not None and not metadata.disable_model_invocation
+
+    def metadata(self, name: str) -> SkillMetadata | None:
+        return self._active.get(name)
+
     def read_resource(self, skill_name: str, resource: str) -> str:
         metadata = self._active.get(skill_name) or self._find_metadata_by_directory_name(skill_name)
         if metadata is None:

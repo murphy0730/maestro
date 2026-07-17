@@ -151,6 +151,11 @@ class RunCoordinator:
         context_items = self._initial_context(run)
         parent_allowed = set(run.intent.candidate_capabilities) or None
         skill_allowed: set[str] | None = None
+        prepared, skill_allowed = self._apply_explicit_manual_skills(
+            run, context_items, parent_allowed, skill_allowed
+        )
+        if not prepared:
+            return self._fail(run, "skill_unavailable")
         while True:
             if monotonic() - started_at >= run.intent.max_seconds:
                 return self._fail(run, "time_exhausted")
@@ -242,9 +247,16 @@ class RunCoordinator:
     ) -> RunRecord:
         """Execute sequential model actions with controlled budgets and no plan graph."""
         assert run.intent is not None
+        is_initial_execution = context_items is None
         context_items = context_items or self._initial_context(run)
         if parent_allowed is None:
             parent_allowed = set(run.intent.candidate_capabilities) or None
+        if is_initial_execution:
+            prepared, skill_allowed = self._apply_explicit_manual_skills(
+                run, context_items, parent_allowed, skill_allowed
+            )
+            if not prepared:
+                return self._fail(run, "skill_unavailable")
         controlled_limit = max(1, run.intent.max_steps // 2)
         started_at = monotonic()
         calls_seen: dict[str, int] = {}
@@ -408,9 +420,38 @@ class RunCoordinator:
     ) -> LoadedSkill | None:
         if self._skill_catalog is None:
             return None
-        return self._skill_catalog.load(
-            spec.name, arguments=str(call.arguments.get("arguments", "")), session_id=run.run_id
-        )
+        try:
+            return self._skill_catalog.load(
+                spec.name, arguments=str(call.arguments.get("arguments", "")), session_id=run.run_id
+            )
+        except (KeyError, OSError, UnicodeError):
+            return None
+
+    def _apply_explicit_manual_skills(
+        self,
+        run: RunRecord,
+        context_items: list[ContextItem],
+        parent_allowed: set[str] | None,
+        skill_allowed: set[str] | None,
+    ) -> tuple[bool, set[str] | None]:
+        """Load user-selected manual-only inline Skills without exposing them to the model."""
+        if self._skill_catalog is None or run.intent is None:
+            return True, skill_allowed
+        for name in run.intent.requested_skills:
+            metadata = self._skill_catalog.metadata(name)
+            if metadata is None or not metadata.disable_model_invocation:
+                continue
+            try:
+                loaded = self._skill_catalog.load(name, session_id=run.run_id)
+            except (KeyError, OSError, UnicodeError):
+                return False, skill_allowed
+            if loaded.mode != "inline":
+                return False, skill_allowed
+            context_items.append(ContextItem.from_skill(loaded))
+            allowed = set(loaded.metadata.allowed_tools)
+            allowed = allowed if parent_allowed is None else parent_allowed & allowed
+            skill_allowed = allowed if skill_allowed is None else skill_allowed & allowed
+        return True, skill_allowed
 
     def _available(
         self,
@@ -419,6 +460,11 @@ class RunCoordinator:
         skill_allowed: set[str] | None,
     ) -> list[CapabilitySpec]:
         specs = list(snapshot.values())
+        if self._skill_catalog is not None:
+            specs = [
+                spec for spec in specs
+                if spec.kind is not CapabilityKind.SKILL or self._skill_catalog.model_invocable(spec.name)
+            ]
         if parent_allowed is not None:
             specs = [spec for spec in specs if spec.name in parent_allowed or spec.kind is CapabilityKind.SKILL]
         if skill_allowed is not None:
@@ -437,7 +483,10 @@ class RunCoordinator:
         if self._skill_catalog is None:
             return None
         arguments = call.arguments.get("arguments", "")
-        loaded = self._skill_catalog.load(spec.name, arguments=str(arguments), session_id=run.run_id)
+        try:
+            loaded = self._skill_catalog.load(spec.name, arguments=str(arguments), session_id=run.run_id)
+        except (KeyError, OSError, UnicodeError):
+            return None
         if loaded.mode != "inline":
             return None
         return loaded

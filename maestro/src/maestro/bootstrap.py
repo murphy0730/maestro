@@ -1,6 +1,6 @@
 """Composition root for the generic agent runtime."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from maestro.config import Settings
 from maestro.foundation.llm import LLMClient
@@ -30,10 +30,14 @@ class Platform:
     capabilities: CapabilityRegistry
     mcp: MCPConnector
     session_store: SessionStore
+    _registered_skill_names: set[str] = field(default_factory=set)
 
     def refresh_skills(self) -> dict:
         """Make discovered Claude Skills callable by the generic Runtime."""
         discovered = self.skill_catalog.discover()
+        discovered_names = set(discovered)
+        for name in self._registered_skill_names - discovered_names:
+            self.capabilities.unregister(name, kind=CapabilityKind.SKILL)
         for metadata in discovered.values():
             self.capabilities.register(
                 CapabilitySpec(
@@ -44,6 +48,7 @@ class Platform:
                 ),
                 replace=True,
             )
+        self._registered_skill_names = discovered_names
         return discovered
 
 

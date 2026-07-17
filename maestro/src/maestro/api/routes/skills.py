@@ -3,11 +3,12 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from maestro.skills.parser import extract_package, parse_runtime_frontmatter
 from maestro.skills.schemas import SkillValidationError
+from maestro.api.security import require_privileged
 
 router = APIRouter()
 _MAX_UPLOAD = 10 * 1024 * 1024
@@ -62,7 +63,7 @@ async def validate_skill(request: Request, file: UploadFile = File(...)):
 
 
 @router.post("/skills/import")
-async def import_skill(request: Request, file: UploadFile = File(...)):
+async def import_skill(request: Request, file: UploadFile = File(...), _admin: str = Depends(require_privileged)):
     data, filename = await _upload(file)
     try:
         frontmatter, skill_text, attachments = _runtime_package(data, filename)
@@ -84,7 +85,7 @@ class TrustRequest(BaseModel):
 
 
 @router.post("/skills/{name}/trust")
-async def trust_skill(name: str, request: Request, payload: TrustRequest):
+async def trust_skill(name: str, request: Request, payload: TrustRequest, _admin: str = Depends(require_privileged)):
     if name not in request.app.state.platform.refresh_skills():
         raise HTTPException(404, detail="skill not found")
     request.app.state.skill_trust[name] = payload.trusted
@@ -92,13 +93,13 @@ async def trust_skill(name: str, request: Request, payload: TrustRequest):
 
 
 @router.delete("/skills/{name}/trust")
-async def revoke_trust(name: str, request: Request):
+async def revoke_trust(name: str, request: Request, _admin: str = Depends(require_privileged)):
     request.app.state.skill_trust.pop(name, None)
     return {"level": "untrusted", "valid": True, "package_sha256": ""}
 
 
 @router.delete("/skills/{name}")
-async def delete_skill(name: str, request: Request):
+async def delete_skill(name: str, request: Request, _admin: str = Depends(require_privileged)):
     root = request.app.state.platform.settings.skills_dir / name
     if not root.is_dir():
         raise HTTPException(404, detail="skill not found")

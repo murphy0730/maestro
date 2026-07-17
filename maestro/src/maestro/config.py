@@ -27,3 +27,5 @@ class Settings(BaseSettings):
         default_factory=lambda: runtime_data_root() / "runtime" / "journal.jsonl"
     )
     skills_dir: Path = Field(default_factory=lambda: runtime_data_root() / "skills")
+    # Skill package mutation is a host-administration operation, never a Runtime tool.
+    privileged_api_token: str = ""

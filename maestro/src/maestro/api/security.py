@@ -13,5 +13,7 @@ def require_privileged(request: Request) -> str:
     authorization = request.headers.get("authorization", "")
     scheme, _, supplied = authorization.partition(" ")
     if not expected or scheme.lower() != "bearer" or not hmac.compare_digest(supplied, expected):
-        raise HTTPException(status_code=401, detail="需要扩展管理凭证")
+        # A missing or invalid credential is an authorization failure.  Do not
+        # advertise an authentication challenge for this local admin boundary.
+        raise HTTPException(status_code=403, detail="需要扩展管理凭证")
     return "local-admin"
