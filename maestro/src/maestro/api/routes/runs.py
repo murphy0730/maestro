@@ -55,6 +55,7 @@ async def create_run(payload: CreateRunRequest, request: Request):
     run = await platform.runtime.create(
         payload.message, source=payload.source, requested_skills=payload.skill_names,
         session_id=payload.session_id,
+        artifact_ids=payload.artifact_ids,
     )
     platform.session_store.append_message(
         payload.session_id, "user", payload.message,

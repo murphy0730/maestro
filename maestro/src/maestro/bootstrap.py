@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from maestro.config import Settings
 from maestro.foundation.llm import LLMClient
 from maestro.foundation.session_store import SessionStore
-from maestro.runtime.capabilities import CapabilityRegistry
+from maestro.runtime.capabilities import CapabilityKind, CapabilityRegistry, CapabilitySpec
 from maestro.runtime.context import ContextProvider
 from maestro.runtime.coordinator import RunCoordinator
 from maestro.runtime.events import EventPublisher
@@ -31,6 +31,21 @@ class Platform:
     mcp: MCPConnector
     session_store: SessionStore
 
+    def refresh_skills(self) -> dict:
+        """Make discovered Claude Skills callable by the generic Runtime."""
+        discovered = self.skill_catalog.discover()
+        for metadata in discovered.values():
+            self.capabilities.register(
+                CapabilitySpec(
+                    name=metadata.name,
+                    kind=CapabilityKind.SKILL,
+                    description=metadata.description,
+                    version=str(metadata.path.stat().st_mtime_ns),
+                ),
+                replace=True,
+            )
+        return discovered
+
 
 def build_platform(settings: Settings | None = None, llm: LLMClient | None = None) -> Platform:
     settings = settings or Settings()
@@ -40,11 +55,10 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
     journal = JsonlJournal(settings.runtime_journal_file)
     artifact_store = ArtifactStore(settings.artifacts_dir)
     skill_catalog = SkillCatalog({"user": settings.skills_dir}, capabilities)
-    skill_catalog.discover()
     runtime = RunCoordinator(
         model=LLMRuntimeModel(llm),
         capabilities=capabilities,
-        intent_classifier=IntentClassifier(capabilities, skills=skill_catalog.discover),
+        intent_classifier=IntentClassifier(capabilities),
         policy_gate=PolicyGate([]),
         context_provider=ContextProvider(max_chars=16_000),
         run_store=run_store,
@@ -52,7 +66,7 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         events=EventPublisher(journal),
         skill_catalog=skill_catalog,
     )
-    return Platform(
+    platform = Platform(
         settings=settings,
         llm=llm,
         runtime=runtime,
@@ -64,3 +78,6 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         mcp=MCPConnector(capabilities),
         session_store=SessionStore(settings.sessions_dir),
     )
+    runtime.set_intent_classifier(IntentClassifier(capabilities, skills=platform.refresh_skills))
+    platform.refresh_skills()
+    return platform

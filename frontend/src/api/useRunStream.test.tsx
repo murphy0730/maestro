@@ -5,7 +5,7 @@ import { useRunStore } from '@/stores/runStore';
 const { streamRun } = vi.hoisted(() => ({ streamRun: vi.fn() }));
 vi.mock('./runs', () => ({
   createRun: vi.fn(async () => ({ run_id: 'r1', session_id: 's1', objective: 'x', path: 'fast', status: 'running_fast', steps: {}, pending_approvals: [], revision: 0 })),
-  getRun: vi.fn(), cancelRun: vi.fn(), resolveApproval: vi.fn(), streamRun,
+  getRun: vi.fn(async (id: string) => ({ run_id: id, session_id: 's1', objective: 'restored', path: 'structured', status: 'waiting_approval', steps: {}, pending_approvals: [{ approval_id: 'a1' }], revision: 2 })), cancelRun: vi.fn(), resolveApproval: vi.fn(), streamRun,
 }));
 vi.mock('./artifacts', () => ({ uploadArtifact: vi.fn() }));
 import { useRunStream } from './useRunStream';
@@ -39,5 +39,11 @@ describe('useRunStream', () => {
 
     await waitFor(() => expect(useRunStore.getState().run).toBeNull());
     expect(useRunStore.getState().tokens).toBe('');
+  });
+  it('restores an active run snapshot including pending approval for a selected session', async () => {
+    const { result } = renderHook(() => useRunStream('s1'));
+    await act(async () => { await result.current.restore('pending-run'); });
+    expect(useRunStore.getState().run).toMatchObject({ run_id: 'pending-run', status: 'waiting_approval' });
+    expect(useRunStore.getState().run?.pending_approvals).toHaveLength(1);
   });
 });

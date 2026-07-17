@@ -4,4 +4,4 @@ export { uploadArtifact } from './artifacts';
 export { useRunStream } from './useRunStream';
 export { listSkills, importSkill, validateSkill, trustSkill, revokeSkillTrust, deleteSkill } from './skills';
 export { useSkills } from './hooks';
-export { createSession, listSessions, type SessionSummary } from './sessions';
+export { createSession, listSessions, getSessionMessages, type SessionSummary } from './sessions';

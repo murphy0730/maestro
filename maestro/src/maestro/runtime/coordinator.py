@@ -69,6 +69,7 @@ class RunCoordinator:
         max_steps: int = 12,
         max_seconds: int = 300,
         session_id: str = "default",
+        artifact_ids: list[str] | None = None,
     ) -> RunRecord:
         run = await self.create(
             objective,
@@ -79,6 +80,7 @@ class RunCoordinator:
             max_steps=max_steps,
             max_seconds=max_seconds,
             session_id=session_id,
+            artifact_ids=artifact_ids,
         )
         return await self.execute(run.run_id)
 
@@ -93,6 +95,7 @@ class RunCoordinator:
         max_steps: int = 12,
         max_seconds: int = 300,
         session_id: str = "default",
+        artifact_ids: list[str] | None = None,
     ) -> RunRecord:
         """Persist an executable Run before scheduling any model work."""
         request = IntentRequest(
@@ -111,6 +114,7 @@ class RunCoordinator:
             session_id=session_id,
             intent=intent,
             capability_versions=snapshot.versions(),
+            input_artifact_ids=list(artifact_ids or []),
         )
         run = self._save_and_publish(run, "run.created", {"objective": objective, "run_id": run.run_id})
         if intent.path is RunPath.STRUCTURED:
@@ -144,7 +148,7 @@ class RunCoordinator:
         assert run.intent is not None
         started_at = monotonic()
         calls_seen: dict[str, int] = {}
-        context_items = [ContextItem.from_run(run)]
+        context_items = self._initial_context(run)
         parent_allowed = set(run.intent.candidate_capabilities) or None
         skill_allowed: set[str] | None = None
         while True:
@@ -205,7 +209,10 @@ class RunCoordinator:
                 return self._fail(run, decision.effect.value)
             if spec.executor is None:
                 return self._fail(run, "missing_executor")
-            result = await spec.executor(action.call, None)
+            try:
+                result = await spec.executor(action.call, None)
+            except Exception as error:
+                return self._fail(run, f"capability_exception:{type(error).__name__}")
             if result.status != "succeeded":
                 self._publish(run, "step.failed", {"name": spec.name, "status": result.status})
                 return self._fail(run, result.error_message or "capability_failed")
@@ -235,7 +242,7 @@ class RunCoordinator:
     ) -> RunRecord:
         """Execute sequential model actions with controlled budgets and no plan graph."""
         assert run.intent is not None
-        context_items = context_items or [ContextItem.from_run(run)]
+        context_items = context_items or self._initial_context(run)
         if parent_allowed is None:
             parent_allowed = set(run.intent.candidate_capabilities) or None
         controlled_limit = max(1, run.intent.max_steps // 2)
@@ -307,7 +314,10 @@ class RunCoordinator:
                 return self._fail(run, "missing_executor")
             if spec.writes:
                 return await self._execute_write(run, action.call, spec)
-            result = await spec.executor(action.call, None)
+            try:
+                result = await spec.executor(action.call, None)
+            except Exception as error:
+                return self._fail(run, f"capability_exception:{type(error).__name__}")
             if result.status != "succeeded":
                 self._publish(run, "step.failed", {"name": spec.name, "status": result.status})
                 return self._fail(run, result.error_message or "capability_failed")
@@ -383,6 +393,15 @@ class RunCoordinator:
         context_items.append(
             ContextItem(key=f"capability:{name}", text=json.dumps(content, ensure_ascii=False, default=str))
         )
+
+    def _initial_context(self, run: RunRecord) -> list[ContextItem]:
+        items = [ContextItem.from_run(run)]
+        for artifact_id in run.input_artifact_ids:
+            try:
+                items.append(ContextItem.from_artifact(self._artifact_store.ref(artifact_id)))
+            except (FileNotFoundError, ValueError):
+                return items
+        return items
 
     def _load_skill(
         self, spec: CapabilitySpec, call: CapabilityCall, run: RunRecord
@@ -558,6 +577,8 @@ class RunCoordinator:
             result = await spec.executor(call, key) if spec.executor is not None else CapabilityResult(status="failed", error_message="missing_executor")
         except UnknownWriteOutcome:
             result = CapabilityResult(status="unknown")
+        except Exception:
+            result = CapabilityResult(status="unknown")
         if (
             result.status == "failed"
             and spec.idempotent
@@ -573,6 +594,8 @@ class RunCoordinator:
             try:
                 result = await spec.executor(call, key) if spec.executor is not None else result
             except UnknownWriteOutcome:
+                result = CapabilityResult(status="unknown")
+            except Exception:
                 result = CapabilityResult(status="unknown")
         async with self._run_store.lock_for(run.run_id):
             current = self._run_store.load(run.run_id)

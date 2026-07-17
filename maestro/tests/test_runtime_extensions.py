@@ -33,4 +33,18 @@ def test_skill_discovery_uses_current_capability_registry(tmp_path) -> None:
         IntentRequest(message="inspect", requested_skills=["inspect"])
     )
 
-    assert intent.candidate_capabilities == ["read"]
+    assert intent.candidate_capabilities == ["inspect", "read"]
+
+
+def test_build_platform_registers_discovered_skill_as_runtime_capability(tmp_path) -> None:
+    skills = tmp_path / "skills"
+    path = skills / "inspect" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: inspect\ndescription: inspect\ncontext: inline\n---\ninspect\n")
+
+    platform = build_platform(Settings(skills_dir=skills))
+
+    assert platform.capabilities.require("inspect").kind is CapabilityKind.SKILL
+    assert "inspect" in platform.refresh_skills()
+    intent = platform.runtime._intent_classifier.build(IntentRequest(message="inspect", requested_skills=["inspect"]))
+    assert "inspect" in intent.candidate_capabilities

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from maestro.api.routes import artifacts, runs, sessions
+from maestro.api.routes import artifacts, runs, sessions, skills
 from maestro.bootstrap import build_platform
 from maestro.config import Settings
 
@@ -14,6 +14,7 @@ from maestro.config import Settings
 async def lifespan(app: FastAPI):
     app.state.platform = build_platform()
     app.state.run_tasks = set()
+    app.state.skill_trust = {}
     yield
 
 
@@ -28,4 +29,5 @@ def create_app() -> FastAPI:
     app.include_router(artifacts.router)
     app.include_router(runs.router)
     app.include_router(sessions.router)
+    app.include_router(skills.router)
     return app

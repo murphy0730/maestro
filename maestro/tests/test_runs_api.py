@@ -43,6 +43,24 @@ def test_artifact_round_trip_uses_opaque_id(tmp_path, monkeypatch) -> None:
     assert "/" not in artifact_id
 
 
+def test_run_persists_uploaded_artifacts_as_untrusted_runtime_context(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        artifact = client.post("/artifacts", files={"file": ("input.txt", b"hello", "text/plain")}).json()
+        response = client.post("/runs", json={"message": "use attachment", "artifact_ids": [artifact["artifact_id"]]})
+        stored = client.get(f"/runs/{response.json()['run_id']}").json()
+    assert stored["input_artifact_ids"] == [artifact["artifact_id"]]
+
+
+def test_runtime_skill_endpoints_are_available_without_msw(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        content = b"---\nname: local-skill\ndescription: local\n---\nDo work.\n"
+        assert client.post("/skills/validate", files={"file": ("SKILL.md", content, "text/markdown")}).json()["compatible"]
+        imported = client.post("/skills/import", files={"file": ("SKILL.md", content, "text/markdown")})
+        assert imported.status_code == 200
+        assert client.get("/skills").json()["skills"][0]["name"] == "local-skill"
+        assert client.post("/skills/local-skill/trust", json={"trusted": True}).status_code == 200
+
+
 def test_stream_replays_after_last_event_id(tmp_path, monkeypatch) -> None:
     with _client(tmp_path, monkeypatch) as client:
         created = client.post("/runs", json={"session_id": "s1", "message": "hello"})

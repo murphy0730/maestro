@@ -102,6 +102,7 @@ class RunRecord(BaseModel):
     steps: dict[str, StepRecord] = Field(default_factory=dict)
     pending_approvals: list[ApprovalRecord] = Field(default_factory=list)
     capability_versions: dict[str, str] = Field(default_factory=dict)
+    input_artifact_ids: list[str] = Field(default_factory=list)
     consumed_steps: int = 0
     requires_reconciliation: bool = False
     inflight_step_id: str | None = None

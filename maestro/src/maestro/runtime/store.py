@@ -146,3 +146,8 @@ class ArtifactStore:
             raise InvalidStorageId(f"invalid artifact identifier: {artifact_id!r}")
         data = json.loads((self.directory / f"{artifact_id}.json").read_text("utf-8"))
         return str(data["media_type"])
+
+    def ref(self, artifact_id: str) -> ArtifactRef:
+        content = self.get(artifact_id)
+        return ArtifactRef(artifact_id=artifact_id, sha256=artifact_id,
+                           media_type=self.media_type(artifact_id), bytes=len(content))

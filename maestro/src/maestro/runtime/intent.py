@@ -90,6 +90,9 @@ class IntentClassifier:
         for skill_name in request.requested_skills:
             skill = skills.get(skill_name)
             if skill is not None:
+                # The Skill itself is a Runtime capability.  Its frontmatter
+                # only narrows the tools available after it has been loaded.
+                names.append(skill_name)
                 names.extend(skill.allowed_tools)
         return list(dict.fromkeys(names))
 
@@ -102,6 +105,8 @@ class IntentClassifier:
             try:
                 capability = self._snapshot().require(name)
             except KeyError:
+                if name in self._skill_metadata():
+                    continue
                 risks.append("unknown_capability")
                 continue
             if capability.writes and capability.risk is RiskLevel.HIGH:
