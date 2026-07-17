@@ -1,6 +1,7 @@
 """Filesystem stores for runtime snapshots and immutable artifacts."""
 
 import hashlib
+import json
 import os
 import re
 import asyncio
@@ -121,6 +122,11 @@ class ArtifactStore:
                 os.fsync(fd)
             finally:
                 os.close(fd)
+        metadata = self.directory / f"{sha256}.json"
+        if not metadata.exists():
+            metadata.write_text(
+                json.dumps({"media_type": media_type, "bytes": len(content)}), "utf-8"
+            )
         return ArtifactRef(
             artifact_id=sha256,
             sha256=sha256,
@@ -130,4 +136,13 @@ class ArtifactStore:
 
     def get(self, artifact_id: str) -> bytes:
         artifact_id = _validate_storage_id(artifact_id)
+        if _SHA256_PATTERN.fullmatch(artifact_id) is None:
+            raise InvalidStorageId(f"invalid artifact identifier: {artifact_id!r}")
         return (self.directory / f"{artifact_id}.bin").read_bytes()
+
+    def media_type(self, artifact_id: str) -> str:
+        artifact_id = _validate_storage_id(artifact_id)
+        if _SHA256_PATTERN.fullmatch(artifact_id) is None:
+            raise InvalidStorageId(f"invalid artifact identifier: {artifact_id!r}")
+        data = json.loads((self.directory / f"{artifact_id}.json").read_text("utf-8"))
+        return str(data["media_type"])

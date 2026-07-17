@@ -4,7 +4,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, model_validator
 
-from maestro.foundation.llm import LLMClient
+from maestro.foundation.llm import LLMClient, LLMError
 from maestro.runtime.capabilities import CapabilityCall, CapabilitySpec
 from maestro.runtime.context import ContextBundle
 
@@ -49,7 +49,10 @@ class LLMRuntimeModel:
             }
             for capability in capabilities
         ]
-        turn = await self._llm.chat_turn(context.system_context, [], tools=tools)
+        try:
+            turn = await self._llm.chat_turn(context.system_context, [], tools=tools)
+        except LLMError:
+            return ModelAction(kind="final", text="模型当前不可用。")
         if turn.tool_calls:
             call = turn.tool_calls[0]
             return ModelAction(

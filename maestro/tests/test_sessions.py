@@ -1,75 +1,21 @@
-"""会话持久化测试: SessionStore 落盘 + ConversationMemory 重启回载 (agent 不失忆)。"""
+import json
 
-from maestro.foundation.memory import ConversationMemory
 from maestro.foundation.session_store import SessionStore
 
 
-def test_store_roundtrip_and_auto_title(tmp_path):
+def test_v3_session_rehydrates_messages_and_active_run(tmp_path) -> None:
     store = SessionStore(tmp_path)
-    meta = store.create()
-    store.append_message(meta.session_id, "user", "帮我重排注塑车间这批订单，交期优先")
-    store.append_message(meta.session_id, "assistant", "已完成重排。")
+    session = store.create("工作")
+    store.append_message(session.session_id, "user", "hello", artifact_ids=["a"], skill_names=["reader"])
+    store.set_active_run(session.session_id, "run-1")
 
-    assert store.get(meta.session_id).message_count == 2
-    # 自动标题取首条用户消息前 20 字
-    assert store.get(meta.session_id).title.startswith("帮我重排注塑车间这批订单")
-    msgs = store.get_messages(meta.session_id)
-    assert [m["role"] for m in msgs] == ["user", "assistant"]
-
-
-def test_memory_rehydrates_after_restart(tmp_path):
-    # 第一段进程: 正常对话并设当前引擎
-    store1 = SessionStore(tmp_path)
-    meta = store1.create()
-    memory1 = ConversationMemory(store1)
-    memory1.append(meta.session_id, "user", "3号线缺料了，催一下")
-    memory1.append(meta.session_id, "assistant", "已生成催料动作，待确认。")
-    memory1.set_engine(meta.session_id, "scheduling")
-
-    # 模拟重启: 全新 store + memory 实例，从磁盘回载
-    store2 = SessionStore(tmp_path)
-    memory2 = ConversationMemory(store2)
-    state = memory2.get(meta.session_id)
-
-    assert [m["content"] for m in state.history] == [
-        "3号线缺料了，催一下",
-        "已生成催料动作，待确认。",
-    ]
-    assert state.current_engine == "scheduling"
-    # context 是进程内瞬态，重启后为空
-    assert state.context == {}
+    restored = SessionStore(tmp_path)
+    assert restored.get(session.session_id).schema_version == 3
+    assert restored.get(session.session_id).active_run_id == "run-1"
+    assert restored.get_messages(session.session_id)[0]["artifact_ids"] == ["a"]
 
 
-def test_memory_without_store_still_works():
-    memory = ConversationMemory()
-    memory.append("s1", "user", "hi")
-    memory.set_engine("s1", "query")
-    assert memory.get("s1").history == [{"role": "user", "content": "hi"}]
-
-
-def test_delete_removes_meta_and_messages(tmp_path):
+def test_v2_index_is_ignored(tmp_path) -> None:
+    (tmp_path / "index.json").write_text(json.dumps([{"session_id": "old", "engine": "query"}]))
     store = SessionStore(tmp_path)
-    meta = store.create()
-    store.append_message(meta.session_id, "user", "x")
-    assert store.delete(meta.session_id) is True
-    assert store.get(meta.session_id) is None
-    assert store.get_messages(meta.session_id) == []
-    assert store.delete(meta.session_id) is False
-
-
-def test_append_message_kind_default_and_system(tmp_path):
-    store = SessionStore(tmp_path)
-    meta = store.create()
-    store.append_message(meta.session_id, "assistant", "主回答")
-    store.append_message(meta.session_id, "assistant", "已执行: 派工 — ok", kind="system")
-    msgs = store.get_messages(meta.session_id)  # list[dict]
-    assert msgs[0]["kind"] == "normal"
-    assert msgs[1]["kind"] == "system"
-
-
-def test_memory_append_passes_kind(tmp_path):
-    store = SessionStore(tmp_path)
-    meta = store.create()
-    mem = ConversationMemory(store)
-    mem.append(meta.session_id, "assistant", "确认结果", kind="system")
-    assert store.get_messages(meta.session_id)[0]["kind"] == "system"
+    assert store.list_all() == []
