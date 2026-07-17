@@ -51,7 +51,7 @@ export function reduceRunEvents(state: RunProjection, events: RunEvent[]) { retu
 function mergeSnapshot(state: RunProjection, snapshot: RunSnapshot | null): RunProjection {
   if (!snapshot) return { ...INITIAL_RUN_STATE, run: null };
   const current = state.run;
-  return { ...state, run: { ...snapshot, steps: { ...(snapshot.steps ?? {}), ...(current?.steps ?? {}) } }, recovered: state.recovered || snapshot.intent?.source === 'resume' };
+  return { ...state, run: { ...snapshot, steps: { ...(current?.steps ?? {}), ...(snapshot.steps ?? {}) } }, recovered: state.recovered || snapshot.intent?.source === 'resume' };
 }
-interface RunStore extends RunProjection { apply: (event: RunEvent) => void; setRun: (run: RunSnapshot | null) => void; mergeRun: (run: RunSnapshot) => void; reset: () => void; }
-export const useRunStore = create<RunStore>((set) => ({ ...INITIAL_RUN_STATE, apply: (event) => set((state) => reduceRunEvent(state, event)), setRun: (run) => set({ ...INITIAL_RUN_STATE, run, recovered: run?.intent?.source === 'resume' }), mergeRun: (run) => set((state) => mergeSnapshot(state, run)), reset: () => set(INITIAL_RUN_STATE) }));
+interface RunStore extends RunProjection { apply: (event: RunEvent) => void; diagnose: (message: string) => void; setRun: (run: RunSnapshot | null) => void; mergeRun: (run: RunSnapshot) => void; reset: () => void; }
+export const useRunStore = create<RunStore>((set) => ({ ...INITIAL_RUN_STATE, apply: (event) => set((state) => reduceRunEvent(state, event)), diagnose: (message) => set((state) => ({ diagnostics: [...state.diagnostics, message] })), setRun: (run) => set({ ...INITIAL_RUN_STATE, run, recovered: run?.intent?.source === 'resume' }), mergeRun: (run) => set((state) => mergeSnapshot(state, run)), reset: () => set(INITIAL_RUN_STATE) }));

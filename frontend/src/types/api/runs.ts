@@ -47,5 +47,5 @@ export type RunEvent =
   | Event<'step.started' | 'step.succeeded' | 'step.failed', { step_id?: string; capability_id?: string; kind?: string; error_message?: string }>
   | Event<'approval.requested', Partial<ApprovalView>>
   | Event<'approval.expired' | 'approval.resolved', { approval_id?: string; status?: ApprovalView['status'] }>
-  | Event<'token.delta', { delta?: string }>
-  | { event_id?: string; type: string; data: Record<string, unknown> };
+  | Event<'token.delta', { delta?: string }>;
+export interface UnknownRunEvent { event_id?: string; type: string; data: Record<string, unknown>; unknown: true }

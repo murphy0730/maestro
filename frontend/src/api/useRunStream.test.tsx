@@ -14,12 +14,18 @@ afterEach(() => { vi.clearAllMocks(); useRunStore.getState().reset(); });
 describe('useRunStream', () => {
   it('reconnects with Last-Event-ID and does not apply replayed token events twice', async () => {
     streamRun
-      .mockImplementationOnce(async function* () { yield { id: '1', event: 'token.delta', data: { delta: 'A' } }; throw new Error('disconnect'); })
-      .mockImplementationOnce(async function* (_run: string, lastEventId?: string) { expect(lastEventId).toBe('1'); yield { id: '1', event: 'token.delta', data: { delta: 'A' } }; yield { id: '2', event: 'run.completed', data: { final_text: 'A' } }; });
+      .mockImplementationOnce(async function* () { yield { event_id: '1', type: 'token.delta', data: { delta: 'A' } }; throw new Error('disconnect'); })
+      .mockImplementationOnce(async function* (_run: string, lastEventId?: string) { expect(lastEventId).toBe('1'); yield { event_id: '1', type: 'token.delta', data: { delta: 'A' } }; yield { event_id: '2', type: 'run.completed', data: { final_text: 'A' } }; });
     const { result } = renderHook(() => useRunStream('s1'));
     await act(async () => { await result.current.start('x', [], []); });
     await waitFor(() => expect(useRunStore.getState().run?.status).toBe('completed'), { timeout: 2000 });
     expect(useRunStore.getState().tokens).toBe('A');
     expect(streamRun).toHaveBeenCalledTimes(2);
+  });
+  it('records an unknown parsed event as a diagnostic', async () => {
+    streamRun.mockImplementationOnce(async function* () { yield { event_id: 'x', type: 'future.event', data: {}, unknown: true }; yield { event_id: 'y', type: 'run.completed', data: {} }; });
+    const { result } = renderHook(() => useRunStream('s1'));
+    await act(async () => { await result.current.start('x', [], []); });
+    await waitFor(() => expect(useRunStore.getState().diagnostics[0]).toContain('future.event'));
   });
 });

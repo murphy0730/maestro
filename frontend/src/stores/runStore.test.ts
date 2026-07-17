@@ -13,8 +13,4 @@ describe('run event reducer', () => {
     expect(state.run?.steps.read.status).toBe('succeeded');
     expect(state.upgradeReason).toBe('high_risk_write');
   });
-  it('records unknown events without breaking the stream', () => {
-    const state = reduceRunEvents(INITIAL_RUN_STATE, [{ type: 'unknown.event', data: {} }]);
-    expect(state.diagnostics).toHaveLength(1);
-  });
 });
