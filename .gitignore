@@ -41,3 +41,7 @@ maestro/data/executions/
 # PyInstaller freeze artifacts (Plan 2)
 maestro/dist/
 maestro/build/
+
+# ── Playwright / E2E test artifacts ──
+.playwright-cli/
+test-results/
