@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 _SRT_INFRA_ERROR = re.compile(r"srt-mux-.*\.sock|listen EINVAL")
 _MAX_ARG_CHARS = 16_384
 _MAX_TOTAL_ARG_CHARS = 65_536
+# 内容生成类技能（如 PPT 生成）一页一个标题+多个要点，10 页即可达数十项；
+# 真正的体量边界是上面的 _MAX_TOTAL_ARG_CHARS（总字符数），项数只做兜底防滥用。
+_MAX_ARG_ITEMS = 256
 
 from maestro.execution.srt import SrtRuntime
 from maestro.skills.schemas import SkillValidationError
@@ -61,8 +64,8 @@ class SkillScriptExecutionService:
         script = str(params.get("script", ""))
         package_hash = str(params.get("package_sha256", ""))
         args = params.get("args", [])
-        if not isinstance(args, list) or len(args) > 32 or not all(isinstance(arg, str) for arg in args):
-            raise SkillValidationError("脚本参数必须是最多 32 项的字符串数组")
+        if not isinstance(args, list) or len(args) > _MAX_ARG_ITEMS or not all(isinstance(arg, str) for arg in args):
+            raise SkillValidationError(f"脚本参数必须是最多 {_MAX_ARG_ITEMS} 项的字符串数组")
         if any(len(arg) > _MAX_ARG_CHARS or "\x00" in arg for arg in args):
             raise SkillValidationError("脚本参数非法或过长")
         if sum(len(arg) for arg in args) > _MAX_TOTAL_ARG_CHARS:
