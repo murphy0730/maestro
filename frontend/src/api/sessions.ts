@@ -1,24 +1,6 @@
-import type { SessionInfo } from '@/stores/sessionStore';
-import { apiGet, apiPost, apiPatch, apiDelete } from './client';
-
-export interface StoredMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  ts: string;
-  kind?: 'normal' | 'system';
-  /** 附件元数据（只含名字/大小），content 为用户原文。 */
-  attachments?: { name: string; size: number }[];
-}
-
-export const listSessions = () => apiGet<SessionInfo[]>('/sessions');
-
-export const createSession = (title = '新对话') => apiPost<SessionInfo>('/sessions', { title });
-
-export const getSessionMessages = (sessionId: string) =>
-  apiGet<StoredMessage[]>(`/sessions/${sessionId}/messages`);
-
-export const renameSession = (sessionId: string, title: string) =>
-  apiPatch<SessionInfo>(`/sessions/${sessionId}`, { title });
-
-export const deleteSession = (sessionId: string) =>
-  apiDelete<{ deleted: boolean; session_id: string }>(`/sessions/${sessionId}`);
+import { apiGet, apiPost } from './client';
+export interface SessionSummary { session_id: string; title: string; updated_at: string; message_count: number; active_run_id?: string | null }
+export const listSessions = (signal?: AbortSignal) => apiGet<SessionSummary[]>('/sessions', { signal });
+export const createSession = (title = '新任务') => apiPost<SessionSummary>('/sessions', { title });
+export interface SessionMessage { role: 'user' | 'assistant' | 'system'; content: string; ts: string; artifact_ids?: string[]; skill_names?: string[] }
+export const getSessionMessages = (sessionId: string, signal?: AbortSignal) => apiGet<SessionMessage[]>(`/sessions/${encodeURIComponent(sessionId)}/messages`, { signal });

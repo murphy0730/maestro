@@ -9,20 +9,8 @@
 
 /* ============================================================
    Maestro — design tokens (CSS custom properties)
-   Source of truth: docs/design/maestro-design-system-v1.html
-
    Linear/Vercel language. Light is the default theme (:root);
    dark is a designed sibling under :root[data-theme='dark'].
-
-   ONE blue, ONE green, ONE amber, ONE red — each answers exactly
-   one question:
-     蓝   沟通与导航 — 我的气泡 / 发送 / 新建对话 / 排产 route / 品牌
-     绿   执行      — 提交排产方案 / 直接下发 / 成功 / auto 授权
-     琥珀 待确认    — requires_confirmation 授权 / 产能告警
-     红   阻塞      — 缺料 / 危险操作
-   The brand hue and the planning-route hue are the same blue, so the
-   UI never shows two blues. Neutrals carry a cool bias toward it,
-   which keeps the greys from reading as dirty.
 
    tailwind.config.ts mirrors every var below as a semantic utility;
    components use those, never raw hex.
@@ -61,35 +49,6 @@
   --text-on-color: #ffffff;
   --text-inverse: #fbfbfc;
 
-  /* ---- Route: 排产 Planning — THE blue (also the brand) ---- */
-  --route-planning: #2f6feb;
-  --route-planning-fg: #1d53c0;
-  --route-planning-bg: rgba(47, 111, 235, 0.09);
-  --route-planning-border: rgba(47, 111, 235, 0.28);
-  --route-planning-glow: rgba(47, 111, 235, 0.18);
-
-  /* ---- Route: 调度 Scheduling — orange ---- */
-  --route-scheduling: #c2620a;
-  --route-scheduling-fg: #9a4d06;
-  --route-scheduling-bg: rgba(194, 98, 10, 0.09);
-  --route-scheduling-border: rgba(194, 98, 10, 0.28);
-  --route-scheduling-glow: rgba(194, 98, 10, 0.18);
-
-  /* ---- Route: 查询 Query — teal ---- */
-  --route-query: #0e8e7f;
-  --route-query-fg: #0a6c60;
-  --route-query-bg: rgba(14, 142, 127, 0.09);
-  --route-query-border: rgba(14, 142, 127, 0.26);
-  --route-query-glow: rgba(14, 142, 127, 0.18);
-
-  /* ---- Route: 不确定 Uncertain — deliberately colourless.
-     A route we have not decided yet must not look decided. ---- */
-  --route-uncertain: #6e7379;
-  --route-uncertain-fg: #55595e;
-  --route-uncertain-bg: rgba(110, 115, 121, 0.09);
-  --route-uncertain-border: rgba(110, 115, 121, 0.24);
-  --route-uncertain-glow: rgba(110, 115, 121, 0.16);
-
   /* ---- Status ---- */
   --status-success: #12a150;
   --status-success-bg: rgba(18, 161, 80, 0.09);
@@ -108,7 +67,7 @@
   --auth-confirm-bg: rgba(180, 83, 9, 0.09);
   --auth-confirm-border: rgba(180, 83, 9, 0.28);
 
-  /* ---- Accent === the planning blue. Not a second hue. ---- */
+  /* ---- Accent ---- */
   --accent: #2f6feb;
   --accent-strong: #2560d4;
   --accent-fg: #1d53c0;
@@ -186,30 +145,6 @@
   --text-disabled: #3f4247;
   --text-on-color: #ffffff;
   --text-inverse: #0e0f11;
-
-  --route-planning: #4c8dff;
-  --route-planning-fg: #8fbaff;
-  --route-planning-bg: rgba(76, 141, 255, 0.13);
-  --route-planning-border: rgba(76, 141, 255, 0.32);
-  --route-planning-glow: rgba(76, 141, 255, 0.22);
-
-  --route-scheduling: #f97316;
-  --route-scheduling-fg: #fb923c;
-  --route-scheduling-bg: rgba(249, 115, 22, 0.13);
-  --route-scheduling-border: rgba(249, 115, 22, 0.3);
-  --route-scheduling-glow: rgba(249, 115, 22, 0.2);
-
-  --route-query: #2dd4bf;
-  --route-query-fg: #6fe3d3;
-  --route-query-bg: rgba(45, 212, 191, 0.12);
-  --route-query-border: rgba(45, 212, 191, 0.28);
-  --route-query-glow: rgba(45, 212, 191, 0.2);
-
-  --route-uncertain: #8a8f96;
-  --route-uncertain-fg: #a9aeb4;
-  --route-uncertain-bg: rgba(138, 143, 150, 0.12);
-  --route-uncertain-border: rgba(138, 143, 150, 0.28);
-  --route-uncertain-glow: rgba(138, 143, 150, 0.18);
 
   --status-success: #3dd68c;
   --status-success-bg: rgba(61, 214, 140, 0.12);

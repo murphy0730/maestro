@@ -2,6 +2,7 @@ import { HttpResponse } from 'msw';
 
 /** One SSE frame to emit, with an optional pre-delay (ms) to simulate streaming. */
 export interface SseFrame {
+  id?: string;
   event: string;
   data: unknown;
   delay?: number;
@@ -19,7 +20,7 @@ export function sseResponse(frames: SseFrame[]) {
     async start(controller) {
       for (const f of frames) {
         if (f.delay) await sleep(f.delay);
-        controller.enqueue(encoder.encode(`event: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`));
+        controller.enqueue(encoder.encode(`${f.id ? `id: ${f.id}\n` : ''}event: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`));
       }
       controller.close();
     },

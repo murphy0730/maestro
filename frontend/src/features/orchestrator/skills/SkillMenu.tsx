@@ -33,13 +33,13 @@ export function SkillMenu({
   );
   const isSel = (s: SkillMeta) => selected.some((x) => x.name === s.name);
 
-  // Same chip shape as the route/mode selectors so the toolbar reads as one system.
+  // Same chip shape as the rest of the composer controls.
   const active = open || selected.length > 0;
   const chip = `inline-flex h-8 cursor-pointer items-center gap-[6px] rounded-md border px-[9px] font-sans text-caption font-semibold text-text-secondary transition-colors duration-fast ease-out ${
     active ? 'border-accent-border bg-accent-bg' : 'border-border-default hover:bg-border-subtle'
   }`;
 
-  // One dropdown row — mirrors the route/mode option rows.
+  // One compact dropdown row per available Skill.
   const row =
     'flex w-full items-center gap-[10px] rounded-sm px-2 py-[7px] text-left transition-colors duration-fast ease-out';
 

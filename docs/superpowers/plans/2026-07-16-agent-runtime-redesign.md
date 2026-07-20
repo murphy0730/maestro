@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Maestro's fixed planning/scheduling/query engines with one recoverable, policy-governed Agent Runtime that selects a fast loop or a GoalSpec + Typed Plan path and loads manufacturing capabilities exclusively through Claude-compatible Skills, Tools, and MCP.
+**Goal:** Replace Maestro's fixed planning/scheduling/query engines with one recoverable, policy-governed Agent Runtime that selects a fast loop or controlled execution mode and loads manufacturing capabilities exclusively through Claude-compatible Skills, Tools, and MCP.
 
 **Architecture:** Build a new `maestro.runtime` package beside the legacy engines, prove its domain model, persistence, policy, Skill loading, adaptive execution, and recovery independently, then switch the composition root and HTTP/SSE contract in one controlled cutover. The frontend consumes only Run/Step/Approval events and keeps a unified Agent entry; the final cleanup deletes the legacy engines and built-in manufacturing capabilities rather than maintaining adapters.
 
@@ -12,8 +12,8 @@
 
 - Package imports use `maestro`, never `platform`.
 - Runtime Core contains no planning algorithm, CP-SAT, PlanningStrategy, kitting, expediting, dispatching, or other manufacturing business capability.
-- Every request creates a `RunIntent`; GoalSpec and Typed Plan exist only on the structured path.
-- A fast Run can upgrade to the structured path; a structured Run can never downgrade.
+- Every request creates a `RunIntent`; Runtime creates no pre-built goal specification, plan graph, or plan-step contract.
+- A fast Run can upgrade to controlled execution; controlled execution can never downgrade.
 - Only `RunCoordinator` changes Run or Step state.
 - Every real Tool/MCP side effect passes through `PolicyGate`; model and Skill text cannot lower deterministic risk.
 - Skill discovery loads metadata, invocation loads full `SKILL.md`, and `references/`, `scripts/`, and `assets/` load only on demand.
@@ -23,13 +23,24 @@
 - Backend tests run without network and with all LLM calls mocked.
 - Preserve unrelated user changes; execute this plan from an isolated worktree created with `using-git-worktrees`.
 
+## Approved Green-Suite Migration Sequence
+
+The user approved this sequencing on 2026-07-16 to keep every task reviewable with a green full suite while preserving the final direct-replacement requirement:
+
+- Tasks 1–9 add and validate the new Runtime while the legacy public path remains untouched.
+- Task 4 introduces a separate strict runtime-facing Claude Skill contract; it does not remove legacy SkillEngine fields yet.
+- Task 10 switches the backend composition root/API and deletes the obsolete backend engines, business modules, routes, and tests in the same task.
+- Task 11 switches the frontend and deletes obsolete engine-centric frontend modules and tests in the same task.
+- Task 12 performs dependency/configuration cleanup, architecture scans, documentation, and the B1 acceptance matrix.
+- Intermediate coexistence is an implementation sequencing technique only. The finished branch contains no compatibility adapter or legacy execution path.
+
 ---
 
 ## Target File Map
 
 ### New backend runtime package
 
-- `maestro/src/maestro/runtime/models.py` — RunIntent, GoalSpec, TypedPlan, Run/Step/Approval models and enums.
+- `maestro/src/maestro/runtime/models.py` — RunIntent, Run/Step/Approval models and enums.
 - `maestro/src/maestro/runtime/state_machine.py` — the only legal Run/Step transition tables and transition validation.
 - `maestro/src/maestro/runtime/journal.py` — append-only JSONL facts and replay.
 - `maestro/src/maestro/runtime/store.py` — atomic Run snapshots and Artifact references.
@@ -39,9 +50,8 @@
 - `maestro/src/maestro/runtime/skills.py` — Claude-compatible discovery and progressive resource loading.
 - `maestro/src/maestro/runtime/context.py` — P0–P3 context assembly and untrusted-data wrapping.
 - `maestro/src/maestro/runtime/intent.py` — RunIntent construction and initial path selection.
-- `maestro/src/maestro/runtime/planning.py` — GoalSpec/TypedPlan generation and schema validation; no manufacturing algorithm.
 - `maestro/src/maestro/runtime/model.py` — model-turn protocol adapting the existing `LLMClient.chat_turn`.
-- `maestro/src/maestro/runtime/coordinator.py` — fast loop, structured execution, one-way upgrade, approval, cancellation, and recovery.
+- `maestro/src/maestro/runtime/coordinator.py` — fast loop, controlled execution, one-way upgrade, approval, reconciliation, cancellation, recovery, and Child Run management.
 - `maestro/src/maestro/runtime/events.py` — public Run/Step/Approval event schema and publisher.
 - `maestro/src/maestro/runtime/__init__.py` — public runtime exports only.
 
@@ -79,16 +89,13 @@
 - Create: `maestro/tests/runtime/test_state_machine.py`
 
 **Interfaces:**
-- Produces: `RunIntent`, `GoalSpec`, `PlanStep`, `TypedPlan`, `RunRecord`, `StepRecord`, `ApprovalRecord`, `RuntimeErrorKind`, `RunPath`, `RunStatus`, `StepStatus`.
+- Produces: `RunIntent`, `RunRecord`, `StepRecord`, `ApprovalRecord`, `RuntimeErrorKind`, `RunPath`, `RunStatus`, `StepStatus`.
 - Produces: `transition_run(run, target, reason)` and `transition_step(step, target, reason)`; later tasks must never assign status directly.
 
 - [ ] **Step 1: Add failing schema tests**
 
 ```python
-from pydantic import ValidationError
-import pytest
-
-from maestro.runtime.models import GoalSpec, PlanStep, RunIntent, RunPath, TypedPlan
+from maestro.runtime.models import RunIntent, RunPath
 
 
 def test_run_intent_defaults_to_unselected_path() -> None:
@@ -97,12 +104,11 @@ def test_run_intent_defaults_to_unselected_path() -> None:
     assert intent.risk_signals == []
 
 
-def test_typed_plan_rejects_missing_dependency() -> None:
-    with pytest.raises(ValidationError, match="missing dependency"):
-        TypedPlan(
-            goal=GoalSpec(objective="汇总结果", success_criteria=["生成摘要"]),
-            steps=[PlanStep(step_id="summarize", kind="model", depends_on=["read"])],
-        )
+def test_runtime_has_no_typed_plan_contract() -> None:
+    import maestro.runtime.models as runtime_models
+    assert not hasattr(runtime_models, "GoalSpec")
+    assert not hasattr(runtime_models, "PlanStep")
+    assert not hasattr(runtime_models, "TypedPlan")
 ```
 
 - [ ] **Step 2: Run schema tests and verify import failure**
@@ -113,7 +119,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'maestro.runtime'`.
 
 - [ ] **Step 3: Implement the complete domain model**
 
-Define string enums for paths and statuses, and Pydantic models with immutable identifiers and validated plan dependencies. Use this exact public shape:
+Define string enums for paths and statuses, and Pydantic models with immutable identifiers. Use this exact public shape:
 
 ```python
 class RunPath(StrEnum):
@@ -171,48 +177,6 @@ class RunIntent(BaseModel):
     path: RunPath = RunPath.UNSELECTED
 
 
-class GoalSpec(BaseModel):
-    objective: str = Field(min_length=1)
-    constraints: list[str] = Field(default_factory=list)
-    success_criteria: list[str] = Field(min_length=1)
-    required_outputs: list[str] = Field(default_factory=list)
-    known_inputs: dict[str, object] = Field(default_factory=dict)
-    unknowns: list[str] = Field(default_factory=list)
-    risk_context: list[str] = Field(default_factory=list)
-
-
-class PlanStep(BaseModel):
-    step_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    kind: Literal["model", "skill", "tool", "mcp", "verify", "reconcile"]
-    capability: str | None = None
-    depends_on: list[str] = Field(default_factory=list)
-    input_refs: dict[str, str] = Field(default_factory=dict)
-    output_key: str | None = None
-    max_attempts: int = Field(default=1, ge=1, le=5)
-    timeout_seconds: int = Field(default=60, ge=1, le=3600)
-    requires_approval: bool = False
-    success_condition: str = Field(default="capability_succeeded", pattern=r"^[a-z][a-z0-9_]{0,63}$")
-
-
-class TypedPlan(BaseModel):
-    goal: GoalSpec
-    steps: list[PlanStep] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_graph(self) -> "TypedPlan":
-        ids = [step.step_id for step in self.steps]
-        if len(ids) != len(set(ids)):
-            raise ValueError("duplicate step id")
-        known = set(ids)
-        for step in self.steps:
-            missing = set(step.depends_on) - known
-            if missing:
-                raise ValueError(f"missing dependency: {sorted(missing)}")
-            if step.step_id in step.depends_on:
-                raise ValueError("step cannot depend on itself")
-        return self
-
-
 class ApprovalRecord(BaseModel):
     approval_id: str = Field(default_factory=lambda: str(uuid4()))
     run_id: str
@@ -247,8 +211,6 @@ class RunRecord(BaseModel):
     path: RunPath = RunPath.UNSELECTED
     status: RunStatus = RunStatus.CREATED
     intent: RunIntent | None = None
-    goal_spec: GoalSpec | None = None
-    typed_plan: TypedPlan | None = None
     steps: dict[str, StepRecord] = Field(default_factory=dict)
     pending_approvals: list[ApprovalRecord] = Field(default_factory=list)
     capability_versions: dict[str, str] = Field(default_factory=dict)
@@ -259,6 +221,8 @@ class RunRecord(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 ```
+
+`STRUCTURED`、`STRUCTURING` 和 `RUNNING_STRUCTURED` 是稳定的持久化/API 值；在本计划中它们表示受控执行模式及其过渡，绝不表示预先构建的计划图。
 
 Import `UTC`, `datetime`, `StrEnum`, `Literal`, and `uuid4`. Every update creates a Pydantic copy; no task mutates model collections in place.
 
@@ -271,7 +235,7 @@ from maestro.runtime.models import RunRecord, RunStatus, StepRecord, StepStatus
 from maestro.runtime.state_machine import InvalidTransition, transition_run, transition_step
 
 
-def test_structured_run_cannot_downgrade() -> None:
+def test_controlled_run_cannot_downgrade() -> None:
     run = RunRecord(objective="x", status=RunStatus.RUNNING_STRUCTURED)
     with pytest.raises(InvalidTransition):
         transition_run(run, RunStatus.RUNNING_FAST, "downgrade")
@@ -598,9 +562,9 @@ Run: `cd maestro && pytest tests/runtime/test_skills_compat.py -v`
 
 Expected: FAIL because `SkillCatalog` does not exist and current schema contains Maestro-only execution fields.
 
-- [ ] **Step 4: Align frontmatter without Maestro execution fields**
+- [ ] **Step 4: Add the strict runtime-facing frontmatter without breaking the legacy path**
 
-Remove `tool_preconditions` and `scripts` as execution semantics. Preserve unrecognized frontmatter in `extensions`; parse hyphenated Claude keys; add `context`, `agent`, `model`, `effort`, `hooks`, and `shell`. Keep package hash/trust metadata outside frontmatter.
+Define the strict Claude contract used by `runtime/skills.py` separately from the legacy SkillEngine schema so the pre-cutover full suite remains green. The runtime contract has no `tool_preconditions` or frontmatter `scripts` execution semantics. Preserve unrecognized frontmatter in `extensions`; parse hyphenated Claude keys; add `context`, `agent`, `model`, `effort`, `hooks`, and `shell`. Keep package hash/trust metadata outside frontmatter. Task 10 removes the legacy SkillEngine and then makes the strict contract the only public schema.
 
 - [ ] **Step 5: Implement source precedence and progressive loading**
 
@@ -713,7 +677,7 @@ def test_path_matrix(classifier, request, expected) -> None:
 
 - [ ] **Step 2: Add the non-downgrade risk test**
 
-Supply a fake model classification of `low` for a registered high-risk write capability and assert the result remains structured with `deterministic_high_risk_write` in `risk_signals`.
+Supply a fake model classification of `low` for a registered high-risk write capability and assert the result remains in controlled execution with `deterministic_high_risk_write` in `risk_signals`.
 
 - [ ] **Step 3: Run and verify failure**
 
@@ -723,7 +687,7 @@ Expected: FAIL because intent module does not exist.
 
 - [ ] **Step 4: Implement deterministic-first classification**
 
-The classifier first derives signals from capability metadata, number of requested Skills, fork context, background flag, external waits, and explicit high-risk user wording. It may call an injected model classifier only for additional complexity signals. Any deterministic structured signal forces `RunPath.STRUCTURED`; model output can add risk but cannot remove it.
+The classifier first derives signals from capability metadata, number of requested Skills, fork context, background flag, external waits, and explicit high-risk user wording. It may call an injected model classifier only for additional complexity signals. Any deterministic controlled-execution signal forces `RunPath.STRUCTURED`; model output can add risk but cannot remove it.
 
 - [ ] **Step 5: Pass and commit**
 
@@ -758,8 +722,8 @@ async def test_simple_answer_stays_fast(runtime_harness) -> None:
     runtime_harness.model.queue_final("OEE 是设备综合效率。")
     run = await runtime_harness.coordinator.start("解释 OEE")
     assert run.path is RunPath.FAST
-    assert run.goal_spec is None
-    assert run.typed_plan is None
+    assert "goal_spec" not in type(run).model_fields
+    assert "typed_plan" not in type(run).model_fields
     assert run.status is RunStatus.COMPLETED
     assert runtime_harness.events.types == [
         "run.created", "run.path_selected", "model.turn", "run.completed"
@@ -800,12 +764,6 @@ class ModelAction(BaseModel):
 class RuntimeModel(Protocol):
     async def next_turn(self, context: ContextBundle, capabilities: list[CapabilitySpec]) -> ModelAction:
         raise NotImplementedError
-
-    async def structure_goal(self, intent: RunIntent, context: ContextBundle) -> GoalSpec:
-        raise NotImplementedError
-
-    async def create_plan(self, goal: GoalSpec, capabilities: list[CapabilitySpec]) -> TypedPlan:
-        raise NotImplementedError
 ```
 
 Public events use one stable envelope:
@@ -822,7 +780,7 @@ class RunEvent(BaseModel):
 
 `EventPublisher.publish` first appends the equivalent JournalEvent and only then notifies subscribers, so an observed public event is always recoverable.
 
-`LLMRuntimeModel` adapts `LLMClient.chat_turn` and `LLMClient.classify`; it never executes a Tool itself.
+`LLMRuntimeModel` adapts `LLMClient.chat_turn` and `LLMClient.classify`; it never executes a Tool itself or generates a pre-built plan.
 
 - [ ] **Step 5: Implement the fast loop**
 
@@ -841,68 +799,53 @@ git commit -m "feat: execute bounded fast agent runs"
 
 ---
 
-### Task 8: GoalSpec, Typed Plan, and One-Way Upgrade
+### Task 8: Controlled Execution Upgrade and Child Runs
 
 **Files:**
-- Create: `maestro/src/maestro/runtime/planning.py`
 - Modify: `maestro/src/maestro/runtime/coordinator.py`
-- Create: `maestro/tests/runtime/test_structured_path.py`
 - Create: `maestro/tests/runtime/test_path_upgrade.py`
 
 **Interfaces:**
-- Consumes: `RuntimeModel.structure_goal/create_plan`, Task 1 schemas, Task 7 coordinator.
-- Produces: `PlanValidator.validate()`, structured executor, and `RunCoordinator.upgrade_to_structured()`.
+- Consumes: Task 1 state helpers and Task 7 coordinator.
+- Produces: controlled execution upgrade and Child Run handling.
 
-- [ ] **Step 1: Write failing initial structured-path test**
+- [ ] **Step 1: Write failing controlled-execution and one-way-upgrade tests**
 
 ```python
-async def test_complex_request_structures_before_execution(runtime_harness) -> None:
-    runtime_harness.model.queue_goal(GoalSpec(objective="跨系统更新", success_criteria=["两个系统状态一致"]))
-    runtime_harness.model.queue_plan(TypedPlan(
-        goal=runtime_harness.model.goals[0],
-        steps=[
-            PlanStep(step_id="read", kind="tool", capability="read_erp", output_key="erp"),
-            PlanStep(step_id="write", kind="mcp", capability="write_mes", depends_on=["read"]),
-            PlanStep(step_id="verify", kind="verify", depends_on=["write"]),
-        ],
-    ))
+async def test_complex_request_uses_controlled_execution(runtime_harness) -> None:
     run = await runtime_harness.coordinator.start("读取 ERP 后更新 MES")
     assert run.path is RunPath.STRUCTURED
-    assert run.goal_spec is not None
-    assert run.typed_plan is not None
+    assert not hasattr(run, "goal_spec")
+    assert not hasattr(run, "typed_plan")
 ```
 
-- [ ] **Step 2: Write failing fast-to-structured upgrade test**
+- [ ] **Step 2: Write failing fast-to-controlled-execution upgrade test**
 
-Start with a fast read call, then have the model request a high-risk write. Assert the write executor has zero calls before upgrade, the same `run_id` is retained, consumed budget is retained, and events include exactly one `run.path_upgraded` before `goal.created`.
+Start with a fast read call, then have the model request a high-risk write. Assert the write executor has zero calls before upgrade, the same `run_id` is retained, consumed budget is retained, the working set is frozen as an Artifact, and events include exactly one `run.path_upgraded` before the next controlled model turn.
 
 - [ ] **Step 3: Write failing fork Child Run test**
 
-Load a `context: fork` Skill from Task 4 and assert the parent enters the structured path, creates a Child Run with `parent_run_id`, isolated context and a smaller step budget, intersects parent policy permissions with Skill `allowed-tools`, and returns only a structured result/Artifact reference to the parent.
+Load a `context: fork` Skill from Task 4 and assert the parent enters controlled execution, creates a Child Run with `parent_run_id`, isolated context and a smaller step budget, intersects parent policy permissions with Skill `allowed-tools`, and returns only a result/Artifact reference to the parent.
 
 - [ ] **Step 4: Run and verify failure**
 
-Run: `cd maestro && pytest tests/runtime/test_structured_path.py tests/runtime/test_path_upgrade.py -v`
+Run: `cd maestro && pytest tests/runtime/test_path_upgrade.py -v`
 
-Expected: FAIL because structured planning and upgrade are absent.
+Expected: FAIL because controlled execution upgrade is absent.
 
-- [ ] **Step 5: Implement plan validation**
+- [ ] **Step 5: Implement controlled execution and Child Runs**
 
-Reject cycles, missing capabilities, read/write metadata mismatches, unreachable steps, a write step without an idempotency/reconciliation route, and a success criterion with no verifier. Validation returns a new plan with topologically stable step order; it never edits the model object in place.
+Before upgrade, transition `running_fast -> structuring`, append the upgrade reason and frozen working-set Artifact, preserve the capability snapshot and counters, then continue one model action at a time with stricter budgets. Do not construct a DAG, topology, or plan-level dependencies. Every state change goes through Task 1 helpers. Never define a transition back to `running_fast`. A fork Skill creates a normal RunRecord with `parent_run_id`, its own ContextBundle and budget, the same pinned capability versions, and the intersection of parent and Skill permissions; the parent receives a `ChildRunResult`, not the child's full prompt history.
 
-- [ ] **Step 6: Implement structured execution, upgrade, and Child Runs**
+- [ ] **Step 6: Pass tests and commit**
 
-Before upgrade, transition `running_fast -> structuring`, append the upgrade reason and frozen working-set Artifact, preserve the capability snapshot and counters, then generate GoalSpec/TypedPlan. Execute only ready steps; every state change goes through Task 1 helpers. Never define a transition back to `running_fast`. A fork Skill creates a normal RunRecord with `parent_run_id`, its own ContextBundle and budget, the same pinned capability versions, and the intersection of parent and Skill permissions; the parent receives a `ChildRunResult`, not the child's full prompt history.
-
-- [ ] **Step 7: Pass tests and commit**
-
-Run: `cd maestro && pytest tests/runtime/test_structured_path.py tests/runtime/test_path_upgrade.py -v`
+Run: `cd maestro && pytest tests/runtime/test_path_upgrade.py -v`
 
 Expected: PASS.
 
 ```bash
-git add maestro/src/maestro/runtime/planning.py maestro/src/maestro/runtime/coordinator.py maestro/tests/runtime/test_structured_path.py maestro/tests/runtime/test_path_upgrade.py
-git commit -m "feat: execute and upgrade structured agent runs"
+git add maestro/src/maestro/runtime/coordinator.py maestro/tests/runtime/test_path_upgrade.py
+git commit -m "feat: upgrade controlled runtime execution"
 ```
 
 ---
@@ -943,7 +886,7 @@ Make the executor raise `UnknownWriteOutcome` after recording the idempotency ke
 
 - [ ] **Step 3: Write failing retry and compensation-governance tests**
 
-Assert only `TRANSIENT_INFRASTRUCTURE` errors listed by `CapabilitySpec.retryable_errors` retry, only when the capability is idempotent and budget remains. Assert failure never invokes compensation implicitly; a compensation action must be an explicit PlanStep whose kind is `tool` or `mcp`, and it must pass PolicyGate like every other side effect.
+Assert only `TRANSIENT_INFRASTRUCTURE` errors listed by `CapabilitySpec.retryable_errors` retry, only when the capability is idempotent and budget remains. Assert failure never invokes compensation implicitly; a compensation action must be an explicit governed Tool or MCP call and must pass PolicyGate like every other side effect.
 
 - [ ] **Step 4: Write failing crash-replay and cancellation tests**
 
@@ -961,7 +904,7 @@ Approval creation stores normalized call hash, impact summary, policy reason, ex
 
 - [ ] **Step 7: Implement retry, reconciliation, and recovery**
 
-Persist idempotency keys before execution. Map failures to Task 1 `RuntimeErrorKind`; catch only explicitly configured transient errors for automatic retry and require idempotency plus remaining budget. Catch `UnknownWriteOutcome` into `reconciling`; call a registered reconciler, never the original executor. Compensation is scheduled only from an explicit PlanStep. `RunRecovery.restore` replays Journal, compares the snapshot revision, and resumes only non-terminal Runs.
+Persist idempotency keys before execution. Map failures to Task 1 `RuntimeErrorKind`; catch only explicitly configured transient errors for automatic retry and require idempotency plus remaining budget. Catch `UnknownWriteOutcome` into `reconciling`; call a registered reconciler, never the original executor. Compensation is an explicit governed action. `RunRecovery.restore` replays Journal, compares the snapshot revision, and resumes only non-terminal Runs.
 
 - [ ] **Step 8: Implement cooperative cancellation**
 
@@ -984,6 +927,8 @@ git commit -m "feat: recover and govern runtime side effects"
 
 **Files:**
 - Modify: `maestro/src/maestro/bootstrap.py`
+- Modify: `maestro/src/maestro/main.py`
+- Modify: `maestro/src/maestro/cli.py`
 - Modify: `maestro/src/maestro/api/app.py`
 - Modify: `maestro/src/maestro/api/routes/__init__.py`
 - Modify: `maestro/src/maestro/api/routes/artifacts.py`
@@ -994,6 +939,57 @@ git commit -m "feat: recover and govern runtime side effects"
 - Create: `maestro/tests/test_runs_api.py`
 - Modify: `maestro/tests/test_sessions.py`
 - Create: `docs/api-contract/agent-runtime-v1.md`
+- Delete: `maestro/src/maestro/engines/`
+- Delete: `maestro/src/maestro/orchestrator/`
+- Delete: `maestro/src/maestro/events/`
+- Delete: `maestro/src/maestro/extensions/`
+- Delete: `maestro/src/maestro/domain/`
+- Delete: `maestro/src/maestro/foundation/integration/`
+- Delete: `maestro/src/maestro/foundation/kitting.py`
+- Delete: `maestro/src/maestro/foundation/master_data.py`
+- Delete: `maestro/src/maestro/foundation/authz.py`
+- Delete: `maestro/src/maestro/foundation/permissions.py`
+- Delete: `maestro/src/maestro/foundation/audit.py`
+- Delete: `maestro/src/maestro/foundation/tools/`
+- Delete: `maestro/src/maestro/foundation/exec_context.py`
+- Delete: `maestro/src/maestro/foundation/chroma_store.py`
+- Delete: `maestro/src/maestro/foundation/chunking.py`
+- Delete: `maestro/src/maestro/foundation/embedding.py`
+- Delete: `maestro/src/maestro/foundation/loaders/`
+- Delete: `maestro/src/maestro/foundation/vectorstore.py`
+- Delete: `maestro/src/maestro/foundation/memory.py`
+- Delete: `maestro/src/maestro/foundation/observation_store.py`
+- Delete: `maestro/src/maestro/api/routes/chat.py`
+- Delete: `maestro/src/maestro/api/routes/operations.py`
+- Delete: `maestro/src/maestro/api/routes/knowledge.py`
+- Delete: `maestro/src/maestro/api/routes/extensions.py`
+- Delete: `maestro/src/maestro/skills/context.py`
+- Delete: `maestro/src/maestro/skills/engine.py`
+- Delete: `maestro/src/maestro/skills/script_execution.py`
+- Delete: `maestro/src/maestro/skills/office_artifacts.py`
+- Delete: `maestro/src/maestro/tools/bridge.py`
+- Delete: `maestro/src/maestro/tools/integrated_manager.py`
+- Delete: `maestro/src/maestro/tools/manager.py`
+- Delete: `maestro/src/maestro/tools/permissions.py`
+- Delete: `maestro/tests/test_agent_loop_state.py`
+- Delete: `maestro/tests/test_audit_persistence.py`
+- Delete: `maestro/tests/test_chat_attachments.py`
+- Delete: `maestro/tests/test_chat_sse.py`
+- Delete: `maestro/tests/test_chroma_store.py`
+- Delete: `maestro/tests/test_events.py`
+- Delete: `maestro/tests/test_extension_catalog.py`
+- Delete: `maestro/tests/test_knowledge.py`
+- Delete: `maestro/tests/test_observation_store.py`
+- Delete: `maestro/tests/test_office_artifacts.py`
+- Delete: `maestro/tests/test_permissions.py`
+- Delete: `maestro/tests/test_planning.py`
+- Delete: `maestro/tests/test_query.py`
+- Delete: `maestro/tests/test_router.py`
+- Delete: `maestro/tests/test_scheduling.py`
+- Delete: `maestro/tests/test_skill_capabilities.py`
+- Delete: `maestro/tests/test_skill_routing.py`
+- Delete: `maestro/tests/test_skill_trust_execution.py`
+- Delete: `maestro/tests/test_tool_chain.py`
 
 **Interfaces:**
 - Produces: `POST /artifacts`, `GET /artifacts/{artifact_id}`, `POST /runs`, `GET /runs/{run_id}`, `GET /runs/{run_id}/stream`, `POST /runs/{run_id}/approvals/{approval_id}`, `POST /runs/{run_id}/cancel`; Run creation accepts `source`, `skill_names`, and existing `artifact_ids` rather than embedding large files.
@@ -1047,6 +1043,8 @@ Expected: FAIL because `/runs` is not registered.
 
 `Platform` must expose only generic services required by API/admin surfaces: `settings`, `llm`, `runtime`, `run_store`, `journal`, `artifact_store`, `skill_catalog`, `capabilities`, `mcp`, and model configuration services. Do not register MockAdapter manufacturing actions, construct legacy engines, or start the old extension catalog scheduler.
 
+In this same step, delete every backend path listed in this task, remove its imports/routers, and delete the corresponding legacy tests. Convert `maestro.skills.schemas` to the strict Claude contract introduced in Task 4. The full backend suite after this task consists only of generic administration tests plus Runtime/Run API tests and must be green; no compatibility adapter remains.
+
 - [ ] **Step 4: Implement Run endpoints and resumable SSE**
 
 `POST /runs` creates a background task and returns the first persisted snapshot. Stream first replays Journal events after `Last-Event-ID`, then subscribes to live events without a replay/live gap. Approval requires `expected_revision`; cancellation is idempotent. Return structured error bodies with `code`, `message`, and `run_id`.
@@ -1068,7 +1066,7 @@ Run: `cd maestro && pytest tests/runtime tests/test_runs_api.py -v`
 Expected: PASS.
 
 ```bash
-git add maestro/src/maestro/bootstrap.py maestro/src/maestro/api/app.py maestro/src/maestro/api/routes/__init__.py maestro/src/maestro/api/routes/artifacts.py maestro/src/maestro/api/routes/runs.py maestro/src/maestro/api/routes/sessions.py maestro/src/maestro/config.py maestro/src/maestro/foundation/session_store.py maestro/tests/test_runs_api.py maestro/tests/test_sessions.py docs/api-contract/agent-runtime-v1.md
+git add -A maestro docs/api-contract/agent-runtime-v1.md
 git commit -m "feat: expose unified agent run API"
 ```
 
@@ -1090,6 +1088,32 @@ git commit -m "feat: expose unified agent run API"
 - Modify: `frontend/src/pages/Workspace.tsx`
 - Modify: `frontend/src/features/orchestrator/Composer.tsx`
 - Modify: `frontend/src/features/orchestrator/Thread.tsx`
+- Delete: `frontend/src/api/chat.ts`
+- Delete: `frontend/src/api/planning.ts`
+- Delete: `frontend/src/api/query.ts`
+- Delete: `frontend/src/api/scheduling.ts`
+- Delete: `frontend/src/api/streaming.ts`
+- Delete: `frontend/src/api/useStreamingChat.ts`
+- Delete: `frontend/src/api/useStreamingChat.test.tsx`
+- Delete: `frontend/src/api/useStreamingQuery.ts`
+- Delete: `frontend/src/api/extensionCatalog.ts`
+- Delete: `frontend/src/types/api/chat.ts`
+- Delete: `frontend/src/types/api/planning.ts`
+- Delete: `frontend/src/types/api/query.ts`
+- Delete: `frontend/src/types/api/scheduling.ts`
+- Delete: `frontend/src/types/api/extensions.ts`
+- Delete: `frontend/src/features/extensions/`
+- Delete: `frontend/src/features/planning/`
+- Delete: `frontend/src/features/query/`
+- Delete: `frontend/src/features/scheduling/`
+- Delete: `frontend/src/components/ContextPanel.tsx`
+- Delete: `frontend/src/components/ContextPanelHost.tsx`
+- Delete: `frontend/src/features/orchestrator/ClarificationCard.tsx`
+- Delete: `frontend/src/features/orchestrator/RouteBadge.tsx`
+- Delete: `frontend/src/lib/routes.ts`
+- Delete: `frontend/src/stores/defaultEngineStore.ts`
+- Delete: `frontend/src/stores/defaultEngineStore.test.ts`
+- Modify: `frontend/src/router/index.tsx`
 
 **Interfaces:**
 - Consumes: Task 10 Run API/SSE contract.
@@ -1131,11 +1155,11 @@ Define `RunPath`, `RunStatus`, `StepStatus`, `RunSnapshot`, `ApprovalView`, and 
 
 - [ ] **Step 6: Add RunTrace UI tests**
 
-Assert visual labels for `快速执行`, `已升级为结构化执行`, `等待确认`, `正在对账`, `已恢复`, and terminal states. Assert approval buttons are disabled while a revisioned approval request is in flight.
+Assert visual labels for `快速执行`, `已升级为受控执行`, `等待确认`, `正在对账`, `已恢复`, and terminal states. Assert approval buttons are disabled while a revisioned approval request is in flight.
 
 - [ ] **Step 7: Replace route-centric Workspace behavior**
 
-Remove planning/scheduling/query route selection from the default Composer. Keep one optional expert-mode selector that only adds expert context and never selects a backend engine. Replace engine Context Panel activation with `RunTrace`; keep Skill selection and attachments. Update welcome/placeholder text to describe a manufacturing Agent rather than planning/scheduling/query routes.
+Remove planning/scheduling/query route selection from the default Composer. Keep one optional expert-mode selector that only adds expert context and never selects a backend engine. Replace engine Context Panel activation with `RunTrace`; keep Skill selection and attachments. Update welcome/placeholder text to describe a manufacturing Agent rather than planning/scheduling/query routes. Delete every frontend path listed in this task and update barrel exports, router configuration, and MSW handlers/fixtures in the same cutover so the full frontend suite stays green.
 
 - [ ] **Step 8: Run focused and full frontend verification**
 
@@ -1156,81 +1180,10 @@ git commit -m "feat: present unified agent run experience"
 
 ---
 
-### Task 12: Direct Replacement Cleanup and B1 Acceptance
+### Task 12: Dependency Cleanup and B1 Acceptance
 
 **Files:**
 - Modify: `maestro/pyproject.toml`
-- Modify: `maestro/src/maestro/main.py`
-- Modify: `maestro/src/maestro/cli.py`
-- Delete: `maestro/src/maestro/engines/`
-- Delete: `maestro/src/maestro/orchestrator/`
-- Delete: `maestro/src/maestro/foundation/kitting.py`
-- Delete: `maestro/src/maestro/foundation/master_data.py`
-- Delete: `maestro/src/maestro/foundation/integration/`
-- Delete: `maestro/src/maestro/foundation/tools/builtin.py`
-- Delete: `maestro/src/maestro/foundation/authz.py`
-- Delete: `maestro/src/maestro/foundation/permissions.py`
-- Delete: `maestro/src/maestro/foundation/audit.py`
-- Delete: `maestro/src/maestro/foundation/tools/`
-- Delete: `maestro/src/maestro/foundation/exec_context.py`
-- Delete: `maestro/src/maestro/foundation/chroma_store.py`
-- Delete: `maestro/src/maestro/foundation/chunking.py`
-- Delete: `maestro/src/maestro/foundation/embedding.py`
-- Delete: `maestro/src/maestro/foundation/loaders/`
-- Delete: `maestro/src/maestro/foundation/vectorstore.py`
-- Delete: `maestro/src/maestro/events/`
-- Delete: `maestro/src/maestro/extensions/`
-- Delete: `maestro/src/maestro/domain/`
-- Delete: `maestro/src/maestro/api/routes/operations.py`
-- Delete: `maestro/src/maestro/api/routes/knowledge.py`
-- Delete: `maestro/src/maestro/api/routes/extensions.py`
-- Delete: `maestro/src/maestro/skills/context.py`
-- Delete: `maestro/src/maestro/skills/engine.py`
-- Delete: `maestro/src/maestro/skills/script_execution.py`
-- Delete: `maestro/src/maestro/tools/bridge.py`
-- Delete: `maestro/src/maestro/tools/integrated_manager.py`
-- Delete: `maestro/src/maestro/tools/manager.py`
-- Delete: `maestro/src/maestro/tools/permissions.py`
-- Delete: `maestro/tests/test_planning.py`
-- Delete: `maestro/tests/test_query.py`
-- Delete: `maestro/tests/test_router.py`
-- Delete: `maestro/tests/test_scheduling.py`
-- Delete: `maestro/tests/test_events.py`
-- Delete: `maestro/tests/test_permissions.py`
-- Delete: `maestro/tests/test_audit_persistence.py`
-- Delete: `maestro/tests/test_chroma_store.py`
-- Delete: `maestro/tests/test_knowledge.py`
-- Delete: `maestro/tests/test_extension_catalog.py`
-- Delete: `maestro/tests/test_skill_capabilities.py`
-- Delete: `maestro/tests/test_skill_routing.py`
-- Delete: `maestro/tests/test_skill_trust_execution.py`
-- Delete: `maestro/tests/test_tool_chain.py`
-- Delete: `maestro/src/maestro/api/routes/chat.py`
-- Delete: `frontend/src/api/chat.ts`
-- Delete: `frontend/src/api/planning.ts`
-- Delete: `frontend/src/api/query.ts`
-- Delete: `frontend/src/api/scheduling.ts`
-- Delete: `frontend/src/api/streaming.ts`
-- Delete: `frontend/src/api/useStreamingChat.ts`
-- Delete: `frontend/src/api/useStreamingChat.test.tsx`
-- Delete: `frontend/src/api/useStreamingQuery.ts`
-- Delete: `frontend/src/api/extensionCatalog.ts`
-- Delete: `frontend/src/types/api/chat.ts`
-- Delete: `frontend/src/types/api/planning.ts`
-- Delete: `frontend/src/types/api/query.ts`
-- Delete: `frontend/src/types/api/scheduling.ts`
-- Delete: `frontend/src/types/api/extensions.ts`
-- Delete: `frontend/src/features/extensions/`
-- Delete: `frontend/src/features/planning/`
-- Delete: `frontend/src/features/query/`
-- Delete: `frontend/src/features/scheduling/`
-- Delete: `frontend/src/components/ContextPanel.tsx`
-- Delete: `frontend/src/components/ContextPanelHost.tsx`
-- Delete: `frontend/src/features/orchestrator/ClarificationCard.tsx`
-- Delete: `frontend/src/features/orchestrator/RouteBadge.tsx`
-- Delete: `frontend/src/lib/routes.ts`
-- Delete: `frontend/src/stores/defaultEngineStore.ts`
-- Delete: `frontend/src/stores/defaultEngineStore.test.ts`
 - Modify: `frontend/src/router/index.tsx`
 - Delete: `docs/api-contract/api-contract.md`
 - Delete: `docs/api-contract/api-contract-v2.md`
@@ -1242,7 +1195,7 @@ git commit -m "feat: present unified agent run experience"
 - Consumes: all prior tasks.
 - Produces: a repository whose only conversational execution path is the unified Runtime.
 
-- [ ] **Step 1: Add failing architecture-invariant tests before deletion**
+- [ ] **Step 1: Add failing architecture and dependency invariant tests**
 
 ```python
 from pathlib import Path
@@ -1258,21 +1211,26 @@ def test_runtime_core_has_no_manufacturing_dependencies() -> None:
 def test_legacy_engine_packages_are_removed() -> None:
     assert not Path("src/maestro/engines").exists()
     assert not Path("src/maestro/orchestrator").exists()
+
+
+def test_removed_dependencies_are_absent() -> None:
+    pyproject = Path("pyproject.toml").read_text("utf-8")
+    assert all(name not in pyproject for name in ["ortools", "chromadb", "python-docx", "python-pptx"])
 ```
 
-- [ ] **Step 2: Run and verify the legacy-removal test fails**
+- [ ] **Step 2: Run and verify the dependency invariant fails**
 
 Run: `cd maestro && pytest tests/runtime/test_b1_invariants.py -v`
 
-Expected: FAIL because legacy engine directories still exist.
+Expected: FAIL because removed dependencies are still declared before Task 12 cleanup; legacy directory assertions already pass after Task 10.
 
 - [ ] **Step 3: Remove legacy backend paths and OR-Tools**
 
-Delete the listed legacy engine, router, business integration, extension marketplace, and built-in business tool files. Set `requires-python = ">=3.12"`; remove `ortools`, `chromadb`, `python-docx`, and `python-pptx` after an `rg` import scan confirms the surviving code has no imports. Keep generic model configuration, Skill administration, MCP configuration, generic tools, v3 sessions, and artifact endpoints only when they do not import deleted business modules.
+Verify the Task 10 backend and Task 11 frontend deletion scopes are absent. Set `requires-python = ">=3.12"`; remove `ortools`, `chromadb`, `python-docx`, and `python-pptx` after an `rg` import scan confirms the surviving code has no imports. Keep generic model configuration, Skill administration, MCP configuration, generic tools, v3 sessions, and artifact endpoints only when they do not import deleted business modules.
 
 - [ ] **Step 4: Remove legacy frontend paths**
 
-Delete every frontend path listed in this task and update `frontend/src/api/index.ts`, `frontend/src/types/api/index.ts`, `frontend/src/types/index.ts`, `frontend/src/stores/index.ts`, `frontend/src/components/index.ts`, `frontend/src/router/index.tsx`, `frontend/src/mocks/api/handlers.ts`, `frontend/src/mocks/api/sse.ts`, and `frontend/src/mocks/api/fixtures.ts` to export, route, or mock only the Run, Skill, MCP, model, session, and artifact administration contracts. The only permitted occurrence of `query` is generic TanStack Query terminology.
+Verify Task 11 already removed the obsolete frontend paths and that barrel exports, router configuration, and MSW files expose only Run, Skill, MCP, model, session, and artifact administration contracts. The only permitted occurrence of `query` is generic TanStack Query terminology.
 
 - [ ] **Step 5: Update CLI and documentation**
 
@@ -1303,7 +1261,7 @@ Expected: all commands exit 0.
 Using the FastAPI test client or a locally started backend, verify:
 
 1. simple answer stays fast;
-2. multi-capability request starts structured;
+2. multi-capability request starts in controlled execution;
 3. fast high-risk discovery upgrades once;
 4. stale approval is replaced;
 5. unknown write outcome reconciles without retry;
@@ -1328,8 +1286,8 @@ git commit -m "refactor: replace legacy engines with agent runtime"
 - [ ] Every design invariant in `docs/superpowers/specs/2026-07-16-agent-runtime-redesign-design.md` maps to at least one named test above.
 - [ ] `RunCoordinator` is the only module calling `transition_run` and `transition_step` outside state-machine tests.
 - [ ] No capability executor is reachable without `PolicyGate.evaluate`.
-- [ ] The fast path has no GoalSpec/TypedPlan allocation unless it upgrades.
-- [ ] There is no structured-to-fast transition in code or tests.
+- [ ] Neither execution mode allocates a pre-built goal specification, plan graph, or plan-step contract.
+- [ ] There is no controlled-execution-to-fast transition in code or tests.
 - [ ] Skill metadata discovery, full `SKILL.md` loading, and auxiliary resource access are observably separate.
 - [ ] Tool/MCP output and Skill references remain untrusted context data.
 - [ ] Approval revision, external-state token, and capability version are revalidated before writes.

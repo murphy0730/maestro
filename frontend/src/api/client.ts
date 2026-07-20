@@ -1,4 +1,12 @@
-import type { ApiErrorBody, ApiErrorResponse } from '@/types';
+interface ApiErrorBody {
+  code: string;
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
+interface ApiErrorResponse {
+  error: ApiErrorBody;
+}
 
 /** API base URL + version prefix. Same-origin by default so MSW can intercept. */
 function resolveApiBase(): string {

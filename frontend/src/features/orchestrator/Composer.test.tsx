@@ -12,10 +12,8 @@ const selectedSkill = {
 
 const props = (overrides: Record<string, unknown> = {}) => ({
   onSend: vi.fn(),
-  route: 'auto' as const,
-  mode: 'plan' as const,
-  onRouteChange: vi.fn(),
-  onModeChange: vi.fn(),
+  expert: false,
+  onExpertChange: vi.fn(),
   skills: [selectedSkill],
   selectedSkills: [selectedSkill],
   onToggleSkill: vi.fn(),
@@ -39,7 +37,7 @@ describe('Composer', () => {
   it('输入法组合期间按 Enter 不发送消息', () => {
     const onSend = vi.fn();
     render(<Composer {...props({ onSend })} />);
-    const input = screen.getByPlaceholderText(/描述排产/);
+    const input = screen.getByPlaceholderText(/描述要完成/);
 
     fireEvent.change(input, { target: { value: '中文' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -52,7 +50,7 @@ describe('Composer', () => {
     const onSend = vi.fn();
     const onClearSkills = vi.fn();
     const { container } = render(<Composer {...props({ onSend, onClearSkills })} />);
-    const input = screen.getByPlaceholderText(/描述排产/);
+    const input = screen.getByPlaceholderText(/描述要完成/);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '分析附件' } });

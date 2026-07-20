@@ -1,137 +1,109 @@
-"""Skill package management endpoints."""
+"""Runtime Skill catalog endpoints (no legacy SkillEngine semantics)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from maestro.api.routes.knowledge import _MAX_UPLOAD_BYTES
-from maestro.skills.parser import validate_skill_package
-from maestro.skills.schemas import SkillMeta, SkillValidationError
+from maestro.skills.parser import extract_package, parse_runtime_frontmatter
+from maestro.skills.schemas import SkillValidationError
 from maestro.api.security import require_privileged
 
 router = APIRouter()
+_MAX_UPLOAD = 10 * 1024 * 1024
 
 
-class TrustSkillRequest(BaseModel):
-    package_sha256: str
-    acknowledged_script_execution: bool = False
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _meta(item) -> dict:
+    return {
+        "name": item.name, "description": item.description,
+        "allowed_tools": list(item.allowed_tools), "user_invocable": item.user_invocable,
+        "disable_model_invocation": item.disable_model_invocation,
+        "argument_hint": item.argument_hint, "file_count": 1,
+        "bytes": item.path.stat().st_size, "added_at": datetime.now(UTC).isoformat(),
+        "compatibility_status": "ready", "warnings": [], "package_sha256": "",
+    }
 
 
 @router.get("/skills")
 async def list_skills(request: Request):
-    """列出全部已导入技能包的元数据。"""
-    store = request.app.state.platform.skill_store
-    return {
-        "skills": [
-            {**meta.model_dump(), "trust": store.trust_status(meta.name)}
-            for meta in store.list_all()
-        ]
-    }
+    return {"skills": [_meta(item) for item in request.app.state.platform.refresh_skills().values()]}
 
 
-@router.post("/skills/import", status_code=201)
-async def import_skill(request: Request, file: UploadFile = File(...), principal: str = Depends(require_privileged)):
-    """导入技能包（.md / .zip）。"""
-    platform = request.app.state.platform
-    data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="文件超过 10MB 上限")
-    filename = file.filename or ""
-    if not (filename.lower().endswith(".md") or filename.lower().endswith(".zip")):
-        raise HTTPException(status_code=415, detail="仅支持 .md / .zip 后缀")
-    try:
-        frontmatter, body, attachments, report = validate_skill_package(
-            data,
-            filename,
-            set(platform.tools.names()),
-            set(platform.named_preconditions.keys()),
-            platform.settings.skill_body_max_bytes,
-        )
-        if not report.compatible or frontmatter is None or body is None:
-            raise HTTPException(status_code=422, detail="; ".join(report.errors))
-    except SkillValidationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    meta = SkillMeta(
-        **frontmatter.model_dump(),
-        file_count=1 + len(attachments),
-        bytes=len(body.encode("utf-8")) + sum(len(content) for content in attachments.values()),
-        archive_bytes=len(data),
-        added_at=_now_iso(),
-        compatibility_status=report.compatibility_status,
-        warnings=report.warnings,
-    )
-    try:
-        platform.skill_store.save(meta, body, attachments)
-    except KeyError:
-        raise HTTPException(status_code=409, detail=f"技能 {meta.name} 已存在") from None
-    platform.audit.record(principal, "skill.import", {"name": meta.name, "package_sha256": meta.package_sha256}, "allowed")
-    return meta
+async def _upload(file: UploadFile) -> tuple[bytes, str]:
+    data = await file.read(_MAX_UPLOAD + 1)
+    if len(data) > _MAX_UPLOAD:
+        raise HTTPException(413, detail="skill exceeds 10 MB")
+    return data, file.filename or "SKILL.md"
+
+
+def _runtime_package(data: bytes, filename: str):
+    # Extract safely, then use Runtime's strict (inert extensions) parser.
+    _legacy, body, attachments = extract_package(data, filename)
+    skill_text = "---\n" + data.decode("utf-8").split("---", 2)[1] + "---\n" + body if filename.lower().endswith(".md") else None
+    if skill_text is None:
+        import io, zipfile
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            member = next(name for name in archive.namelist() if name.endswith("SKILL.md"))
+            skill_text = archive.read(member).decode("utf-8")
+    return parse_runtime_frontmatter(skill_text), skill_text, attachments
 
 
 @router.post("/skills/validate")
 async def validate_skill(request: Request, file: UploadFile = File(...)):
-    """预检兼容性，不写入技能仓库。"""
-    platform = request.app.state.platform
-    data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="文件超过 10MB 上限")
-    filename = file.filename or ""
-    if not (filename.lower().endswith(".md") or filename.lower().endswith(".zip")):
-        raise HTTPException(status_code=415, detail="仅支持 .md / .zip 后缀")
-    _, _, _, report = validate_skill_package(
-        data,
-        filename,
-        set(platform.tools.names()),
-        set(platform.named_preconditions.keys()),
-        platform.settings.skill_body_max_bytes,
-    )
-    return report.model_dump()
-
-
-@router.get("/skills/{name}/trust")
-async def get_skill_trust(name: str, request: Request):
     try:
-        return request.app.state.platform.skill_store.trust_status(name)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"技能 {name} 不存在") from None
+        data, filename = await _upload(file)
+        frontmatter, _text, attachments = _runtime_package(data, filename)
+        unknown = [name for name in (frontmatter.allowed_tools or []) if name not in {x.name for x in request.app.state.platform.capabilities.snapshot().values()}]
+        if unknown:
+            raise SkillValidationError(f"allowed-tools contains unknown capability: {unknown}")
+    except (SkillValidationError, UnicodeDecodeError, ValueError) as error:
+        return {"compatible": False, "compatibility_status": "not_ready", "capabilities": {"prompt": True, "attachments": False, "scripts": False}, "tool_mapping": {}, "normalized_frontmatter": {}, "warnings": [], "errors": [str(error)]}
+    return {"compatible": True, "normalized_name": frontmatter.name, "compatibility_status": "ready", "capabilities": {"prompt": True, "attachments": bool(attachments), "scripts": False}, "tool_mapping": {}, "normalized_frontmatter": frontmatter.model_dump(), "warnings": [], "errors": []}
+
+
+@router.post("/skills/import")
+async def import_skill(request: Request, file: UploadFile = File(...), _admin: str = Depends(require_privileged)):
+    data, filename = await _upload(file)
+    try:
+        frontmatter, skill_text, attachments = _runtime_package(data, filename)
+        destination = request.app.state.platform.settings.skills_dir / frontmatter.name
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "SKILL.md").write_text(skill_text, "utf-8")
+        for relative, content in attachments.items():
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        item = request.app.state.platform.refresh_skills()[frontmatter.name]
+    except (SkillValidationError, UnicodeDecodeError, ValueError) as error:
+        raise HTTPException(422, detail=str(error)) from error
+    return _meta(item)
+
+
+class TrustRequest(BaseModel):
+    trusted: bool = True
 
 
 @router.post("/skills/{name}/trust")
-async def trust_skill(name: str, payload: TrustSkillRequest, request: Request):
-    principal = require_privileged(request)
-    if not payload.acknowledged_script_execution:
-        raise HTTPException(status_code=422, detail="必须明确确认将允许当前版本脚本进入权限执行流程")
-    store = request.app.state.platform.skill_store
-    try:
-        store.trust(name, payload.package_sha256, principal_id=principal)
-        request.app.state.platform.audit.record(principal, "skill.trust", {"name": name, "package_sha256": payload.package_sha256}, "allowed")
-        return store.trust_status(name)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"技能 {name} 不存在") from None
-    except SkillValidationError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+async def trust_skill(name: str, request: Request, payload: TrustRequest, _admin: str = Depends(require_privileged)):
+    if name not in request.app.state.platform.refresh_skills():
+        raise HTTPException(404, detail="skill not found")
+    request.app.state.skill_trust[name] = payload.trusted
+    return {"level": "user_trusted" if payload.trusted else "untrusted", "valid": True, "package_sha256": ""}
 
 
 @router.delete("/skills/{name}/trust")
-async def revoke_skill_trust(name: str, request: Request):
-    principal = require_privileged(request)
-    store = request.app.state.platform.skill_store
-    if store.get(name) is None:
-        raise HTTPException(status_code=404, detail=f"技能 {name} 不存在")
-    revoked = store.revoke_trust(name)
-    request.app.state.platform.audit.record(principal, "skill.trust.revoke", {"name": name}, "allowed")
-    return {"revoked": revoked, **store.trust_status(name)}
+async def revoke_trust(name: str, request: Request, _admin: str = Depends(require_privileged)):
+    request.app.state.skill_trust.pop(name, None)
+    return {"level": "untrusted", "valid": True, "package_sha256": ""}
 
 
 @router.delete("/skills/{name}")
-async def delete_skill(name: str, request: Request, principal: str = Depends(require_privileged)):
-    """删除技能包。不存在 → 404。"""
-    if not request.app.state.platform.skill_store.delete(name):
-        raise HTTPException(status_code=404, detail=f"技能 {name} 不存在")
-    request.app.state.platform.audit.record(principal, "skill.delete", {"name": name}, "allowed")
-    return {"deleted": True, "name": name}
+async def delete_skill(name: str, request: Request, _admin: str = Depends(require_privileged)):
+    root = request.app.state.platform.settings.skills_dir / name
+    if not root.is_dir():
+        raise HTTPException(404, detail="skill not found")
+    import shutil
+    shutil.rmtree(root)
+    request.app.state.platform.refresh_skills()
+    return None

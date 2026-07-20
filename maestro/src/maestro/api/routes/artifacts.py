@@ -1,17 +1,31 @@
-"""Download generated conversation artifacts without exposing host paths."""
+"""Opaque, content-addressed Runtime artifacts."""
 
-from pathlib import Path
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from maestro.runtime.store import InvalidStorageId
 
 router = APIRouter()
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
-@router.get("/artifacts/{artifact_path:path}")
-async def download_artifact(artifact_path: str, request: Request):
-    root = (Path(request.app.state.platform.settings.skill_execution_dir) / "artifacts").resolve()
-    candidate = (root / artifact_path).resolve()
-    if not candidate.is_relative_to(root) or not candidate.is_file():
-        raise HTTPException(status_code=404, detail="产物不存在或已清理")
-    return FileResponse(candidate, filename=candidate.name)
+@router.post("/artifacts", status_code=201)
+async def create_artifact(request: Request, file: UploadFile = File(...)):
+    content = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(413, detail={"code": "artifact_too_large", "message": "file exceeds 10 MB"})
+    artifact = request.app.state.platform.artifact_store.put(
+        content, file.content_type or "application/octet-stream"
+    )
+    return artifact.model_dump()
+
+
+@router.get("/artifacts/{artifact_id}")
+async def download_artifact(artifact_id: str, request: Request):
+    try:
+        store = request.app.state.platform.artifact_store
+        content = store.get(artifact_id)
+        media_type = store.media_type(artifact_id)
+    except (FileNotFoundError, InvalidStorageId):
+        raise HTTPException(404, detail={"code": "artifact_not_found", "message": "artifact not found"}) from None
+    return Response(content, media_type=media_type)

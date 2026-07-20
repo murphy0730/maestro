@@ -37,12 +37,11 @@ describe('skills api', () => {
     );
   });
 
-  it('trustSkill binds trust to package hash', async () => {
+  it('trustSkill uses the v1 trust contract', async () => {
     vi.mocked(apiPost).mockResolvedValue({ level: 'user_trusted', valid: true });
-    await trustSkill('cap', 'hash');
+    await trustSkill('cap', true);
     expect(apiPost).toHaveBeenCalledWith('/skills/cap/trust', {
-      package_sha256: 'hash',
-      acknowledged_script_execution: true,
+      trusted: true,
     });
   });
 
