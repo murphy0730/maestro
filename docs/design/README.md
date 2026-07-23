@@ -1,6 +1,9 @@
 # 设计系统
 
-`maestro-design-system-v1.html` 是前端视觉的**唯一事实来源**。双击即可离线打开——字体（Geist / Inter / Geist Mono）以 base64 内嵌，无任何外部请求。
+> **v2 草案（2026-07-23）**：`maestro-design-system-v2.html` —「深空指挥舱」科技风重设计，深色默认 + 浅色同构，字体 Space Grotesk / JetBrains Mono 内嵌。待评审确认后接替 v1 成为事实来源；v1 保留存档。
+> v2 与 v1 无继承关系，是按 Agent Runtime 现状（runs / approvals / skills / sessions）从零设计的。
+
+`maestro-design-system-v1.html` 是前端视觉的**唯一事实来源**（在 v2 评审通过前仍然有效）。双击即可离线打开——字体（Geist / Inter / Geist Mono）以 base64 内嵌，无任何外部请求。
 
 页面本身就是设计稿：所有色值、字号、圆角、间距都由页内 CSS 变量直接渲染，不是截图。改这个文件 = 改设计。
 
