@@ -78,6 +78,36 @@ async def test_rejected_approval_is_persisted_as_rejected(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_approved_write_runs_and_then_lets_the_model_answer(tmp_path) -> None:
+    """Approving a write used to leave the Run in running_structured forever.
+
+    The API only writes an assistant reply back to the session when the Run
+    carries `final_text`, so stopping at the write meant the user saw nothing.
+    """
+    harness = RuntimeHarness(tmp_path)
+    executor = harness.add_tool("placeholder")
+    harness.registry.register(
+        CapabilitySpec(
+            name="write", kind=CapabilityKind.TOOL, writes=True, risk=RiskLevel.HIGH,
+            executor=executor,
+        )
+    )
+    harness.model.queue_call("write")
+    run = await harness.coordinator.start("write")
+    approval = run.pending_approvals[0]
+    assert run.status is RunStatus.WAITING_APPROVAL
+    harness.model.queue_final("已写入。")
+
+    resumed = await harness.coordinator.approve(
+        run.run_id, approval.approval_id, True, "u1", approval.run_revision
+    )
+
+    assert executor.calls == 1
+    assert resumed.status is RunStatus.COMPLETED
+    assert resumed.final_text == "已写入。"
+
+
+@pytest.mark.asyncio
 async def test_expired_approval_is_replaced_without_execution(tmp_path) -> None:
     harness = RuntimeHarness(tmp_path)
     executor = harness.add_tool("placeholder")

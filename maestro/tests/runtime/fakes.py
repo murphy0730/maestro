@@ -19,9 +19,21 @@ class FakeRuntimeModel:
     def queue_final(self, text: str) -> None:
         self._actions.append(ModelAction(kind="final", text=text))
 
-    def queue_call(self, name: str, arguments: dict[str, object] | None = None) -> None:
+    def queue_call(
+        self,
+        name: str,
+        arguments: dict[str, object] | None = None,
+        *,
+        parse_error: str = "",
+        dropped_calls: tuple[str, ...] = (),
+    ) -> None:
         self._actions.append(
-            ModelAction(kind="call", call=CapabilityCall(name=name, arguments=arguments or {}))
+            ModelAction(
+                kind="call",
+                call=CapabilityCall(name=name, arguments=arguments or {}),
+                parse_error=parse_error,
+                dropped_calls=dropped_calls,
+            )
         )
 
     async def next_turn(
@@ -48,3 +60,27 @@ class CountingExecutor:
     async def __call__(self, call: CapabilityCall, idempotency_key: str | None) -> CapabilityResult:
         self.calls += 1
         return CapabilityResult(status="succeeded", content=self.content)
+
+
+class FlakyExecutor:
+    """Fails the first `failures` calls, then succeeds."""
+
+    def __init__(self, failures: int = 1, message: str = "文件不存在") -> None:
+        self.failures = failures
+        self.message = message
+        self.calls = 0
+
+    async def __call__(self, call: CapabilityCall, idempotency_key: str | None) -> CapabilityResult:
+        self.calls += 1
+        if self.calls <= self.failures:
+            return CapabilityResult(status="failed", error_message=self.message)
+        return CapabilityResult(status="succeeded", content={"ok": True})
+
+
+class RaisingExecutor:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(self, call: CapabilityCall, idempotency_key: str | None) -> CapabilityResult:
+        self.calls += 1
+        raise RuntimeError("boom")

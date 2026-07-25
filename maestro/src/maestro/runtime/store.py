@@ -35,6 +35,11 @@ class ArtifactRef(BaseModel):
     bytes: int
 
 
+# The capability a Run uses to dereference an artifact it was handed instead of
+# inline content.  Named here, like the skill capabilities in `runtime/skills.py`,
+# so the Runtime can police ownership without importing `tools/`.
+ARTIFACT_READ_CAPABILITY = "read_artifact"
+
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 

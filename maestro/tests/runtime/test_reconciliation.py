@@ -60,11 +60,15 @@ async def test_only_idempotent_configured_transient_write_retries(tmp_path) -> N
     executor = Flaky()
     harness.registry.register(CapabilitySpec(name="write", kind=CapabilityKind.TOOL, writes=True, idempotent=True, retryable_errors=frozenset({RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE}), executor=executor))
     harness.model.queue_call("write")
+    harness.model.queue_final("已写入")
 
     run = await harness.coordinator.start("write")
 
-    assert run.status is RunStatus.RUNNING_STRUCTURED
     assert executor.calls == 2
+    # A definitive write hands control back to the model instead of stranding
+    # the Run in running_structured with no answer for the user.
+    assert run.status is RunStatus.COMPLETED
+    assert run.final_text == "已写入"
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ from maestro.runtime.skills import SkillCatalog
 from maestro.runtime.store import ArtifactStore, RunStore
 from maestro.skills.trust import SkillTrustStore
 from maestro.tools import (
+    register_artifact_capability,
     register_filesystem_capabilities,
     register_skill_resource_capability,
     register_skill_script_capability,
@@ -130,6 +131,7 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
     # 工具缺席会让引用它的技能整个发现失败。
     # 这里只注册通用宿主原语；领域能力由宿主在 build_platform 之后自行注册。
     register_filesystem_capabilities(capabilities, settings.workspace_root)
+    register_artifact_capability(capabilities, artifact_store)
     register_skill_resource_capability(capabilities, skill_catalog)
     register_skill_script_capability(capabilities, skill_catalog, skill_trust, artifact_store)
     runtime.set_intent_classifier(IntentClassifier(capabilities, skills=platform.refresh_skills))

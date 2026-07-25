@@ -39,6 +39,7 @@ GENERIC_PRIMITIVES = {
     "grep",
     "write_file",
     "edit_file",
+    "read_artifact",
     "skill_read_resource",
     "skill_run_script",
 }

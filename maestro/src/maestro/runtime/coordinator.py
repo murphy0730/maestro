@@ -30,7 +30,7 @@ from maestro.runtime.skills import (
     SkillCatalog,
 )
 from maestro.runtime.state_machine import transition_run
-from maestro.runtime.store import ArtifactRef, ArtifactStore, RunStore
+from maestro.runtime.store import ARTIFACT_READ_CAPABILITY, ArtifactRef, ArtifactStore, RunStore
 from maestro.runtime.summary import SUMMARY_KEY, HistorySummarizer, SummaryStore
 
 logger = logging.getLogger(__name__)
@@ -199,16 +199,26 @@ class RunCoordinator:
             if run.consumed_steps >= run.intent.max_steps:
                 return self._fail(run, "budget_exhausted")
             assert action.call is not None
+            self._report_dropped_calls(run, action)
             normalized = self._normalize(action.call)
             calls_seen[normalized] = calls_seen.get(normalized, 0) + 1
             if calls_seen[normalized] >= 3:
                 return self._fail(run, "cycle_detected")
+            if action.parse_error:
+                call_id = self._thread_call(messages, action)
+                run = self._consume_step(run)
+                self._thread_failure(
+                    messages, call_id, run, action.call.name, action.parse_error
+                )
+                continue
             try:
                 spec = snapshot.require(action.call.name)
             except KeyError:
                 return self._fail(run, "unknown_capability")
             if not self._skill_resource_call_is_owned(action.call, context_items):
                 return self._fail(run, "skill_resource_not_loaded")
+            if not self._artifact_call_is_owned(action.call, run, context_items):
+                return self._fail(run, "artifact_not_visible")
             if spec.writes:
                 upgraded = self._upgrade_to_controlled_execution(run, "high_risk_write", context_items)
                 return await self._run_controlled(
@@ -231,8 +241,16 @@ class RunCoordinator:
                 continue
             if spec.kind not in {CapabilityKind.TOOL, CapabilityKind.MCP} or spec.writes:
                 return self._fail(run, "fast_path_read_only")
+            call_id = self._thread_call(messages, action)
+            # A failed attempt still costs a step, so a model varying its
+            # arguments each time is bounded by the budget rather than only by
+            # `cycle_detected`, which needs three *identical* calls.
+            run = self._consume_step(run)
             if not self._arguments_match_schema(action.call.arguments, spec.input_schema):
-                return self._fail(run, "schema_input")
+                self._thread_failure(
+                    messages, call_id, run, spec.name, self._schema_hint(spec)
+                )
+                continue
             decision = self._policy_gate.evaluate(
                 action.call,
                 spec,
@@ -249,25 +267,18 @@ class RunCoordinator:
             try:
                 result = await spec.executor(action.call, None)
             except Exception as error:
-                return self._fail(run, f"capability_exception:{type(error).__name__}")
-            if result.status != "succeeded":
-                self._publish(run, "step.failed", {"name": spec.name, "status": result.status})
-                return self._fail(run, result.error_message or "capability_failed")
-            run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
-            run = self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
-            content = result.content
-            encoded = json.dumps(content, ensure_ascii=False, default=str).encode()
-            if len(encoded) > self._artifact_threshold_bytes:
-                artifact = self._artifact_store.put(encoded, "application/json")
-                context_items.append(ContextItem.from_artifact(artifact))
-                self._publish(run, "artifact.created", artifact.model_dump())
-            else:
-                context_items.append(
-                    ContextItem(
-                        key=f"capability:{spec.name}",
-                        text=json.dumps(content, ensure_ascii=False, default=str),
-                    )
+                self._thread_failure(
+                    messages, call_id, run, spec.name, f"capability_exception:{type(error).__name__}"
                 )
+                continue
+            if result.status != "succeeded":
+                self._thread_failure(
+                    messages, call_id, run, spec.name, result.error_message or "capability_failed"
+                )
+                continue
+            run = self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
+            self._thread_result(messages, call_id, result.content)
+            self._append_result_context(context_items, run, spec.name, result.content)
 
     async def _run_controlled(
         self,
@@ -319,18 +330,27 @@ class RunCoordinator:
                 run = self._save_and_publish(run, "run.completed", {"final_text": action.text})
                 return run
             assert action.call is not None
-            run = run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
+            self._report_dropped_calls(run, action)
+            run = self._consume_step(run)
             run = self._save_and_publish(run, "run.step_consumed", {})
             normalized = self._normalize(action.call)
             calls_seen[normalized] = calls_seen.get(normalized, 0) + 1
             if calls_seen[normalized] >= 3:
                 return self._fail(run, "cycle_detected")
+            if action.parse_error:
+                call_id = self._thread_call(messages, action)
+                self._thread_failure(
+                    messages, call_id, run, action.call.name, action.parse_error
+                )
+                continue
             try:
                 spec = snapshot.require(action.call.name)
             except KeyError:
                 return self._fail(run, "unknown_capability")
             if not self._skill_resource_call_is_owned(action.call, context_items):
                 return self._fail(run, "skill_resource_not_loaded")
+            if not self._artifact_call_is_owned(action.call, run, context_items):
+                return self._fail(run, "artifact_not_visible")
             if spec.kind is CapabilityKind.SKILL:
                 loaded = self._load_skill(spec, action.call, run)
                 if loaded is None:
@@ -352,8 +372,12 @@ class RunCoordinator:
                 continue
             if spec.kind not in {CapabilityKind.TOOL, CapabilityKind.MCP}:
                 return self._fail(run, "unsupported_capability")
+            call_id = self._thread_call(messages, action)
             if not self._arguments_match_schema(action.call.arguments, spec.input_schema):
-                return self._fail(run, "schema_input")
+                self._thread_failure(
+                    messages, call_id, run, spec.name, self._schema_hint(spec)
+                )
+                continue
             decision = self._policy_gate.evaluate(
                 action.call,
                 spec,
@@ -370,17 +394,30 @@ class RunCoordinator:
             if spec.executor is None:
                 return self._fail(run, "missing_executor")
             if spec.writes:
-                return await self._execute_write(run, action.call, spec)
+                run, write_result = await self._execute_write(run, action.call, spec)
+                if write_result is None:
+                    return run
+                self._thread_result(messages, call_id, write_result.content)
+                self._append_result_context(
+                    context_items, run, spec.name, write_result.content
+                )
+                continue
             try:
                 result = await spec.executor(action.call, None)
             except Exception as error:
-                return self._fail(run, f"capability_exception:{type(error).__name__}")
+                self._thread_failure(
+                    messages, call_id, run, spec.name, f"capability_exception:{type(error).__name__}"
+                )
+                continue
             if result.status != "succeeded":
-                self._publish(run, "step.failed", {"name": spec.name, "status": result.status})
-                return self._fail(run, result.error_message or "capability_failed")
+                self._thread_failure(
+                    messages, call_id, run, spec.name, result.error_message or "capability_failed"
+                )
+                continue
             run = self._save_and_publish(
                 run, "capability.completed", {"name": spec.name, "status": result.status}
             )
+            self._thread_result(messages, call_id, result.content)
             self._append_result_context(context_items, run, spec.name, result.content)
 
     async def _run_child(
@@ -439,6 +476,84 @@ class RunCoordinator:
             ),
             artifact,
         )
+
+    def _consume_step(self, run: RunRecord) -> RunRecord:
+        return run.model_copy(update={"consumed_steps": run.consumed_steps + 1})
+
+    def _report_dropped_calls(self, run: RunRecord, action: Any) -> None:
+        """Surface parallel tool calls the runtime discarded, rather than hiding them."""
+        if not action.dropped_calls:
+            return
+        logger.warning(
+            "[runtime] run=%s 丢弃了 %d 个并行工具调用: %s",
+            run.run_id,
+            len(action.dropped_calls),
+            ", ".join(action.dropped_calls),
+        )
+        self._publish(run, "model.calls_dropped", {"names": list(action.dropped_calls)})
+
+    @staticmethod
+    def _schema_hint(spec: CapabilitySpec) -> str:
+        required = spec.input_schema.get("required", []) if spec.input_schema else []
+        if isinstance(required, list) and required:
+            return f"schema_input: {spec.name} 需要参数 {', '.join(str(key) for key in required)}"
+        return f"schema_input: {spec.name} 的参数不符合 schema"
+
+    @staticmethod
+    def _thread_call(messages: list[dict], action: Any) -> str:
+        """Append the assistant turn that requested a capability call.
+
+        OpenAI-compatible APIs reject a `role=tool` message that does not follow
+        an assistant message carrying the matching `tool_call_id`, so when the
+        model boundary supplied no assistant message (test doubles, degraded
+        mode) one is synthesised from the call itself.
+        """
+        call_id = action.tool_call_id or f"call_{len(messages)}"
+        if action.assistant_message:
+            messages.append(dict(action.assistant_message))
+            return call_id
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": action.call.name,
+                            "arguments": json.dumps(
+                                action.call.arguments, ensure_ascii=False, default=str
+                            ),
+                        },
+                    }
+                ],
+            }
+        )
+        return call_id
+
+    @staticmethod
+    def _thread_result(messages: list[dict], call_id: str, content: object) -> None:
+        """Append the `role=tool` result the model needs to see its own call land."""
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": json.dumps(content, ensure_ascii=False, default=str),
+            }
+        )
+
+    def _thread_failure(
+        self, messages: list[dict], call_id: str, run: RunRecord, name: str, message: str
+    ) -> None:
+        """Hand a recoverable capability failure back to the model to correct.
+
+        Mirrors `foundation/llm.py::complete`, which already feeds tool errors
+        back rather than aborting.  The step budget and `cycle_detected` remain
+        the bounds that stop a model looping on an error it cannot fix.
+        """
+        self._publish(run, "step.failed", {"name": name, "status": "failed", "error": message})
+        self._thread_result(messages, call_id, {"error": message})
 
     def _append_result_context(
         self, context_items: list[ContextItem], run: RunRecord, name: str, content: object | None
@@ -568,6 +683,17 @@ class RunCoordinator:
         if call.name not in {SKILL_RESOURCE_CAPABILITY, SKILL_SCRIPT_CAPABILITY}:
             return True
         return call.arguments.get("skill") in self._loaded_skill_names(context_items)
+
+    @staticmethod
+    def _artifact_call_is_owned(
+        call: CapabilityCall, run: RunRecord, context_items: list[ContextItem]
+    ) -> bool:
+        """A Run may only read back artifacts it was given or produced itself."""
+        if call.name != ARTIFACT_READ_CAPABILITY:
+            return True
+        visible = {item.ref.artifact_id for item in context_items if item.ref is not None}
+        visible.update(run.input_artifact_ids)
+        return call.arguments.get("artifact_id") in visible
 
     def _load_skill(
         self, spec: CapabilitySpec, call: CapabilityCall, run: RunRecord
@@ -734,10 +860,19 @@ class RunCoordinator:
                 ),
             )
             token = await self._external_state_token(spec, call)
+            # Re-evaluating guards against a policy that tightened, or external
+            # state that moved, while the human was deciding.  REQUIRE_CONFIRMATION
+            # is not such a change: it is the very requirement this approval
+            # satisfies, and treating it as staleness issued a fresh approval
+            # forever, so no high-risk write could ever run.
+            satisfied = decision.effect in {
+                PolicyEffect.ALLOW,
+                PolicyEffect.REQUIRE_CONFIRMATION,
+            }
             if (
                 approval.expires_at <= datetime.now(UTC)
                 or token != approval.external_state_token
-                or decision.effect is not PolicyEffect.ALLOW
+                or not satisfied
             ):
                 expired = approval.model_copy(update={"status": "expired"})
                 run = run.model_copy(update={"pending_approvals": [expired]})
@@ -754,7 +889,12 @@ class RunCoordinator:
                 "approval.approved",
                 {"approval_id": approval_id, "snapshot_revision": run.revision, "run_snapshot": run.model_dump(mode="json")},
             )
-        return await self._execute_write(run, call, spec, step.step_id)
+        run, result = await self._execute_write(run, call, spec, step.step_id)
+        if result is None:
+            return run
+        # Carry the Run on so the model can report what the approved write did;
+        # stopping here would leave it in running_structured with no final text.
+        return await self._run_controlled(run, snapshot)
 
     async def cancel(self, run_id: str) -> RunRecord:
         async with self._run_store.lock_for(run_id):
@@ -807,7 +947,16 @@ class RunCoordinator:
         run = run.model_copy(update={"pending_approvals": [approval]})
         return self._save_and_publish(run, "approval.requested", {"approval_id": approval.approval_id})
 
-    async def _execute_write(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, step_id: str | None = None) -> RunRecord:
+    async def _execute_write(
+        self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, step_id: str | None = None
+    ) -> tuple[RunRecord, CapabilityResult | None]:
+        """Perform one governed write.
+
+        Returns `(run, result)` on a definitive success so the caller can carry
+        the conversation on and let the model produce a final answer; returns
+        `(run, None)` when the Run reached a state the loop must not continue
+        from (reconciling, failed, or cancelled).
+        """
         step_id = step_id or str(uuid4())
         key = str(uuid4())
         step = run.steps.get(step_id) or StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump())
@@ -831,7 +980,7 @@ class RunCoordinator:
             run = self._save_and_publish(run, "write.retrying", {"step_id": step_id})
             run, claimed = await self._claim_retry(run, step_id)
             if not claimed:
-                return run
+                return run, None
             try:
                 result = await spec.executor(call, key) if spec.executor is not None else result
             except UnknownWriteOutcome:
@@ -841,23 +990,30 @@ class RunCoordinator:
         async with self._run_store.lock_for(run.run_id):
             current = self._run_store.load(run.run_id)
             if current.status is RunStatus.CANCELLED:
-                return current
+                return current, None
             if current.status is RunStatus.RECONCILING:
-                return current
+                return current, None
             run = current
         if result.status == "unknown":
             run = transition_run(run, RunStatus.RECONCILING, "unknown write outcome")
             run = run.model_copy(update={"requires_reconciliation": True, "inflight_step_id": None})
-            return self._save_and_publish(run, "write.unknown", {"step_id": step_id})
+            return self._save_and_publish(run, "write.unknown", {"step_id": step_id}), None
         if result.status == "failed":
             self._publish(run, "step.failed", {"step_id": step_id, "status": result.status})
-            return self._fail(run, result.error_message or "write_failed")
+            return self._fail(run, result.error_message or "write_failed"), None
         if run.status is RunStatus.CANCELLING:
             run = run.model_copy(update={"inflight_step_id": None})
             run = transition_run(run, RunStatus.CANCELLED, "cancelled after definitive write")
-            return self._save_and_publish(run, "run.cancelled", {})
+            return self._save_and_publish(run, "run.cancelled", {}), None
         run = run.model_copy(update={"inflight_step_id": None})
-        return self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
+        run = self._save_and_publish(
+            run, "capability.completed", {"name": spec.name, "status": result.status}
+        )
+        # The persist above can lose a CAS race to a concurrent cancel and come
+        # back terminal; only hand the result on when the Run may still advance.
+        if run.status not in {RunStatus.RUNNING_FAST, RunStatus.RUNNING_STRUCTURED}:
+            return run, None
+        return run, result
 
     async def _claim_retry(self, run: RunRecord, step_id: str) -> tuple[RunRecord, bool]:
         """Persist exclusive retry ownership without holding a lock during execution."""

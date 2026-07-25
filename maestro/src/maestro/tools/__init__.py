@@ -5,11 +5,13 @@ Nothing here is domain logic: these are the primitives a Skill's
 living under ``runtime/`` so the Runtime core stays capability-agnostic.
 """
 
+from maestro.tools.artifacts import register_artifact_capability
 from maestro.tools.filesystem import register_filesystem_capabilities
 from maestro.tools.skill_resources import register_skill_resource_capability
 from maestro.tools.skill_scripts import register_skill_script_capability
 
 __all__ = [
+    "register_artifact_capability",
     "register_filesystem_capabilities",
     "register_skill_resource_capability",
     "register_skill_script_capability",

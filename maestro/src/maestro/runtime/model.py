@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from maestro.foundation.llm import LLMClient, LLMError
 from maestro.runtime.capabilities import CapabilityCall, CapabilitySpec
@@ -10,9 +10,22 @@ from maestro.runtime.context import ContextBundle
 
 
 class ModelAction(BaseModel):
+    """One model turn, carrying everything needed to thread it back into the chat.
+
+    `assistant_message` / `tool_call_id` exist so the coordinator can append the
+    assistant turn and its matching `role=tool` result to the conversation, as
+    `foundation/llm.py::AgentTurn` requires.  `parse_error` marks a call whose
+    arguments could not be decoded: it must be fed back to the model to correct,
+    never executed with the empty arguments that stand in for them.
+    """
+
     kind: Literal["final", "call"]
     text: str = ""
     call: CapabilityCall | None = None
+    assistant_message: dict = Field(default_factory=dict)
+    tool_call_id: str = ""
+    parse_error: str = ""
+    dropped_calls: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_payload(self) -> "ModelAction":
@@ -62,6 +75,13 @@ class LLMRuntimeModel:
         if turn.tool_calls:
             call = turn.tool_calls[0]
             return ModelAction(
-                kind="call", call=CapabilityCall(name=call.name, arguments=call.arguments)
+                kind="call",
+                call=CapabilityCall(name=call.name, arguments=call.arguments),
+                assistant_message=turn.assistant_message,
+                tool_call_id=call.id,
+                parse_error=call.parse_error or "",
+                # The runtime executes one capability per turn; report what was
+                # discarded instead of dropping it silently.
+                dropped_calls=tuple(item.name for item in turn.tool_calls[1:]),
             )
         return ModelAction(kind="final", text=turn.text)
