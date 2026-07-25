@@ -38,7 +38,7 @@
 先完整阅读：
 - `AGENTS.md`
 - `maestro/README.md`
-- `docs/api-contract/api-contract-v2.md`
+- `docs/api-contract/agent-runtime-v1.md`
 - `maestro/src/maestro/api/app.py`
 - `maestro/src/maestro/bootstrap.py`
 - `maestro/src/maestro/foundation/integration/mock_adapter.py`
@@ -466,7 +466,7 @@ POST `/events`：
 - `/observations/{ref}`
 - `/health`
 
-记录代码与 `docs/api-contract/api-contract-v2.md` 的偏差，不修改契约。
+记录代码与 `docs/api-contract/agent-runtime-v1.md` 的偏差，不修改契约。
 
 ## 八、证据与报告
 

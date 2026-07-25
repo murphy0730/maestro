@@ -1,4 +1,5 @@
-# G1 (Windows): frozen MaestroBackend.exe boots to /health and serves a /chat.
+# G1 (Windows): frozen MaestroBackend.exe boots and accepts a Run.
+# The unified Runtime exposes no /health route, so readiness is probed on GET /sessions.
 # Run from repo root: pwsh ./scripts/smoke_backend.ps1 [path-to-MaestroBackend.exe]
 $ErrorActionPreference = "Stop"
 $ROOT = (Resolve-Path "$PSScriptRoot/..").Path
@@ -18,18 +19,20 @@ $p = Start-Process -FilePath $BACKEND -PassThru -WindowStyle Hidden `
 try {
   $ok = $false
   for ($i = 0; $i -lt 60; $i++) {
-    try { Invoke-RestMethod "http://127.0.0.1:$PORT/health" -ErrorAction Stop | Out-Null; $ok = $true; break } catch { Start-Sleep -Seconds 1 }
+    try { Invoke-RestMethod "http://127.0.0.1:$PORT/sessions" -ErrorAction Stop | Out-Null; $ok = $true; break } catch { Start-Sleep -Seconds 1 }
   }
   if (-not $ok) {
-    Write-Error "FAIL: /health no response (60s)"
+    Write-Error "FAIL: /sessions no response (60s)"
     Get-Content "$env:TEMP\maestro_smoke.log" -Tail 20 -ErrorAction SilentlyContinue
     exit 1
   }
-  $h = Invoke-RestMethod "http://127.0.0.1:$PORT/health"
-  Write-Host "/health: $($h | ConvertTo-Json -Compress)"
-  $chat = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$PORT/chat" -ContentType "application/json" -Body '{"session_id":"smoke","message":"你好"}'
-  $c = ($chat | ConvertTo-Json -Compress -Depth 5)
-  Write-Host ("/chat: " + $c.Substring(0, [Math]::Min(200, $c.Length)))
+  Write-Host "/sessions: ready"
+  # POST /runs answers 202 with the created Run; execution continues asynchronously and
+  # degrades gracefully without an LLM key, which is what CI runs with.
+  $run = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$PORT/runs" -ContentType "application/json" -Body '{"session_id":"smoke","message":"你好"}'
+  if (-not $run.run_id) { Write-Error "FAIL: POST /runs returned no run_id"; exit 1 }
+  $r = ($run | ConvertTo-Json -Compress -Depth 5)
+  Write-Host ("/runs: " + $r.Substring(0, [Math]::Min(200, $r.Length)))
   Write-Host "SMOKE OK"
 } finally {
   Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue

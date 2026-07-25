@@ -46,3 +46,8 @@ maestro/build/
 # ── Playwright / E2E test artifacts ──
 .playwright-cli/
 test-results/
+output/
+
+# ── Frontend build / packaging output ──
+frontend/dist/
+frontend/release/

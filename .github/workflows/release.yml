@@ -36,7 +36,7 @@ jobs:
         working-directory: maestro
         run: uv run python -m PyInstaller maestro_backend.spec --noconfirm
 
-      - name: Smoke (frozen backend boots to /health + /chat)
+      - name: Smoke (frozen backend boots + accepts a Run)
         run: ./scripts/smoke_backend.sh
 
       - name: Import Developer ID cert + deep-sign frozen backend
@@ -89,7 +89,7 @@ jobs:
         working-directory: maestro
         run: uv run python -m PyInstaller maestro_backend.spec --noconfirm
 
-      - name: Smoke (frozen backend boots to /health + /chat)
+      - name: Smoke (frozen backend boots + accepts a Run)
         run: pwsh ./scripts/smoke_backend.ps1
 
       - name: Build Windows NSIS installer (sign with OV cert)
