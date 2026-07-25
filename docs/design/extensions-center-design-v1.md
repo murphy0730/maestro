@@ -1,5 +1,11 @@
 # Maestro 扩展中心（技能与 MCP 连接器）设计与实现方案 v1
 
+> ⚠️ **已被 [extensions-center-design-v2.md](./extensions-center-design-v2.md) 修订（2026-07-26）。**
+> 本文 §10 / §11.3 描述的 `MCPManager`、`Platform.refresh_mcp_tools()`、`/mcp/servers`
+> 全套 CRUD 与 `/mcp/catalog` 曾长期**不存在于代码中**。MCP 已于 2026-07-26 重建，
+> 但范围小于本文所述（仅 stdio + tools，无 resources / SSE / HTTP / 目录市场）。
+> 阅读 MCP 相关章节前请先看 v2。
+
 > 状态：提案  
 > 日期：2026-07-11  
 > 范围：Maestro Web / Electron 前端、FastAPI API、SkillHub 适配层、MCP 运行时管理  
