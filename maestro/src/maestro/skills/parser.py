@@ -2,12 +2,13 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 import yaml
 from pydantic import ValidationError
 from maestro.skills.schemas import (
     SkillCapabilityReport,
-    SkillFrontmatter,
     RuntimeSkillFrontmatter,
     SkillValidationError,
     SkillValidationReport,
@@ -18,15 +19,6 @@ _ZIP_MAX_MEMBERS = 200
 _ZIP_MAX_TOTAL = 10 * 1024 * 1024
 _IGNORED_PACKAGE_PARTS = {".DS_Store", "__MACOSX"}
 
-FIELD_ALIASES = {
-    "display-name": "display_name",
-    "when-to-use": "when_to_use",
-    "allowed-tools": "allowed_tools",
-    "user-invocable": "user_invocable",
-    "disable-model-invocation": "disable_model_invocation",
-    "argument-hint": "argument_hint",
-}
-KNOWN_FIELDS = set(SkillFrontmatter.model_fields)
 RUNTIME_FIELD_ALIASES = {
     "allowed-tools": "allowed_tools",
     "argument-hint": "argument_hint",
@@ -47,48 +39,25 @@ DEFAULT_TOOL_ALIASES = {
 }
 
 
-def _normalize_name(value: object) -> tuple[object, str | None]:
-    if not isinstance(value, str):
-        return value, None
-    normalized = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]+", "-", value.lower())).strip("-")
-    if len(normalized) > 32:
-        normalized = normalized[:32].rstrip("-")
-    if normalized and not normalized[0].isalpha():
-        normalized = f"skill-{normalized}"[:32].rstrip("-")
-    if len(normalized) == 1:
-        normalized = f"{normalized}-skill"
-    return normalized, (f"技能名称已从 {value!r} 规范化为 {normalized!r}" if normalized != value else None)
+@dataclass(frozen=True)
+class ExtractedSkill:
+    """A parsed skill package, ready to be written to disk or inspected."""
+
+    frontmatter: RuntimeSkillFrontmatter
+    text: str
+    body: str
+    attachments: dict[str, bytes] = field(default_factory=dict)
+    archive_bytes: int | None = None
 
 
-def normalize_frontmatter(data: dict) -> tuple[dict, list[str]]:
-    """Normalize common Codex/Claude frontmatter without silently losing semantics."""
-    out: dict = {}
-    warnings: list[str] = []
-    extensions: dict = {}
-    for raw_key, value in data.items():
-        key = FIELD_ALIASES.get(str(raw_key), str(raw_key))
-        if key != raw_key:
-            warnings.append(f"字段 {raw_key!r} 已转换为 {key!r}")
-        if key == "metadata" and isinstance(value, dict):
-            extensions["metadata"] = value
-        elif key in KNOWN_FIELDS:
-            out[key] = value
-        else:
-            extensions[key] = value
-            warnings.append(f"未识别字段 {raw_key!r} 已保留在 extensions 中，但不会自动生效")
-    out["name"], name_warning = _normalize_name(out.get("name"))
-    if name_warning:
-        warnings.append(name_warning)
-    allowed = out.get("allowed_tools")
-    if isinstance(allowed, str):
-        out["allowed_tools"] = [part for part in re.split(r"[\s,]+", allowed) if part]
-        warnings.append("allowed_tools 字符串已转换为列表")
-    scripts = out.get("scripts")
-    if isinstance(scripts, str):
-        out["scripts"] = [scripts]
-    if extensions:
-        out["extensions"] = extensions
-    return out, warnings
+def split_frontmatter(text: str) -> tuple[str, str]:
+    """Split a SKILL.md into its raw frontmatter block and its body."""
+    if not text.startswith("---"):
+        raise SkillValidationError("frontmatter 必须以 '---' 开头")
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        raise SkillValidationError("frontmatter 缺少结束 '---'")
+    return parts[1], parts[2].lstrip("\n")
 
 
 def parse_runtime_frontmatter(text: str) -> RuntimeSkillFrontmatter:
@@ -97,13 +66,9 @@ def parse_runtime_frontmatter(text: str) -> RuntimeSkillFrontmatter:
     Unknown keys are retained as inert extensions rather than being treated as
     legacy SkillEngine execution semantics.
     """
-    if not text.startswith("---"):
-        raise SkillValidationError("frontmatter 必须以 '---' 开头")
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        raise SkillValidationError("frontmatter 缺少结束 '---'")
+    raw, _body = split_frontmatter(text)
     try:
-        data = yaml.safe_load(parts[1])
+        data = yaml.safe_load(raw)
     except yaml.YAMLError as error:
         raise SkillValidationError(f"frontmatter YAML 解析失败: {error}") from error
     if not isinstance(data, dict):
@@ -127,59 +92,42 @@ def parse_runtime_frontmatter(text: str) -> RuntimeSkillFrontmatter:
         raise SkillValidationError(str(error)) from error
 
 
-def parse_skill_md(
-    text: str,
-    max_bytes: int = _BODY_MAX,
-    *,
-    compatible: bool = True,
-    warnings: list[str] | None = None,
-) -> tuple[SkillFrontmatter, str]:
-    if not text.startswith("---"):
-        raise SkillValidationError("frontmatter 必须以 '---' 开头")
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        raise SkillValidationError("frontmatter 缺少结束 '---'")
-    fm_raw, body = parts[1], parts[2].lstrip("\n")
-    try:
-        data = yaml.safe_load(fm_raw)
-    except yaml.YAMLError as e:
-        raise SkillValidationError(f"frontmatter YAML 解析失败: {e}") from e
-    if not isinstance(data, dict):
-        raise SkillValidationError("frontmatter 必须解析为 dict")
-    if compatible:
-        data, normalization_warnings = normalize_frontmatter(data)
-        if warnings is not None:
-            warnings.extend(normalization_warnings)
-    try:
-        fm = SkillFrontmatter(**data)
-    except ValidationError as e:
-        raise SkillValidationError(str(e)) from e
+def extract_package(
+    data: bytes, filename: str, max_bytes: int = _BODY_MAX
+) -> ExtractedSkill:
+    """Safely unpack a `.md` / `.zip` skill package under the Runtime contract."""
+    name = filename.lower()
+    if name.endswith(".md"):
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise SkillValidationError(f"SKILL.md 不是合法 UTF-8: {error}") from error
+        return _build(text, {}, max_bytes, archive_bytes=None)
+    if name.endswith(".zip"):
+        text, attachments = _extract_zip(data)
+        return _build(text, attachments, max_bytes, archive_bytes=len(data))
+    raise SkillValidationError("仅支持 .md / .zip 后缀")
+
+
+def _build(
+    text: str, attachments: dict[str, bytes], max_bytes: int, *, archive_bytes: int | None
+) -> ExtractedSkill:
+    frontmatter = parse_runtime_frontmatter(text)
+    _raw, body = split_frontmatter(text)
     if not body.strip():
         raise SkillValidationError("正文不能为空")
     if len(body.encode("utf-8")) > max_bytes:
         raise SkillValidationError(f"正文需 ≤{max_bytes // 1024}KB")
-    return fm, body
+    return ExtractedSkill(
+        frontmatter=frontmatter,
+        text=text,
+        body=body,
+        attachments=attachments,
+        archive_bytes=archive_bytes,
+    )
 
 
-def extract_package(
-    data: bytes,
-    filename: str,
-    max_bytes: int = _BODY_MAX,
-    *,
-    warnings: list[str] | None = None,
-) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
-    name = filename.lower()
-    if name.endswith(".md"):
-        fm, body = parse_skill_md(data.decode("utf-8"), max_bytes, warnings=warnings)
-        return fm, body, {}
-    if name.endswith(".zip"):
-        return _extract_zip(data, max_bytes, warnings=warnings)
-    raise SkillValidationError("仅支持 .md / .zip 后缀")
-
-
-def _extract_zip(
-    data: bytes, max_bytes: int = _BODY_MAX, *, warnings: list[str] | None = None
-) -> tuple[SkillFrontmatter, str, dict[str, bytes]]:
+def _extract_zip(data: bytes) -> tuple[str, dict[str, bytes]]:
     bio = io.BytesIO(data)
     try:
         zf = zipfile.ZipFile(bio)
@@ -214,10 +162,11 @@ def _extract_zip(
         if rel == "SKILL.md" or path == skill_path:
             continue
         attachments[rel] = content
-    fm, body = parse_skill_md(
-        files[skill_path].decode("utf-8"), max_bytes, warnings=warnings
-    )
-    return fm, body, attachments
+    try:
+        text = files[skill_path].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SkillValidationError(f"SKILL.md 不是合法 UTF-8: {error}") from error
+    return text, attachments
 
 
 def _find_skill_md(files: dict[str, bytes]) -> str | None:
@@ -233,75 +182,73 @@ def _find_skill_md(files: dict[str, bytes]) -> str | None:
     return None
 
 
-def validate_allowed_tools(
-    fm: SkillFrontmatter,
-    registered: set[str],
-    named: set[str],
-) -> list[str]:
-    allowed = fm.allowed_tools if fm.allowed_tools is not None else []
-    unknown = [t for t in allowed if t not in registered]
-    if unknown:
-        raise SkillValidationError(f"allowed_tools 含未注册工具: {unknown}")
-    bad = []
-    for tool, names in fm.tool_preconditions.items():
-        if tool not in allowed:
-            bad.append(f"tool_preconditions key '{tool}' 不在 allowed_tools 内")
-        for n in names:
-            if n not in named:
-                bad.append(f"tool_preconditions['{tool}'] 断言名 '{n}' 未注册")
-    if bad:
-        raise SkillValidationError("; ".join(bad))
-    return allowed
+def map_allowed_tools(
+    requested: list[str] | None, aliases: dict[str, str] | None = None
+) -> tuple[list[str], dict[str, str], list[str]]:
+    """Map Claude tool names onto Runtime capability names.
+
+    Returns the mapped names, the applied mapping and a warning per rename so
+    callers can show the user what a package will actually be granted.
+    """
+    table = {**DEFAULT_TOOL_ALIASES, **(aliases or {})}
+    mapping: dict[str, str] = {}
+    warnings: list[str] = []
+    mapped: list[str] = []
+    for tool in requested or []:
+        target = table.get(tool, tool)
+        if target != tool:
+            mapping[tool] = target
+            warnings.append(f"工具 {tool!r} 已映射为 {target!r}")
+        mapped.append(target)
+    return mapped, mapping, warnings
 
 
-def validate_skill_package(
+def validate_runtime_package(
     data: bytes,
     filename: str,
     registered: set[str],
-    named: set[str],
     max_bytes: int = _BODY_MAX,
     tool_aliases: dict[str, str] | None = None,
-) -> tuple[SkillFrontmatter | None, str | None, dict[str, bytes], SkillValidationReport]:
-    """Preflight a package and return structured compatibility diagnostics."""
-    warnings: list[str] = []
-    errors: list[str] = []
-    mapping: dict[str, str] = {}
+) -> tuple[ExtractedSkill | None, SkillValidationReport]:
+    """Preflight a package against the live capability registry.
+
+    This is the single validation path shared by `POST /skills/validate` and
+    `POST /skills/import`, so a package can never be imported under looser
+    rules than the ones the user was shown.
+    """
     try:
-        fm, body, attachments = extract_package(
-            data, filename, max_bytes, warnings=warnings
+        package = extract_package(data, filename, max_bytes)
+    except (SkillValidationError, UnicodeDecodeError, ValueError) as error:
+        return None, SkillValidationReport(
+            compatible=False, compatibility_status="not_ready", errors=[str(error)]
         )
-        aliases = {**DEFAULT_TOOL_ALIASES, **(tool_aliases or {})}
-        requested = fm.allowed_tools
-        if requested is not None:
-            mapped = []
-            for tool in requested:
-                target = aliases.get(tool, tool)
-                if target != tool:
-                    mapping[tool] = target
-                    warnings.append(f"工具 {tool!r} 已映射为 {target!r}")
-                mapped.append(target)
-            fm.allowed_tools = mapped
-        allowed = validate_allowed_tools(fm, registered, named)
-        fm.allowed_tools = allowed
-        scripts = list(fm.scripts)
-        if not scripts:
-            scripts = sorted(path for path in attachments if path.startswith("scripts/"))
-            fm.scripts = scripts
-        if scripts:
-            warnings.append("技能包含脚本；导入后须信任当前包 hash，且每次执行仍需权限确认")
-        status = "degraded" if warnings or scripts else "ready"
-        report = SkillValidationReport(
-            compatible=True,
-            normalized_name=fm.name,
-            compatibility_status=status,
-            capabilities=SkillCapabilityReport(
-                attachments=bool(attachments), scripts=bool(scripts)
-            ),
+
+    mapped, mapping, warnings = map_allowed_tools(
+        package.frontmatter.allowed_tools, tool_aliases
+    )
+    unknown = [name for name in mapped if name not in registered]
+    if unknown:
+        return None, SkillValidationReport(
+            compatible=False,
+            normalized_name=package.frontmatter.name,
+            compatibility_status="not_ready",
             tool_mapping=mapping,
-            normalized_frontmatter=fm.model_dump(),
             warnings=warnings,
+            errors=[f"allowed-tools contains unknown capability: {unknown}"],
         )
-        return fm, body, attachments, report
-    except (SkillValidationError, UnicodeDecodeError) as exc:
-        errors.append(str(exc))
-        return None, None, {}, SkillValidationReport(compatible=False, errors=errors)
+
+    scripts = sorted(path for path in package.attachments if path.startswith("scripts/"))
+    if scripts:
+        warnings.append("技能包含脚本；导入后须信任当前包 hash，且每次执行仍需人工确认")
+    report = SkillValidationReport(
+        compatible=True,
+        normalized_name=package.frontmatter.name,
+        compatibility_status="degraded" if warnings else "ready",
+        capabilities=SkillCapabilityReport(
+            attachments=bool(package.attachments), scripts=bool(scripts)
+        ),
+        tool_mapping=mapping,
+        normalized_frontmatter=package.frontmatter.model_dump(),
+        warnings=warnings,
+    )
+    return package, report

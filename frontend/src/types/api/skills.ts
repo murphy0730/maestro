@@ -49,6 +49,14 @@ export interface SkillValidationReport {
   errors: string[];
 }
 
+/** A package the backend found on disk but could not parse. */
+export interface SkillDiscoveryError {
+  path: string;
+  source: string;
+  reason: string;
+}
+
 export interface SkillListResponse {
   skills: SkillMeta[];
+  errors?: SkillDiscoveryError[];
 }

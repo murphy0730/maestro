@@ -73,7 +73,10 @@ export function Composer({
     const result = onSend(draft.trim(), attachments);
     if (result instanceof Promise) {
       setSubmitting(true);
-      void result.then(clearSubmitted).catch(() => undefined).finally(() => setSubmitting(false));
+      void result
+        .then(clearSubmitted)
+        .catch(() => undefined)
+        .finally(() => setSubmitting(false));
     } else clearSubmitted();
   };
   const addFiles = (files: FileList | null) => {
@@ -82,7 +85,10 @@ export function Composer({
     if (acceptable.length !== files.length) setAttachmentError('附件不能超过 10 MB');
     else setAttachmentError('');
     setAttachments((current) => {
-      const merged = [...current.filter((item) => !acceptable.some((file) => file.name === item.name)), ...acceptable];
+      const merged = [
+        ...current.filter((item) => !acceptable.some((file) => file.name === item.name)),
+        ...acceptable,
+      ];
       if (merged.length > 10) setAttachmentError('最多添加 10 个附件');
       return merged.slice(0, 10);
     });
@@ -101,7 +107,16 @@ export function Composer({
           onTrustSkill={onTrustSkill}
         />
         <div className="material-dock glow-ring rounded-[14px] border border-border-strong px-[14px] pb-[10px] pt-[12px] transition duration-normal ease-out">
-          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              addFiles(event.target.files);
+              event.target.value = '';
+            }}
+          />
           <textarea
             disabled={disabled || submitting}
             value={draft}
@@ -113,7 +128,13 @@ export function Composer({
               }
             }}
             rows={1}
-            placeholder={submitting ? '正在连接或上传…' : disabled ? '正在加载会话…' : '描述要完成的制造任务，或附加资料…'}
+            placeholder={
+              submitting
+                ? '正在连接或上传…'
+                : disabled
+                  ? '正在加载会话…'
+                  : '描述要完成的制造任务，或附加资料…'
+            }
             className="block max-h-[120px] min-h-[22px] w-full resize-none border-none bg-transparent font-sans text-[13.5px] leading-[1.6] text-text-primary outline-none placeholder:text-text-tertiary"
           />
           <ComposerToolbar
@@ -121,7 +142,9 @@ export function Composer({
             submitDisabled={disabled || submitting || modeUnsupported || !draft.trim()}
             isStreaming={isStreaming}
             attachments={attachments}
-            onRemoveAttachment={(name) => setAttachments((items) => items.filter((item) => item.name !== name))}
+            onRemoveAttachment={(name) =>
+              setAttachments((items) => items.filter((item) => item.name !== name))
+            }
             skillMenuOpen={skillMenuOpen}
             onToggleSkillMenu={() => setSkillMenuOpen((open) => !open)}
             onStop={onStop}
@@ -133,8 +156,16 @@ export function Composer({
             onModeChange={onModeChange}
           />
         </div>
-        {attachmentError && <p role="alert" className="mt-[6px] text-caption text-status-error">{attachmentError}</p>}
-        {modeUnsupported && <p role="alert" className="mt-[6px] text-caption text-status-warning">当前仅支持“自动”与“调度”模式直达；其余模式暂未接通，请切换后发送。</p>}
+        {attachmentError && (
+          <p role="alert" className="mt-[6px] text-caption text-status-error">
+            {attachmentError}
+          </p>
+        )}
+        {modeUnsupported && (
+          <p role="alert" className="mt-[6px] text-caption text-status-warning">
+            当前仅支持“自动”与“调度”模式直达；其余模式暂未接通，请切换后发送。
+          </p>
+        )}
       </div>
     </div>
   );

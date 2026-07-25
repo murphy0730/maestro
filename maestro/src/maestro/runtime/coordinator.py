@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from time import monotonic
 from collections.abc import Callable
@@ -16,15 +17,23 @@ from maestro.runtime.capabilities import (
     CapabilityResult,
     UnknownWriteOutcome,
 )
-from maestro.runtime.context import ContextItem, ContextProvider
+from maestro.runtime.context import ContextItem, ContextProvider, Priority, Trust
 from maestro.runtime.events import EventPublisher, RunEvent
 from maestro.runtime.intent import IntentClassifier, IntentRequest
 from maestro.runtime.model import RuntimeModel
 from maestro.runtime.models import ApprovalRecord, ChildRunResult, RunPath, RunRecord, RunStatus, RuntimeErrorKind, StepRecord
 from maestro.runtime.policy import PolicyContext, PolicyEffect, PolicyGate
-from maestro.runtime.skills import LoadedSkill, SkillCatalog
+from maestro.runtime.skills import (
+    SKILL_RESOURCE_CAPABILITY,
+    SKILL_SCRIPT_CAPABILITY,
+    LoadedSkill,
+    SkillCatalog,
+)
 from maestro.runtime.state_machine import transition_run
 from maestro.runtime.store import ArtifactRef, ArtifactStore, RunStore
+from maestro.runtime.summary import SUMMARY_KEY, HistorySummarizer, SummaryStore
+
+logger = logging.getLogger(__name__)
 
 
 class RunCoordinator:
@@ -45,6 +54,9 @@ class RunCoordinator:
         artifact_threshold_bytes: int = 4096,
         history_provider: Callable[[str], list[dict]] | None = None,
         max_history_messages: int = 20,
+        summarizer: HistorySummarizer | None = None,
+        summary_store: SummaryStore | None = None,
+        summary_batch_messages: int = 8,
     ) -> None:
         self._model = model
         self._capabilities = capabilities
@@ -58,6 +70,9 @@ class RunCoordinator:
         self._artifact_threshold_bytes = artifact_threshold_bytes
         self._history_provider = history_provider
         self._max_history_messages = max_history_messages
+        self._summarizer = summarizer
+        self._summary_store = summary_store
+        self._summary_batch_messages = summary_batch_messages
 
     def set_intent_classifier(self, classifier: IntentClassifier) -> None:
         """Replace the injected classifier when a host updates its capability registry."""
@@ -154,7 +169,9 @@ class RunCoordinator:
         started_at = monotonic()
         calls_seen: dict[str, int] = {}
         context_items = self._initial_context(run)
-        messages = self._conversation_messages(run)
+        messages, summary = await self._prepare_conversation(run)
+        if summary is not None:
+            context_items.append(summary)
         parent_allowed = set(run.intent.candidate_capabilities) or None
         skill_allowed: set[str] | None = None
         prepared, skill_allowed = self._apply_explicit_manual_skills(
@@ -190,6 +207,8 @@ class RunCoordinator:
                 spec = snapshot.require(action.call.name)
             except KeyError:
                 return self._fail(run, "unknown_capability")
+            if not self._skill_resource_call_is_owned(action.call, context_items):
+                return self._fail(run, "skill_resource_not_loaded")
             if spec.writes:
                 upgraded = self._upgrade_to_controlled_execution(run, "high_risk_write", context_items)
                 return await self._run_controlled(
@@ -201,11 +220,13 @@ class RunCoordinator:
                     upgraded = self._upgrade_to_controlled_execution(
                         run, "skill_upgrade_required", context_items
                     )
+                    # Carry the conversation forward: rebuilding it here would
+                    # re-read history and duplicate the rolling summary item.
                     return await self._run_controlled(
-                        upgraded, snapshot, context_items, parent_allowed, skill_allowed
+                        upgraded, snapshot, context_items, parent_allowed, skill_allowed, messages
                     )
-                context_items.append(ContextItem.from_skill(loaded))
-                allowed = set(loaded.metadata.allowed_tools)
+                context_items.append(self._skill_context(loaded))
+                allowed = self._skill_grant(loaded)
                 skill_allowed = allowed if parent_allowed is None else parent_allowed & allowed
                 continue
             if spec.kind not in {CapabilityKind.TOOL, CapabilityKind.MCP} or spec.writes:
@@ -262,7 +283,9 @@ class RunCoordinator:
         is_initial_execution = context_items is None
         context_items = context_items or self._initial_context(run)
         if messages is None:
-            messages = self._conversation_messages(run)
+            messages, summary = await self._prepare_conversation(run)
+            if summary is not None:
+                context_items.append(summary)
         if parent_allowed is None:
             parent_allowed = set(run.intent.candidate_capabilities) or None
         if is_initial_execution:
@@ -306,6 +329,8 @@ class RunCoordinator:
                 spec = snapshot.require(action.call.name)
             except KeyError:
                 return self._fail(run, "unknown_capability")
+            if not self._skill_resource_call_is_owned(action.call, context_items):
+                return self._fail(run, "skill_resource_not_loaded")
             if spec.kind is CapabilityKind.SKILL:
                 loaded = self._load_skill(spec, action.call, run)
                 if loaded is None:
@@ -321,8 +346,8 @@ class RunCoordinator:
                     continue
                 if loaded.mode != "inline":
                     return self._fail(run, "unsupported_skill_context")
-                context_items.append(ContextItem.from_skill(loaded))
-                allowed = set(loaded.metadata.allowed_tools)
+                context_items.append(self._skill_context(loaded))
+                allowed = self._skill_grant(loaded)
                 skill_allowed = allowed if parent_allowed is None else parent_allowed & allowed
                 continue
             if spec.kind not in {CapabilityKind.TOOL, CapabilityKind.MCP}:
@@ -366,7 +391,7 @@ class RunCoordinator:
         parent_allowed: set[str] | None,
     ) -> tuple[ChildRunResult, ArtifactRef]:
         assert parent.intent is not None
-        skill_allowed = set(loaded.metadata.allowed_tools)
+        skill_allowed = self._skill_grant(loaded)
         child_allowed = skill_allowed if parent_allowed is None else parent_allowed & skill_allowed
         child_intent = parent.intent.model_copy(
             update={
@@ -392,7 +417,7 @@ class RunCoordinator:
         child = await self._run_controlled(
             child,
             snapshot,
-            [ContextItem.from_run(child), ContextItem.from_skill(loaded)],
+            [ContextItem.from_run(child), self._skill_context(loaded)],
             child_allowed,
             child_allowed,
             # A child is an isolated unit: it carries its own objective, not the session.
@@ -428,9 +453,19 @@ class RunCoordinator:
             ContextItem(key=f"capability:{name}", text=json.dumps(content, ensure_ascii=False, default=str))
         )
 
-    def _conversation_messages(self, run: RunRecord) -> list[dict]:
-        """Prior turns of this session followed by the objective the model must answer."""
-        return [*self._session_history(run), {"role": "user", "content": run.objective}]
+    async def _prepare_conversation(self, run: RunRecord) -> tuple[list[dict], ContextItem | None]:
+        """Bounded recent turns plus one rolling summary of everything older.
+
+        Messages and summary are produced together on purpose: a caller that
+        supplies its own messages (a Child Run) can never be handed session
+        context by accident.
+        """
+        usable = self._session_history(run)
+        window = max(0, self._max_history_messages)
+        # Never slice with a negative bound: usable[-0:] is the whole list.
+        cut = max(0, len(usable) - window)
+        messages = [*usable[cut:], {"role": "user", "content": run.objective}]
+        return messages, await self._conversation_summary(run.session_id, usable[:cut])
 
     def _session_history(self, run: RunRecord) -> list[dict]:
         if self._history_provider is None:
@@ -440,15 +475,50 @@ class RunCoordinator:
         except Exception:
             # A damaged session file must not take the Run down with it.
             return []
-        usable = [
+        return [
             {"role": message["role"], "content": message["content"]}
             for message in stored
             if message.get("role") in ("user", "assistant")
             and message.get("content")
-            # This Run's own turn is appended explicitly by _conversation_messages.
+            # This Run's own turn is appended explicitly by _prepare_conversation.
             and message.get("run_id") != run.run_id
         ]
-        return usable[-self._max_history_messages :] if self._max_history_messages > 0 else []
+
+    async def _conversation_summary(self, session_id: str, stale: list[dict]) -> ContextItem | None:
+        """Fold turns that fell out of the window into one cached rolling summary.
+
+        Summarization costs a model call, so it runs only once a batch of turns
+        has accumulated; between batches the stored summary is reused verbatim.
+        """
+        if self._summarizer is None or self._summary_store is None or not stale:
+            return None
+        try:
+            summary, cursor = self._summary_store.get_summary(session_id)
+        except Exception as error:
+            logger.warning("读取会话摘要失败，本轮降级为纯窗口历史: %s", error)
+            return None
+        if cursor > len(stale):
+            # The window widened or history shrank; the cursor no longer means anything.
+            summary, cursor = "", 0
+        pending = stale[cursor:]
+        if self._summarizer.available and len(pending) >= self._summary_batch_messages:
+            try:
+                updated = await self._summarizer.summarize(summary, pending)
+                if updated:
+                    self._summary_store.set_summary(session_id, updated, len(stale))
+                    summary = updated
+            except Exception as error:
+                # A stale summary still beats no summary; never fail the Run for this.
+                logger.warning("生成会话摘要失败，沿用已存摘要: %s", error)
+        if not summary:
+            return None
+        return ContextItem(
+            key=SUMMARY_KEY,
+            text=summary,
+            priority=Priority.P1,
+            trust=Trust.UNTRUSTED,
+            source="session-history",
+        )
 
     def _initial_context(self, run: RunRecord) -> list[ContextItem]:
         items = [ContextItem.from_run(run)]
@@ -458,6 +528,46 @@ class RunCoordinator:
             except (FileNotFoundError, ValueError):
                 return items
         return items
+
+    def _skill_resources(self, name: str) -> tuple[str, ...]:
+        if self._skill_catalog is None:
+            return ()
+        return self._skill_catalog.list_resources(name)
+
+    def _skill_context(self, loaded: LoadedSkill) -> ContextItem:
+        """Tier 2 injection, carrying the tier 3 manifest but not its contents."""
+        return ContextItem.from_skill(loaded, self._skill_resources(loaded.metadata.name))
+
+    def _skill_grant(self, loaded: LoadedSkill) -> set[str]:
+        """What a loaded Skill may call: its allowed-tools, plus its own resources.
+
+        Without this a Skill declaring no allowed-tools would narrow the
+        allowlist to the empty set, and could not even read the reference files
+        it ships with.  Authorization still runs through the Policy Gate.
+        """
+        allowed = set(loaded.metadata.allowed_tools)
+        resources = self._skill_resources(loaded.metadata.name)
+        if resources:
+            allowed.add(SKILL_RESOURCE_CAPABILITY)
+        if any(item.startswith("scripts/") for item in resources):
+            allowed.add(SKILL_SCRIPT_CAPABILITY)
+        return allowed
+
+    @staticmethod
+    def _loaded_skill_names(context_items: list[ContextItem]) -> set[str]:
+        return {
+            item.key.removeprefix("skill:")
+            for item in context_items
+            if item.key.startswith("skill:")
+        }
+
+    def _skill_resource_call_is_owned(
+        self, call: CapabilityCall, context_items: list[ContextItem]
+    ) -> bool:
+        """A Run may only read resources of Skills it actually loaded."""
+        if call.name not in {SKILL_RESOURCE_CAPABILITY, SKILL_SCRIPT_CAPABILITY}:
+            return True
+        return call.arguments.get("skill") in self._loaded_skill_names(context_items)
 
     def _load_skill(
         self, spec: CapabilitySpec, call: CapabilityCall, run: RunRecord
@@ -493,8 +603,8 @@ class RunCoordinator:
                 continue
             if loaded.mode != "inline":
                 return False, skill_allowed
-            context_items.append(ContextItem.from_skill(loaded))
-            allowed = set(loaded.metadata.allowed_tools)
+            context_items.append(self._skill_context(loaded))
+            allowed = self._skill_grant(loaded)
             allowed = allowed if parent_allowed is None else parent_allowed & allowed
             skill_allowed = allowed if skill_allowed is None else skill_allowed & allowed
         return True, skill_allowed

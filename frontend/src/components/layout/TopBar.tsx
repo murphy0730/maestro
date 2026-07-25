@@ -47,19 +47,32 @@ const RUN_STATUS_META: Record<string, { label: string; tone: BadgeTone }> = {
   completed: { label: '已完成', tone: 'success' },
 };
 
-export function TopBar({ session, mode, connection, clock, traceView, hasRun, runStatus, onTraceViewChange }: TopBarProps) {
+export function TopBar({
+  session,
+  mode,
+  connection,
+  clock,
+  traceView,
+  hasRun,
+  runStatus,
+  onTraceViewChange,
+}: TopBarProps) {
   const connectionMeta = CONNECTION_META[connection];
   const runMeta = runStatus ? RUN_STATUS_META[runStatus] : undefined;
   const traceHidden = traceView === 'hidden';
   return (
     <header className="flex h-header flex-none items-center gap-[12px] border-b border-border-subtle px-[18px]">
-      <h1 className="cn-head m-0 max-w-[320px] truncate text-body-sm text-text-primary">{session || '新任务'}</h1>
+      <h1 className="cn-head m-0 max-w-[320px] truncate text-body-sm text-text-primary">
+        {session || '新任务'}
+      </h1>
       <Badge tone={MODE_META[mode].tone}>{MODE_META[mode].label}</Badge>
       {runMeta && <Badge tone={runMeta.tone}>{runMeta.label}</Badge>}
       <span className="flex-1" />
       <span role="status" className="flex items-center gap-[6px]">
         <StatusDot tone={connectionMeta.tone} pulse={connectionMeta.pulse} />
-        <span className={`font-mono text-[10.5px] ${connection === 'error' ? 'text-status-error' : 'text-text-secondary'}`}>
+        <span
+          className={`font-mono text-[10.5px] ${connection === 'error' ? 'text-status-error' : 'text-text-secondary'}`}
+        >
           {connectionMeta.label}
         </span>
       </span>

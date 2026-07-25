@@ -42,14 +42,22 @@ describe('Modal', () => {
 
   it('does not close when the dialog interior is clicked', () => {
     const onClose = vi.fn();
-    render(<Modal open onClose={onClose} title="导入"><button>内部操作</button></Modal>);
+    render(
+      <Modal open onClose={onClose} title="导入">
+        <button>内部操作</button>
+      </Modal>,
+    );
     fireEvent.click(screen.getByRole('dialog'));
     expect(onClose).not.toHaveBeenCalled();
   });
 
   it('keeps label, Escape and scrim behaviour when the caller draws its own chrome', () => {
     const onClose = vi.fn();
-    render(<Modal open chrome={false} onClose={onClose} title="设置 · Settings"><button>内部操作</button></Modal>);
+    render(
+      <Modal open chrome={false} onClose={onClose} title="设置 · Settings">
+        <button>内部操作</button>
+      </Modal>,
+    );
     const dialog = screen.getByRole('dialog', { name: '设置 · Settings' });
     expect(screen.queryByRole('button', { name: '关闭' })).toBeNull();
     fireEvent.click(dialog);
@@ -61,7 +69,15 @@ describe('Modal', () => {
   it('traps Tab focus and restores focus to the opener after close', () => {
     function Harness() {
       const [open, setOpen] = useState(false);
-      return <><button onClick={() => setOpen(true)}>打开设置</button><Modal open={open} onClose={() => setOpen(false)} title="设置"><button>第一个</button><button>最后一个</button></Modal></>;
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>打开设置</button>
+          <Modal open={open} onClose={() => setOpen(false)} title="设置">
+            <button>第一个</button>
+            <button>最后一个</button>
+          </Modal>
+        </>
+      );
     }
     render(<Harness />);
     const opener = screen.getByRole('button', { name: '打开设置' });

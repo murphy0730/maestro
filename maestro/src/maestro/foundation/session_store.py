@@ -1,6 +1,7 @@
 """Version 3 generic session persistence; older session files are never migrated."""
 
 import json
+import os
 import re
 import threading
 import uuid
@@ -62,6 +63,10 @@ class SessionStore:
             raise ValueError("invalid session identifier")
         return self._dir / f"{session_id}.json"
 
+    def _summary_file(self, session_id: str) -> Path:
+        """Rolling summaries live beside the messages so get_messages keeps its shape."""
+        return self._message_file(session_id).with_suffix(".summary.json")
+
     def create(self, title: str = "新对话") -> SessionMeta:
         now = self._now()
         meta = SessionMeta(session_id=uuid.uuid4().hex, title=title, created_at=now, updated_at=now)
@@ -108,6 +113,10 @@ class SessionStore:
             if self._sessions.pop(session_id, None) is None:
                 return False
             self._message_file(session_id).unlink(missing_ok=True)
+            summary = self._summary_file(session_id)
+            summary.unlink(missing_ok=True)
+            # A process killed between write and replace leaves the sidecar's tmp behind.
+            summary.with_name(f"{summary.name}.tmp").unlink(missing_ok=True)
             self._save_index()
             return True
 
@@ -143,3 +152,31 @@ class SessionStore:
     def get_messages(self, session_id: str) -> list[dict]:
         path = self._message_file(session_id)
         return json.loads(path.read_text("utf-8")) if path.exists() else []
+
+    def get_summary(self, session_id: str) -> tuple[str, int]:
+        """Return the stored rolling summary and how many stale turns it already covers."""
+        path = self._summary_file(session_id)
+        if not path.exists():
+            return "", 0
+        try:
+            data = json.loads(path.read_text("utf-8"))
+            return str(data["summary"]), int(data["summarized_until"])
+        except Exception:
+            # A damaged sidecar only costs one re-summarization, never a Run.
+            return "", 0
+
+    def set_summary(self, session_id: str, summary: str, summarized_until: int) -> None:
+        with self._lock:
+            target = self._summary_file(session_id)
+            temporary = target.with_name(f"{target.name}.tmp")
+            payload = json.dumps(
+                {"summary": summary, "summarized_until": summarized_until}, ensure_ascii=False
+            ).encode("utf-8")
+            fd = os.open(temporary, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+            try:
+                if os.write(fd, payload) != len(payload):
+                    raise OSError("incomplete session summary write")
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            temporary.replace(target)

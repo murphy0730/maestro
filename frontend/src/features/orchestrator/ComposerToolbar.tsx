@@ -21,9 +21,11 @@ interface Props {
 }
 
 /** 设计稿 .cico：输入条上的 30px 图标键。 */
-const iconKey = 'grid h-[30px] w-[30px] flex-none place-items-center rounded-md text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50';
+const iconKey =
+  'grid h-[30px] w-[30px] flex-none place-items-center rounded-md text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50';
 /** 设计稿 .chip：已挂载技能 / 附件。 */
-const chip = 'inline-flex items-center gap-[6px] rounded-pill border border-border-subtle bg-surface-2 px-[10px] py-[3px] text-[11px] text-text-secondary';
+const chip =
+  'inline-flex items-center gap-[6px] rounded-pill border border-border-subtle bg-surface-2 px-[10px] py-[3px] text-[11px] text-text-secondary';
 
 export function ComposerToolbar({
   disabled,
@@ -43,7 +45,14 @@ export function ComposerToolbar({
 }: Props) {
   return (
     <div className="mt-[10px] flex flex-wrap items-center gap-[8px]">
-      <button type="button" disabled={disabled} onClick={onAddAttachment} aria-label="添加文件" title="附件" className={iconKey}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onAddAttachment}
+        aria-label="添加文件"
+        title="附件"
+        className={iconKey}
+      >
         <Paperclip size={16} />
       </button>
 
@@ -79,7 +88,13 @@ export function ComposerToolbar({
         <span key={skill.name} className={`${chip} border-accent-border bg-accent-bg text-accent`}>
           <Sparkles size={11} />
           {skill.display_name ?? skill.name}
-          <button type="button" aria-label={`移除技能 ${skill.display_name ?? skill.name}`} title="移除技能" onClick={() => onToggleSkill(skill)} className="text-text-tertiary transition-colors hover:text-status-error">
+          <button
+            type="button"
+            aria-label={`移除技能 ${skill.display_name ?? skill.name}`}
+            title="移除技能"
+            onClick={() => onToggleSkill(skill)}
+            className="text-text-tertiary transition-colors hover:text-status-error"
+          >
             <X size={11} />
           </button>
         </span>
@@ -89,21 +104,42 @@ export function ComposerToolbar({
         <span key={file.name} className={chip}>
           <FileText size={11} />
           {file.name}
-          <button type="button" aria-label={`移除附件 ${file.name}`} title="移除附件" onClick={() => onRemoveAttachment(file.name)} className="text-text-tertiary transition-colors hover:text-status-error">
+          <button
+            type="button"
+            aria-label={`移除附件 ${file.name}`}
+            title="移除附件"
+            onClick={() => onRemoveAttachment(file.name)}
+            className="text-text-tertiary transition-colors hover:text-status-error"
+          >
             <X size={11} />
           </button>
         </span>
       ))}
 
       <span className="flex-1" />
-      <span aria-hidden="true" className="font-mono text-[10.5px] text-text-tertiary">ENTER ↵</span>
+      <span aria-hidden="true" className="font-mono text-[10.5px] text-text-tertiary">
+        ENTER ↵
+      </span>
 
       {isStreaming ? (
-        <button type="button" onClick={onStop} aria-label="停止运行" title="停止" className="stop-key grid h-[34px] w-[34px] flex-none place-items-center rounded-md transition duration-fast ease-out">
+        <button
+          type="button"
+          onClick={onStop}
+          aria-label="停止运行"
+          title="停止"
+          className="stop-key grid h-[34px] w-[34px] flex-none place-items-center rounded-md transition duration-fast ease-out"
+        >
           <Square size={13} fill="currentColor" />
         </button>
       ) : (
-        <button type="button" disabled={submitDisabled} onClick={onSubmit} aria-label="发送消息" title="发送" className="send-key grid h-[34px] w-[34px] flex-none place-items-center rounded-md transition duration-fast ease-out disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none">
+        <button
+          type="button"
+          disabled={submitDisabled}
+          onClick={onSubmit}
+          aria-label="发送消息"
+          title="发送"
+          className="send-key grid h-[34px] w-[34px] flex-none place-items-center rounded-md transition duration-fast ease-out disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+        >
           <SendIcon size={15} />
         </button>
       )}

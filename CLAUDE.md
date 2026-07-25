@@ -57,7 +57,7 @@ Every request becomes a persisted **Run**. `IntentClassifier` picks the initial 
 - **`runtime/journal.py` — `JsonlJournal`** is a per-process locked, fsynced JSONL journal; `runtime/recovery.py` refuses to resume a Run it cannot prove safe.
 - **`runtime/store.py`** — `RunStore` + content-addressed `ArtifactStore`; **`runtime/mcp.py`** — `MCPConnector` registers MCP capabilities post-startup; **`runtime/skills.py`** — `SkillCatalog` does read-only, bounded-metadata skill discovery.
 
-`bootstrap.py::build_platform()` is the composition root — it wires stores, registries, gate, classifier and coordinator into a `Platform`; both FastAPI (`main.py` / `api/app.py`) and the CLI use it. Domain capability bridges (e.g. `scheduling_query.py`) register **into** the platform here, after construction and before `refresh_skills()`.
+`bootstrap.py::build_platform()` is the composition root — it wires stores, registries, gate, classifier and coordinator into a `Platform`; both FastAPI (`main.py` / `api/app.py`) and the CLI use it. It registers **only** generic host primitives (see `tools/` below) — there is currently no domain capability in the tree. A host adds one by calling `platform.capabilities.register(...)` after `build_platform()` returns; do it before `refresh_skills()` so skills naming that tool in `allowed-tools` can still be discovered.
 
 ### HTTP endpoints (`api/routes/`)
 - `POST /runs` (202) — create and execute asynchronously; `GET /runs/{id}`; `GET /runs/{id}/stream` — resumable SSE.
@@ -68,10 +68,28 @@ Every request becomes a persisted **Run**. `IntentClassifier` picks the initial 
 Shapes in `docs/api-contract/agent-runtime-v1.md`.
 
 ### Runtime data root
-`config.py::runtime_data_root()` = `$MAESTRO_DATA_DIR` or `~/.maestro`. Under it: `sessions-v3/`, `runs/`, `artifacts/`, `skills/`, `runtime/journal.jsonl`. Tests get an isolated tmp root via the autouse `_isolate_runtime_data` fixture in `tests/conftest.py` — never write to the user's real data root from a test.
+`config.py::runtime_data_root()` = `$MAESTRO_DATA_DIR` or `~/.maestro`. Under it: `sessions-v3/`, `runs/`, `artifacts/`, `skills/` (incl. `trust.json`), `workspace/`, `runtime/journal.jsonl`. Tests get an isolated tmp root via the autouse `_isolate_runtime_data` fixture in `tests/conftest.py` — never write to the user's real data root from a test.
 
 ### Skills
-Claude Code-compatible directories: each skill is a `SKILL.md` whose frontmatter loads first; the body, `references/` and `scripts/` load only once the skill is actually selected. `disable-model-invocation: true` keeps a skill out of the model-visible capability list while leaving it explicitly invocable. Frontmatter schema lives in `skills/schemas.py`, parsing in `skills/parser.py`.
+Claude Code-compatible directories, loaded in **three tiers**, each backed by a distinct code path:
+
+1. **Metadata** — `SkillCatalog._read_metadata` reads at most 16 KB of frontmatter at discovery; the body is never touched. Only `name` + `description` reach the model, as a `CapabilityKind.SKILL` entry.
+2. **Body** — `SkillCatalog.load` injects `SKILL.md`'s prompt once the skill is actually selected, wrapped as untrusted data, and narrows the allowlist to the skill's `allowed-tools`.
+3. **Resources** — `skill_read_resource` pulls one `references/` or `scripts/` file in on demand. Tier 2 injects only the *manifest* of filenames, so contents cost nothing until asked for.
+
+A loaded skill is implicitly granted `skill_read_resource` (and `skill_run_script` when it ships scripts) so that declaring no `allowed-tools` doesn't narrow the allowlist to nothing. Authorization still runs through the Policy Gate. `RunCoordinator._skill_resource_call_is_owned` confines both to skills the Run actually loaded.
+
+`disable-model-invocation: true` keeps a skill out of the model-visible capability list while leaving it explicitly invocable. Frontmatter schema lives in `skills/schemas.py`, parsing in `skills/parser.py`; `POST /skills/validate` and `POST /skills/import` share `validate_runtime_package`, so nothing can be installed under looser rules than the preflight showed.
+
+One broken package never hides the others: `discover()` collects per-skill failures into `SkillCatalog.errors` and surfaces them in `GET /skills`.
+
+### Skill scripts, trust and the sandbox
+`skill_run_script` runs a package's `scripts/*.py|sh` behind three independent gates: the capability is `writes=True, risk=HIGH` so the Policy Gate always demands human approval; `SkillTrustStore` (`skills/trust.py`, persisted to `skills_dir/trust.json`) requires a trust record matching the package's **current** content hash, so editing a trusted skill revokes its own permission; and the script path is confined to `scripts/`.
+
+`tools/sandbox.py` is **containment, not a security boundary** — the approval and the hash binding are the real gates. It always spawns via `create_subprocess_exec` (never a shell) into a throwaway workspace with an allowlisted environment (no API keys inherited), wall-clock and output caps, and copies artifacts out before deleting the workspace. macOS adds a `sandbox-exec` profile; Windows gets the baseline only. `SandboxResult.isolation` reports what actually took effect — do not claim more.
+
+### Host capabilities (`tools/`)
+`tools/` holds generic primitives a skill's `allowed-tools` can name — `read_file`/`glob`/`grep` (read-only, fast path) and `write_file`/`edit_file` (`writes=True, risk=HIGH`, so they require approval). All are confined to `config.py::workspace_root` via `runtime/paths.py::safe_join`, the single path-confinement helper shared with skill resources. They live outside `runtime/` and are registered from `bootstrap.py`, keeping the Runtime core capability-agnostic. These are the only capabilities a default platform has; `test_b1_invariants.py::GENERIC_PRIMITIVES` is the allowlist that keeps it that way — add a primitive there, never a domain tool.
 
 ### Degraded mode
 With no `LLM_API_KEY`, Runs can still be created, resumed, cancelled, approved and audited; only the model's answers degrade. The test suite never touches the network.

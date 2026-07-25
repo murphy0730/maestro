@@ -17,6 +17,13 @@ from maestro.runtime.mcp import MCPConnector
 from maestro.runtime.policy import PolicyGate
 from maestro.runtime.skills import SkillCatalog
 from maestro.runtime.store import ArtifactStore, RunStore
+from maestro.skills.trust import SkillTrustStore
+from maestro.tools import (
+    register_filesystem_capabilities,
+    register_skill_resource_capability,
+    register_skill_script_capability,
+)
+from maestro.runtime.summary import LLMHistorySummarizer
 
 
 @dataclass
@@ -31,11 +38,22 @@ class Platform:
     capabilities: CapabilityRegistry
     mcp: MCPConnector
     session_store: SessionStore
+    skill_trust: SkillTrustStore
     _registered_skill_names: set[str] = field(default_factory=set)
 
     def refresh_skills(self) -> dict:
-        """Make discovered Claude Skills callable by the generic Runtime."""
+        """Make discovered Claude Skills callable by the generic Runtime.
+
+        Deliberately not memoised on skill file mtimes: the capability registry
+        can gain a colliding Tool/MCP without any skill file changing, and that
+        must still take effect.  The expensive part — reading frontmatter off
+        disk — is cached inside ``SkillCatalog.discover``.
+        """
         discovered = self.skill_catalog.discover()
+        versions = {
+            name: str(metadata.path.stat().st_mtime_ns)
+            for name, metadata in discovered.items()
+        }
         registered: dict = {}
         rejected: set[str] = set()
         for name in self._registered_skill_names - set(discovered):
@@ -55,7 +73,7 @@ class Platform:
                     name=metadata.name,
                     kind=CapabilityKind.SKILL,
                     description=metadata.description,
-                    version=str(metadata.path.stat().st_mtime_ns),
+                    version=versions[metadata.name],
                 ),
                 replace=True,
             )
@@ -78,6 +96,7 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         capabilities,
     )
     session_store = SessionStore(settings.sessions_dir)
+    skill_trust = SkillTrustStore(settings.skills_dir)
     runtime = RunCoordinator(
         model=LLMRuntimeModel(llm),
         capabilities=capabilities,
@@ -89,6 +108,10 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         events=EventPublisher(journal),
         skill_catalog=skill_catalog,
         history_provider=session_store.get_messages,
+        max_history_messages=settings.history_max_messages,
+        summarizer=LLMHistorySummarizer(llm) if settings.summary_enabled else None,
+        summary_store=session_store if settings.summary_enabled else None,
+        summary_batch_messages=settings.summary_batch_messages,
     )
     platform = Platform(
         settings=settings,
@@ -101,12 +124,14 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         capabilities=capabilities,
         mcp=MCPConnector(capabilities),
         session_store=session_store,
+        skill_trust=skill_trust,
     )
-    # 注册外部能力桥接（排产查询等）必须在 refresh_skills 之前，
-    # 否则 scheduling-query 技能的 allowed_tools 校验会因找不到工具而失败。
-    from maestro.scheduling_query import register_scheduling_capabilities
-
-    register_scheduling_capabilities(platform)
+    # 能力注册必须在 refresh_skills 之前：技能的 allowed_tools 会按注册表校验，
+    # 工具缺席会让引用它的技能整个发现失败。
+    # 这里只注册通用宿主原语；领域能力由宿主在 build_platform 之后自行注册。
+    register_filesystem_capabilities(capabilities, settings.workspace_root)
+    register_skill_resource_capability(capabilities, skill_catalog)
+    register_skill_script_capability(capabilities, skill_catalog, skill_trust, artifact_store)
     runtime.set_intent_classifier(IntentClassifier(capabilities, skills=platform.refresh_skills))
     platform.refresh_skills()
     return platform

@@ -13,7 +13,8 @@ from maestro.runtime.intent import IntentClassifier
 from maestro.runtime.journal import JsonlJournal, replay_run
 from maestro.runtime.models import ApprovalRecord, RunIntent, RunPath, RunRecord, RunStatus
 from maestro.runtime.policy import PolicyGate
-from maestro.runtime.skills import SkillCatalog
+from maestro.runtime.skills import SKILL_RESOURCE_CAPABILITY, SkillCatalog
+from maestro.tools.skill_resources import register_skill_resource_capability
 from maestro.runtime.state_machine import transition_run
 from maestro.runtime.store import ArtifactStore, RunStore
 from fakes import CountingExecutor, FakeRuntimeModel, RecordingEvents
@@ -216,3 +217,113 @@ async def test_fast_run_upgrades_to_controlled_execution_without_typed_plan(tmp_
     assert upgrade.data["artifact_working_set"][0]["media_type"] == "application/json"
     assert upgrade.data["run_snapshot"]["status"] == RunStatus.STRUCTURING.value
     assert replay_run(publisher.journal.read(run.run_id)).status is RunStatus.COMPLETED
+
+
+async def test_three_tier_loading_reads_each_layer_exactly_once(tmp_path: Path) -> None:
+    """Frontmatter at discovery, body on selection, a reference only on demand."""
+    registry = CapabilityRegistry()
+    registry.register(CapabilitySpec(name="guided", kind=CapabilityKind.SKILL))
+    skill = tmp_path / "skills" / "guided" / "SKILL.md"
+    guide = skill.parent / "references" / "guide.md"
+    guide.parent.mkdir(parents=True)
+    skill.write_text("---\nname: guided\ndescription: guided\n---\nSee references/guide.md\n")
+    guide.write_text("detailed guide body", "utf-8")
+    catalog = SkillCatalog({"project": tmp_path / "skills"}, registry.snapshot())
+    catalog.discover()
+    register_skill_resource_capability(registry, catalog)
+    model = FakeRuntimeModel()
+    model.queue_call("guided", {})
+    model.queue_call(SKILL_RESOURCE_CAPABILITY, {"skill": "guided", "resource": "references/guide.md"})
+    model.queue_final("done")
+    coordinator = RunCoordinator(
+        model=model,
+        capabilities=registry,
+        intent_classifier=IntentClassifier(registry.snapshot()),
+        policy_gate=PolicyGate([]),
+        context_provider=ContextProvider(max_chars=8_000),
+        run_store=RunStore(tmp_path / "runs"),
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        events=EventPublisher(JsonlJournal(tmp_path / "journal.jsonl")),
+        skill_catalog=catalog,
+    )
+
+    run = await coordinator.start("guided")
+
+    assert run.status is RunStatus.COMPLETED
+    assert catalog.io_log == [
+        "guided/SKILL.md:frontmatter",
+        "guided/SKILL.md:full",
+        "guided/references/guide.md:resource",
+    ]
+    # Tier 2 names the file; only tier 3 pulls its contents in.
+    assert "references/guide.md" in model.contexts[1].system_context
+    assert "detailed guide body" not in model.contexts[1].system_context
+    assert "detailed guide body" in model.contexts[2].system_context
+
+
+async def test_skill_without_allowed_tools_can_still_read_its_own_resources(
+    tmp_path: Path,
+) -> None:
+    """An empty allowed-tools used to narrow the allowlist to nothing at all."""
+    registry = CapabilityRegistry()
+    registry.register(CapabilitySpec(name="guided", kind=CapabilityKind.SKILL))
+    skill = tmp_path / "skills" / "guided" / "SKILL.md"
+    (skill.parent / "references").mkdir(parents=True)
+    skill.write_text("---\nname: guided\ndescription: guided\n---\nbody\n")
+    (skill.parent / "references" / "guide.md").write_text("g", "utf-8")
+    catalog = SkillCatalog({"project": tmp_path / "skills"}, registry.snapshot())
+    catalog.discover()
+    register_skill_resource_capability(registry, catalog)
+    model = FakeRuntimeModel()
+    model.queue_call("guided", {})
+    model.queue_final("done")
+    coordinator = RunCoordinator(
+        model=model,
+        capabilities=registry,
+        intent_classifier=IntentClassifier(registry.snapshot()),
+        policy_gate=PolicyGate([]),
+        context_provider=ContextProvider(max_chars=8_000),
+        run_store=RunStore(tmp_path / "runs"),
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        events=EventPublisher(JsonlJournal(tmp_path / "journal.jsonl")),
+        skill_catalog=catalog,
+    )
+
+    await coordinator.start("guided")
+
+    assert model.capability_names[1] == [SKILL_RESOURCE_CAPABILITY]
+
+
+async def test_reading_a_resource_of_an_unloaded_skill_is_refused(tmp_path: Path) -> None:
+    registry = CapabilityRegistry()
+    for name in ("guided", "other"):
+        registry.register(CapabilitySpec(name=name, kind=CapabilityKind.SKILL))
+        skill = tmp_path / "skills" / name / "SKILL.md"
+        (skill.parent / "references").mkdir(parents=True)
+        skill.write_text(f"---\nname: {name}\ndescription: {name}\n---\nbody\n")
+        (skill.parent / "references" / "guide.md").write_text("secret", "utf-8")
+    catalog = SkillCatalog({"project": tmp_path / "skills"}, registry.snapshot())
+    catalog.discover()
+    register_skill_resource_capability(registry, catalog)
+    model = FakeRuntimeModel()
+    model.queue_call("guided", {})
+    model.queue_call(SKILL_RESOURCE_CAPABILITY, {"skill": "other", "resource": "references/guide.md"})
+    model.queue_final("done")
+    publisher = EventPublisher(JsonlJournal(tmp_path / "journal.jsonl"))
+    coordinator = RunCoordinator(
+        model=model,
+        capabilities=registry,
+        intent_classifier=IntentClassifier(registry.snapshot()),
+        policy_gate=PolicyGate([]),
+        context_provider=ContextProvider(max_chars=8_000),
+        run_store=RunStore(tmp_path / "runs"),
+        artifact_store=ArtifactStore(tmp_path / "artifacts"),
+        events=publisher,
+        skill_catalog=catalog,
+    )
+
+    run = await coordinator.start("guided")
+
+    assert run.status is RunStatus.FAILED
+    assert publisher.history(run.run_id)[-1].data["reason"] == "skill_resource_not_loaded"
+    assert "secret" not in str(model.contexts[-1].system_context)

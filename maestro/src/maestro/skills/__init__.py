@@ -1,3 +1,3 @@
-from maestro.skills.schemas import SkillFrontmatter, SkillMeta, SkillValidationError
+from maestro.skills.schemas import RuntimeSkillFrontmatter, SkillValidationError
 
-__all__ = ["SkillFrontmatter", "SkillMeta", "SkillValidationError"]
+__all__ = ["RuntimeSkillFrontmatter", "SkillValidationError"]

@@ -27,5 +27,12 @@ class Settings(BaseSettings):
         default_factory=lambda: runtime_data_root() / "runtime" / "journal.jsonl"
     )
     skills_dir: Path = Field(default_factory=lambda: runtime_data_root() / "skills")
+    # The only directory the filesystem capabilities can reach.
+    workspace_root: Path = Field(default_factory=lambda: runtime_data_root() / "workspace")
+    # Turns beyond the window are folded into a rolling summary, not discarded;
+    # summarization costs a model call, so it waits for a batch to accumulate.
+    history_max_messages: int = 20
+    summary_enabled: bool = True
+    summary_batch_messages: int = 8
     # Skill package mutation is a host-administration operation, never a Runtime tool.
     privileged_api_token: str = ""

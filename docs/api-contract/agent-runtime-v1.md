@@ -51,11 +51,15 @@ data: {"final_text":"..."}
 
 `GET /skills` 列出当前发现的 Claude 兼容 Skill metadata；`POST /skills/validate` 接收 multipart 字段 `file`，仅校验包兼容性且不写入文件系统。两者为只读接口。
 
+`GET /skills` 响应为 `{"skills": [...], "errors": [...]}`。`errors` 里每项为 `{path, source, reason}`，表示磁盘上存在但解析失败的包——单个坏包不会影响其余技能的发现。每个 skill 的 `package_sha256`、`file_count`、`bytes`、`scripts` 与 `added_at` 均按磁盘实况计算；`trust` 为 `{level, valid, package_sha256, principal_id, trusted_at}`，其中 `level` 表示用户是否授予过信任，`valid=false` 专门表示「授予过但包已变更、信任已失效」。
+
+Skill 的三层加载对应两个 Runtime capability：`skill_read_resource(skill, resource)` 读取已加载技能自带的 `references/`/`scripts/` 文件（只读、低风险）；`skill_run_script(skill, script, arguments)` 执行技能脚本，声明为 `writes=true, risk=high`，因此**必然**经 Policy Gate 产生审批记录，且要求该技能已按当前 `package_sha256` 被信任。两者都只能作用于当前 Run 已加载的技能，否则 Run 以 `skill_resource_not_loaded` 失败。
+
 以下是宿主的 Skill 包管理接口，不是 Runtime Tool/MCP capability，也不经过模型调用或 Policy Gate：
 
 - `POST /skills/import`：接收 multipart 字段 `file`，导入 `.md` 或 `.zip` Skill 包；
-- `POST /skills/{name}/trust`：接收 `{"trusted":true}`，设置当前进程信任状态；
-- `DELETE /skills/{name}/trust`：撤销当前进程信任状态；
+- `POST /skills/{name}/trust`：接收 `{"trusted":true}`，把信任绑定到该包**当前**的 `package_sha256` 并持久化到 `skills_dir/trust.json`；
+- `DELETE /skills/{name}/trust`：删除信任记录；
 - `DELETE /skills/{name}`：删除已导入 Skill 包。
 
 这些管理接口都要求 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`；无效或缺失凭证返回 403。导入或删除后会刷新注册表：已删除的 `CapabilityKind.SKILL` 不再出现在新 Run 的能力快照中。`disable-model-invocation: true` 的 Skill 可被列出和由用户显式选择，但不会被提供给模型作为可调用 capability。

@@ -71,7 +71,11 @@ def test_refresh_skills_does_not_replace_a_same_named_tool_or_mcp(tmp_path) -> N
         replace=True,
     )
 
-    assert platform.refresh_skills() == {}
+    # Assert the collision semantics, not an empty registry: the repo ships
+    # skills of its own under the project source.
+    registered = platform.refresh_skills()
+    assert "tool-collision" not in registered
+    assert "mcp-collision" not in registered
     assert platform.skill_catalog.metadata("tool-collision") is None
     assert platform.skill_catalog.metadata("mcp-collision") is None
     tool = platform.capabilities.require("tool-collision")

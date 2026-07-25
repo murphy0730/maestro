@@ -1,5 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronsLeft, ChevronsRight, Grid2X2, Moon, Pencil, Plus, Search, Settings, Sun, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  ChevronsLeft,
+  ChevronsRight,
+  Grid2X2,
+  Moon,
+  Pencil,
+  Plus,
+  Search,
+  Settings,
+  Sun,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { SessionSummary } from '@/api/sessions';
 import type { Theme } from '@/stores/themeStore';
 import { Avatar } from '@/components/ui/Avatar';
@@ -26,7 +39,11 @@ interface Props {
 function groupLabel(date: string) {
   const value = new Date(date);
   const now = new Date();
-  const days = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()) / 86400000);
+  const days = Math.floor(
+    (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
+      new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()) /
+      86400000,
+  );
   if (days <= 0) return '今天';
   if (days === 1) return '昨天';
   if (days < 7) return '本周';
@@ -41,8 +58,10 @@ function rowTime(date: string) {
     : value.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
-const railButton = 'grid h-[38px] w-[38px] place-items-center rounded-[9px] text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary';
-const bottomRow = 'flex w-full items-center gap-[10px] rounded-md px-[10px] py-[7px] text-caption text-text-secondary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary';
+const railButton =
+  'grid h-[38px] w-[38px] place-items-center rounded-[9px] text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary';
+const bottomRow =
+  'flex w-full items-center gap-[10px] rounded-md px-[10px] py-[7px] text-caption text-text-secondary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-text-primary';
 
 /**
  * SessionSidebar — 设计稿 D：展开 264px / 折叠 56px 的会话侧栏。
@@ -54,35 +73,103 @@ export function SessionSidebar(props: Props) {
   const [editing, setEditing] = useState<string>();
   const [title, setTitle] = useState('');
   const operatorName = props.operatorName ?? '本地操作员';
-  const filtered = useMemo(() => props.sessions.filter((session) => session.title.toLowerCase().includes(query.trim().toLowerCase())), [props.sessions, query]);
-  const groups = useMemo(() => filtered.reduce<Record<string, SessionSummary[]>>((result, session) => {
-    const key = groupLabel(session.updated_at);
-    (result[key] ??= []).push(session);
-    return result;
-  }, {}), [filtered]);
+  const filtered = useMemo(
+    () =>
+      props.sessions.filter((session) =>
+        session.title.toLowerCase().includes(query.trim().toLowerCase()),
+      ),
+    [props.sessions, query],
+  );
+  const groups = useMemo(
+    () =>
+      filtered.reduce<Record<string, SessionSummary[]>>((result, session) => {
+        const key = groupLabel(session.updated_at);
+        (result[key] ??= []).push(session);
+        return result;
+      }, {}),
+    [filtered],
+  );
 
   if (props.collapsed) {
     return (
-      <aside aria-label="会话导航" className="flex w-sidebar-rail flex-none flex-col items-center gap-[6px] border-r border-border-subtle bg-surface-1 py-[14px]">
-        <span className="mb-[8px] leading-none"><BrandMark size={24} /></span>
-        <button type="button" aria-label="展开会话栏" title="展开会话栏" onClick={() => props.onCollapsedChange(false)} className={railButton}><ChevronsRight size={17} /></button>
-        <button type="button" aria-label="新建会话" title="新建会话" onClick={props.onCreate} className={railButton}><Plus size={17} /></button>
+      <aside
+        aria-label="会话导航"
+        className="flex w-sidebar-rail flex-none flex-col items-center gap-[6px] border-r border-border-subtle bg-surface-1 py-[14px]"
+      >
+        <span className="mb-[8px] leading-none">
+          <BrandMark size={24} />
+        </span>
+        <button
+          type="button"
+          aria-label="展开会话栏"
+          title="展开会话栏"
+          onClick={() => props.onCollapsedChange(false)}
+          className={railButton}
+        >
+          <ChevronsRight size={17} />
+        </button>
+        <button
+          type="button"
+          aria-label="新建会话"
+          title="新建会话"
+          onClick={props.onCreate}
+          className={railButton}
+        >
+          <Plus size={17} />
+        </button>
         <span className="my-[4px] h-px w-[20px] bg-border-strong" />
-        <button type="button" aria-label="技能管理" title="技能·连接器管理" onClick={props.onOpenSkills} className={railButton}><Grid2X2 size={17} /></button>
+        <button
+          type="button"
+          aria-label="技能管理"
+          title="技能·连接器管理"
+          onClick={props.onOpenSkills}
+          className={railButton}
+        >
+          <Grid2X2 size={17} />
+        </button>
         <span className="flex-1" />
-        <button type="button" aria-label="切换主题" title={props.theme === 'dark' ? '切换至极昼' : '切换至深空'} onClick={props.onToggleTheme} className={railButton}>{props.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
+        <button
+          type="button"
+          aria-label="切换主题"
+          title={props.theme === 'dark' ? '切换至极昼' : '切换至深空'}
+          onClick={props.onToggleTheme}
+          className={railButton}
+        >
+          {props.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+        </button>
         <Avatar name={operatorName} size={30} />
-        <button type="button" aria-label="设置" title="设置" onClick={props.onOpenSettings} className={railButton}><Settings size={17} /></button>
+        <button
+          type="button"
+          aria-label="设置"
+          title="设置"
+          onClick={props.onOpenSettings}
+          className={railButton}
+        >
+          <Settings size={17} />
+        </button>
       </aside>
     );
   }
 
   return (
-    <aside aria-label="会话导航" className="flex w-sidebar flex-none flex-col overflow-hidden border-r border-border-subtle bg-surface-1">
+    <aside
+      aria-label="会话导航"
+      className="flex w-sidebar flex-none flex-col overflow-hidden border-r border-border-subtle bg-surface-1"
+    >
       <div className="flex items-center gap-[9px] px-[14px] pb-[10px] pt-[13px]">
         <BrandMark size={23} />
-        <span className="font-mono text-[11px] font-semibold tracking-[.22em] text-text-primary">MAESTRO</span>
-        <button type="button" aria-label="折叠会话栏" title="折叠侧栏" onClick={() => props.onCollapsedChange(true)} className="ml-auto grid h-[24px] w-[24px] place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-accent"><ChevronsLeft size={16} /></button>
+        <span className="font-mono text-[11px] font-semibold tracking-[.22em] text-text-primary">
+          MAESTRO
+        </span>
+        <button
+          type="button"
+          aria-label="折叠会话栏"
+          title="折叠侧栏"
+          onClick={() => props.onCollapsedChange(true)}
+          className="ml-auto grid h-[24px] w-[24px] place-items-center rounded-sm text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-accent"
+        >
+          <ChevronsLeft size={16} />
+        </button>
       </div>
 
       <button
@@ -91,13 +178,19 @@ export function SessionSidebar(props: Props) {
         disabled={props.loading}
         className="mx-[12px] mb-[10px] flex items-center justify-center gap-[8px] rounded-md border border-border-subtle bg-surface-2 px-[14px] py-[9px] text-[12.5px] font-medium text-text-primary transition duration-normal ease-out hover:border-accent hover:text-accent hover:shadow-glow-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Plus size={15} />新建会话
+        <Plus size={15} />
+        新建会话
       </button>
 
       <div className="px-[12px] pb-[8px]">
         <label className="flex items-center gap-[8px] rounded-md border border-border-subtle bg-surface-2 px-[12px] py-[7px] text-text-tertiary transition-colors duration-fast focus-within:border-accent">
           <Search size={13} className="flex-none" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索会话…" className="min-w-0 flex-1 bg-transparent text-caption text-text-primary outline-none placeholder:text-text-tertiary" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索会话…"
+            className="min-w-0 flex-1 bg-transparent text-caption text-text-primary outline-none placeholder:text-text-tertiary"
+          />
         </label>
       </div>
 
@@ -110,7 +203,10 @@ export function SessionSidebar(props: Props) {
               const running = Boolean(session.active_run_id);
               const tone: DotTone = running ? 'warning' : active ? 'accent' : 'success';
               return (
-                <div key={session.session_id} className={`group relative flex items-center gap-[9px] rounded-[9px] px-[10px] py-[8px] transition-colors duration-fast ease-out ${active ? 'edge-marker bg-surface-3' : 'hover:bg-surface-3'}`}>
+                <div
+                  key={session.session_id}
+                  className={`group relative flex items-center gap-[9px] rounded-[9px] px-[10px] py-[8px] transition-colors duration-fast ease-out ${active ? 'edge-marker bg-surface-3' : 'hover:bg-surface-3'}`}
+                >
                   <StatusDot tone={tone} pulse={running} />
                   {editing === session.session_id ? (
                     <form
@@ -122,9 +218,24 @@ export function SessionSidebar(props: Props) {
                         setEditing(undefined);
                       }}
                     >
-                      <input aria-label="会话标题" autoFocus value={title} onChange={(event) => setTitle(event.target.value)} className="min-w-0 flex-1 rounded-sm border border-accent bg-surface-1 px-[4px] text-[12.5px] outline-none" />
-                      <button aria-label="保存名称" className="text-status-success"><Check size={14} /></button>
-                      <button type="button" aria-label="取消改名" onClick={() => setEditing(undefined)} className="text-text-tertiary"><X size={14} /></button>
+                      <input
+                        aria-label="会话标题"
+                        autoFocus
+                        value={title}
+                        onChange={(event) => setTitle(event.target.value)}
+                        className="min-w-0 flex-1 rounded-sm border border-accent bg-surface-1 px-[4px] text-[12.5px] outline-none"
+                      />
+                      <button aria-label="保存名称" className="text-status-success">
+                        <Check size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="取消改名"
+                        onClick={() => setEditing(undefined)}
+                        className="text-text-tertiary"
+                      >
+                        <X size={14} />
+                      </button>
                     </form>
                   ) : (
                     <>
@@ -137,10 +248,31 @@ export function SessionSidebar(props: Props) {
                       >
                         {session.title}
                       </button>
-                      <span className="flex-none font-mono text-[10px] text-text-tertiary group-hover:invisible">{rowTime(session.updated_at)}</span>
+                      <span className="flex-none font-mono text-[10px] text-text-tertiary group-hover:invisible">
+                        {rowTime(session.updated_at)}
+                      </span>
                       <span className="absolute right-[6px] top-1/2 hidden -translate-y-1/2 items-center gap-[3px] rounded-[7px] border border-border-strong bg-surface-3 p-[2px] group-hover:flex group-focus-within:flex">
-                        <button type="button" aria-label={`重命名 ${session.title}`} title="改名" onClick={() => { setEditing(session.session_id); setTitle(session.title); }} className="rounded-[5px] px-[6px] py-[2px] text-[10.5px] text-text-tertiary hover:bg-surface-1 hover:text-accent"><Pencil size={12} /></button>
-                        <button type="button" aria-label={`删除 ${session.title}`} title="删除" onClick={() => props.onDelete(session.session_id)} className="rounded-[5px] px-[6px] py-[2px] text-[10.5px] text-text-tertiary hover:bg-surface-1 hover:text-status-error"><Trash2 size={12} /></button>
+                        <button
+                          type="button"
+                          aria-label={`重命名 ${session.title}`}
+                          title="改名"
+                          onClick={() => {
+                            setEditing(session.session_id);
+                            setTitle(session.title);
+                          }}
+                          className="rounded-[5px] px-[6px] py-[2px] text-[10.5px] text-text-tertiary hover:bg-surface-1 hover:text-accent"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`删除 ${session.title}`}
+                          title="删除"
+                          onClick={() => props.onDelete(session.session_id)}
+                          className="rounded-[5px] px-[6px] py-[2px] text-[10.5px] text-text-tertiary hover:bg-surface-1 hover:text-status-error"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </span>
                     </>
                   )}
@@ -149,16 +281,36 @@ export function SessionSidebar(props: Props) {
             })}
           </section>
         ))}
-        {!props.loading && filtered.length === 0 && <p className="px-[8px] py-[24px] text-center text-caption text-text-tertiary">没有匹配的会话</p>}
+        {!props.loading && filtered.length === 0 && (
+          <p className="px-[8px] py-[24px] text-center text-caption text-text-tertiary">
+            没有匹配的会话
+          </p>
+        )}
       </div>
 
       <div className="border-t border-border-subtle p-[8px]">
-        <button type="button" onClick={props.onOpenSkills} className={bottomRow}><Grid2X2 size={15} />技能·连接器管理</button>
-        <button type="button" onClick={props.onToggleTheme} className={bottomRow}>{props.theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}主题：{props.theme === 'dark' ? '深空' : '极昼'}</button>
+        <button type="button" onClick={props.onOpenSkills} className={bottomRow}>
+          <Grid2X2 size={15} />
+          技能·连接器管理
+        </button>
+        <button type="button" onClick={props.onToggleTheme} className={bottomRow}>
+          {props.theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}主题：
+          {props.theme === 'dark' ? '深空' : '极昼'}
+        </button>
         <div className="mt-[4px] flex items-center gap-[10px] border-t border-border-subtle px-[8px] pb-[2px] pt-[8px]">
           <Avatar name={operatorName} size={28} labelled={false} />
-          <span className="flex-1 truncate text-caption font-medium text-text-primary">{operatorName}</span>
-          <button type="button" aria-label="设置" title="设置" onClick={props.onOpenSettings} className="grid h-[28px] w-[28px] flex-none place-items-center rounded-[7px] text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-accent"><Settings size={15} /></button>
+          <span className="flex-1 truncate text-caption font-medium text-text-primary">
+            {operatorName}
+          </span>
+          <button
+            type="button"
+            aria-label="设置"
+            title="设置"
+            onClick={props.onOpenSettings}
+            className="grid h-[28px] w-[28px] flex-none place-items-center rounded-[7px] text-text-tertiary transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-accent"
+          >
+            <Settings size={15} />
+          </button>
         </div>
       </div>
     </aside>

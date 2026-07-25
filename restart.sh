@@ -36,7 +36,9 @@ start_backend() {
   kill_port "$BACKEND_PORT" "后端"
   echo "启动后端 → http://localhost:$BACKEND_PORT (日志: logs/backend.log)"
   cd "$ROOT/maestro"
-  PRIVILEGED_API_TOKEN="$DEV_PRIVILEGED_TOKEN" nohup .venv/bin/uvicorn maestro.main:app --reload --port "$BACKEND_PORT" \
+  # 注意: .venv/bin/uvicorn 的 shebang 可能仍指向已删除的 worktree 路径, 直接用会
+  # 报 "No such file or directory" 导致后端完全起不来。改用 .venv/bin/python -m uvicorn 绕开。
+  PRIVILEGED_API_TOKEN="$DEV_PRIVILEGED_TOKEN" nohup .venv/bin/python -m uvicorn maestro.main:app --reload --port "$BACKEND_PORT" \
     > "$LOG_DIR/backend.log" 2>&1 &
   cd "$ROOT"
 }

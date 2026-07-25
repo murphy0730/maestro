@@ -48,7 +48,10 @@ export function ThinkingProcess({ lines, streaming = false }: ThinkingProcessPro
         )}
       </div>
       {expanded && (
-        <div ref={viewportRef} className="mt-[4px] max-h-[240px] overflow-y-auto border-l border-border-subtle pl-[12px] font-mono text-[10.5px] leading-[1.9] text-text-tertiary">
+        <div
+          ref={viewportRef}
+          className="mt-[4px] max-h-[240px] overflow-y-auto border-l border-border-subtle pl-[12px] font-mono text-[10.5px] leading-[1.9] text-text-tertiary"
+        >
           {lines.map((line, index) => (
             <p key={`${line}-${index}`} className="m-0 whitespace-pre-wrap break-words">
               {line}

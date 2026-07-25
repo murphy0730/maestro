@@ -104,7 +104,9 @@ describe('Composer', () => {
   it('拒绝超过 10 MB 的附件并显示可恢复错误', () => {
     const { container } = render(<Composer {...props()} />);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(fileInput, { target: { files: [new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.bin')] } });
+    fireEvent.change(fileInput, {
+      target: { files: [new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.bin')] },
+    });
     expect(screen.getByRole('alert').textContent).toContain('10 MB');
     expect(screen.queryByText('large.bin')).toBeNull();
   });
@@ -115,7 +117,9 @@ describe('Composer', () => {
     const { container } = render(<Composer {...props({ onSend, onClearSkills })} />);
     const input = screen.getByPlaceholderText(/描述要完成/);
     fireEvent.change(input, { target: { value: '保留我' } });
-    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [new File(['x'], 'retry.txt')] } });
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(['x'], 'retry.txt')] },
+    });
     fireEvent.click(screen.getByLabelText('发送消息'));
     await vi.waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
     expect((input as HTMLTextAreaElement).value).toBe('保留我');

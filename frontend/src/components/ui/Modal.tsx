@@ -96,28 +96,28 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
       >
         {chrome && (
-        <div className="flex flex-none items-start justify-between gap-3 border-b border-border-subtle px-5 py-[14px]">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span id={titleId} className="font-display text-h4 font-semibold text-text-primary">
-              {title}
-            </span>
-            {subtitle && (
-              <span
-                id={descriptionId}
-                className="text-caption font-normal leading-relaxed text-text-tertiary"
-              >
-                {subtitle}
+          <div className="flex flex-none items-start justify-between gap-3 border-b border-border-subtle px-5 py-[14px]">
+            <div className="flex min-w-0 flex-col gap-1">
+              <span id={titleId} className="font-display text-h4 font-semibold text-text-primary">
+                {title}
               </span>
-            )}
+              {subtitle && (
+                <span
+                  id={descriptionId}
+                  className="text-caption font-normal leading-relaxed text-text-tertiary"
+                >
+                  {subtitle}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="关闭"
+              className="grid h-[30px] w-[30px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
+            >
+              <X size={16} />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="关闭"
-            className="grid h-[30px] w-[30px] flex-none place-items-center rounded-sm text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
-          >
-            <X size={16} />
-          </button>
-        </div>
         )}
         <div className={`min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}>{children}</div>
         {footer && (

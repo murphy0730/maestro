@@ -67,10 +67,22 @@ class ContextItem:
         )
 
     @classmethod
-    def from_skill(cls, skill: LoadedSkill) -> "ContextItem":
+    def from_skill(
+        cls, skill: LoadedSkill, resources: tuple[str, ...] = ()
+    ) -> "ContextItem":
+        text = skill.prompt
+        if resources:
+            # Name the bundled files so the model can ask for one; their
+            # contents stay on disk until skill_read_resource is called.
+            listing = "\n".join(f"- {item}" for item in resources)
+            text = (
+                f"{text}\n\n本技能附带以下资源文件，"
+                f"需要时用 skill_read_resource(skill=\"{skill.metadata.name}\", resource=...) 读取：\n"
+                f"{listing}"
+            )
         return cls(
             key=f"skill:{skill.metadata.name}",
-            text=skill.prompt,
+            text=text,
             priority=Priority.P1,
             trust=Trust.UNTRUSTED,
             source=f"skill:{skill.metadata.source}",

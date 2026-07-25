@@ -23,8 +23,16 @@ describe('SettingsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '个性化' }));
     fireEvent.change(screen.getByLabelText('称呼'), { target: { value: '陈工' } });
     fireEvent.change(screen.getByLabelText('回复语气'), { target: { value: 'concise' } });
-    expect(useUiPreferencesStore.getState()).toMatchObject({ defaultMode: 'query', traceDefault: 'hidden' });
-    expect(usePersonalizationStore.getState().data).toMatchObject({ howToAddress: '陈工', tone: 'concise' });
-    expect((screen.getByRole('button', { name: /授权与审批/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(useUiPreferencesStore.getState()).toMatchObject({
+      defaultMode: 'query',
+      traceDefault: 'hidden',
+    });
+    expect(usePersonalizationStore.getState().data).toMatchObject({
+      howToAddress: '陈工',
+      tone: 'concise',
+    });
+    expect((screen.getByRole('button', { name: /授权与审批/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 });

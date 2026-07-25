@@ -2,15 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-import re
 from typing import Mapping
-import unicodedata
 
 from maestro.runtime.capabilities import CapabilityRegistry, CapabilitySnapshot
-from maestro.skills.parser import DEFAULT_TOOL_ALIASES, parse_runtime_frontmatter
+from maestro.runtime.paths import UnsafePathError, safe_join
+from maestro.skills.parser import (
+    DEFAULT_TOOL_ALIASES,
+    parse_runtime_frontmatter,
+    split_frontmatter,
+)
 from maestro.skills.schemas import RuntimeSkillFrontmatter, SkillValidationError
 
 _SOURCE_PRECEDENCE = ("managed", "user", "project", "additional", "plugin", "bundled", "mcp")
+# Tier 3 loading: the capability a loaded Skill uses to pull in its own
+# references/ and scripts/ files on demand.
+SKILL_RESOURCE_CAPABILITY = "skill_read_resource"
+# Executing a Skill's bundled scripts; granted only to packages that ship one.
+SKILL_SCRIPT_CAPABILITY = "skill_run_script"
 _FRONTMATTER_BYTES = 16 * 1024
 
 
@@ -48,6 +56,15 @@ class LoadedSkill:
     mode: str
 
 
+@dataclass(frozen=True)
+class SkillDiscoveryError:
+    """A skill package that could not be read, kept for diagnosis."""
+
+    path: Path
+    source: str
+    reason: str
+
+
 class SkillCatalog:
     """Read-only Runtime skill discovery with bounded metadata loading."""
 
@@ -59,7 +76,9 @@ class SkillCatalog:
         self._capabilities = capabilities
         self.io_log: list[str] = []
         self.inactive: list[SkillMetadata] = []
+        self.errors: list[SkillDiscoveryError] = []
         self._active: dict[str, SkillMetadata] = {}
+        self._cache: dict[Path, tuple[int, SkillMetadata]] = {}
 
     def _snapshot(self) -> CapabilitySnapshot:
         if isinstance(self._capabilities, CapabilityRegistry):
@@ -69,18 +88,33 @@ class SkillCatalog:
     def discover(self) -> dict[str, SkillMetadata]:
         selected: dict[str, SkillMetadata] = {}
         inactive: list[SkillMetadata] = []
+        errors: list[SkillDiscoveryError] = []
+        seen: set[Path] = set()
         for source in _SOURCE_PRECEDENCE:
             root = self._sources.get(source)
             if root is None or not root.exists():
                 continue
             for path in self._skill_files(root):
-                metadata = self._read_metadata(source, root, path)
+                seen.add(path)
+                try:
+                    metadata = self._read_metadata(source, root, path)
+                except (SkillValidationError, OSError, UnicodeDecodeError) as error:
+                    # One broken package must never hide every other skill, nor
+                    # take down startup: refresh_skills() runs inside bootstrap.
+                    self._cache.pop(path, None)
+                    errors.append(
+                        SkillDiscoveryError(path=path, source=source, reason=str(error))
+                    )
+                    continue
                 if metadata.name in selected:
                     inactive.append(replace(metadata, active=False))
                 else:
                     selected[metadata.name] = metadata
+        for path in set(self._cache) - seen:
+            del self._cache[path]
         self._active = selected
         self.inactive = inactive
+        self.errors = errors
         return dict(selected)
 
     def reject(self, names: set[str]) -> None:
@@ -96,10 +130,9 @@ class SkillCatalog:
             raise KeyError(name)
         text = metadata.path.read_text("utf-8")
         self.io_log.append(f"{metadata.path.parent.name}/SKILL.md:full")
-        frontmatter = parse_runtime_frontmatter(text)
-        metadata = self._metadata_from(frontmatter, metadata.source, metadata.path)
-        _, body = text.split("---", 2)[1:]
-        prompt = body.lstrip("\n")
+        # Metadata was already parsed and validated during discovery; re-parsing
+        # here only duplicated the work.
+        _raw, prompt = split_frontmatter(text)
         prompt = prompt.replace("$ARGUMENTS", arguments)
         prompt = prompt.replace("${CLAUDE_SKILL_DIR}", str(metadata.path.parent))
         prompt = prompt.replace("${CLAUDE_SESSION_ID}", session_id)
@@ -113,23 +146,36 @@ class SkillCatalog:
     def metadata(self, name: str) -> SkillMetadata | None:
         return self._active.get(name)
 
+    def list_resources(self, skill_name: str) -> tuple[str, ...]:
+        """Relative paths of a Skill's bundled resources, without reading them.
+
+        This is the manifest the model needs in order to ask for a specific
+        `references/` or `scripts/` file; the contents stay on disk until
+        `read_resource` is actually called.
+        """
+        metadata = self._active.get(skill_name) or self._find_metadata_by_directory_name(skill_name)
+        if metadata is None:
+            return ()
+        root = metadata.path.parent
+        found: list[str] = []
+        for folder in ("references", "scripts"):
+            directory = root / folder
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.rglob("*")):
+                if path.is_file():
+                    found.append(path.relative_to(root).as_posix())
+        return tuple(found)
+
     def read_resource(self, skill_name: str, resource: str) -> str:
         metadata = self._active.get(skill_name) or self._find_metadata_by_directory_name(skill_name)
         if metadata is None:
             raise KeyError(skill_name)
-        if (
-            not resource
-            or Path(resource).is_absolute()
-            or resource.startswith(("//", "\\\\"))
-            or re.match(r"^[A-Za-z]:[\\/]", resource)
-            or "\\" in resource
-        ):
-            raise SkillResourceError(f"unsafe skill resource: {resource!r}")
-        if any(unicodedata.category(char) == "Cc" for char in resource) or ".." in Path(resource).parts:
-            raise SkillResourceError(f"unsafe skill resource: {resource!r}")
-        root = metadata.path.parent.resolve()
-        target = (root / resource).resolve()
-        if not target.is_relative_to(root) or not target.is_file():
+        try:
+            target = safe_join(metadata.path.parent, resource)
+        except UnsafePathError as error:
+            raise SkillResourceError(f"unsafe skill resource: {resource!r}") from error
+        if not target.is_file():
             raise SkillResourceError(f"skill resource not found: {resource}")
         self.io_log.append(f"{metadata.path.parent.name}/{resource}:resource")
         return target.read_text("utf-8")
@@ -142,8 +188,13 @@ class SkillCatalog:
         return tuple(sorted(root.rglob("SKILL.md")))
 
     def _read_metadata(self, source: str, root: Path, path: Path) -> SkillMetadata:
+        mtime = path.stat().st_mtime_ns
+        cached = self._cache.get(path)
+        if cached is not None and cached[0] == mtime and cached[1].source == source:
+            return cached[1]
         with path.open("rb") as handle:
             header = b""
+            truncated = False
             while len(header) < _FRONTMATTER_BYTES:
                 chunk = handle.read(min(1024, _FRONTMATTER_BYTES - len(header)))
                 if not chunk:
@@ -152,13 +203,22 @@ class SkillCatalog:
                 end = header.find(b"\n---\n", 4)
                 if end >= 0:
                     header = header[: end + len(b"\n---\n")]
+                    truncated = True
                     break
-        if b"\n---\n" not in header[4:]:
-            raise SkillValidationError("runtime skill frontmatter exceeds 16KB")
+        if not truncated:
+            # Distinguish "no frontmatter at all" from "frontmatter too large";
+            # reporting the latter for a 200-byte file misleads whoever debugs it.
+            if not header.startswith(b"---"):
+                raise SkillValidationError("SKILL.md 缺少 frontmatter（文件未以 '---' 开头）")
+            raise SkillValidationError(
+                "SKILL.md frontmatter 未在前 16KB 内闭合（缺少结束 '---'）"
+            )
         text = header.decode("utf-8")
         self.io_log.append(f"{path.parent.name}/SKILL.md:frontmatter")
         frontmatter = parse_runtime_frontmatter(text)
-        return self._metadata_from(frontmatter, source, path)
+        metadata = self._metadata_from(frontmatter, source, path)
+        self._cache[path] = (mtime, metadata)
+        return metadata
 
     def _metadata_from(
         self, frontmatter: RuntimeSkillFrontmatter, source: str, path: Path

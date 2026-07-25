@@ -21,7 +21,12 @@ interface StatusDotProps {
   className?: string;
 }
 
-export function StatusDot({ tone = 'muted', pulse = false, size = 6, className = '' }: StatusDotProps) {
+export function StatusDot({
+  tone = 'muted',
+  pulse = false,
+  size = 6,
+  className = '',
+}: StatusDotProps) {
   return (
     <span
       aria-hidden="true"

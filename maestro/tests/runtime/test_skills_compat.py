@@ -62,8 +62,8 @@ def test_unknown_allowed_tool_fails_validation(tmp_path: Path) -> None:
     skill.write_text("---\nname: bad\ndescription: bad\nallowed-tools: Mystery\n---\nbody\n")
     catalog = SkillCatalog({"project": skill.parent}, CapabilityRegistry().snapshot())
 
-    with pytest.raises(SkillValidationError, match="unknown capability"):
-        catalog.discover()
+    assert catalog.discover() == {}
+    assert "unknown capability" in catalog.errors[0].reason
 
 
 def test_remote_mcp_inline_shell_is_denied(tmp_path: Path) -> None:
@@ -72,8 +72,25 @@ def test_remote_mcp_inline_shell_is_denied(tmp_path: Path) -> None:
     skill.write_text("---\nname: remote\ndescription: remote\nshell: echo dangerous\n---\nbody\n")
     catalog = SkillCatalog({"mcp": skill.parent}, CapabilityRegistry().snapshot())
 
-    with pytest.raises(RemoteSkillExecutionDenied):
-        catalog.discover()
+    assert catalog.discover() == {}
+    assert "may not declare inline shell" in catalog.errors[0].reason
+
+
+def test_one_broken_skill_does_not_hide_the_others(tmp_path: Path) -> None:
+    for name, text in (
+        ("good", "---\nname: good\ndescription: good\n---\nbody\n"),
+        ("headless", "no frontmatter at all\n"),
+        ("unclosed", "---\nname: unclosed\ndescription: x\n"),
+    ):
+        skill = tmp_path / name / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(text)
+    catalog = SkillCatalog({"project": tmp_path}, CapabilityRegistry().snapshot())
+
+    assert list(catalog.discover()) == ["good"]
+    reasons = {error.path.parent.name: error.reason for error in catalog.errors}
+    assert "未以 '---' 开头" in reasons["headless"]
+    assert "未在前 16KB 内闭合" in reasons["unclosed"]
 
 
 def test_higher_priority_source_wins_and_loser_is_diagnosable(tmp_path: Path) -> None:
@@ -154,8 +171,8 @@ def test_discovery_never_reads_past_frontmatter_limit(
     monkeypatch.setattr(Path, "open", bounded_open)
     catalog = SkillCatalog({"project": skill.parent}, CapabilityRegistry().snapshot())
 
-    with pytest.raises(SkillValidationError, match="exceeds 16KB"):
-        catalog.discover()
+    assert catalog.discover() == {}
+    assert "未在前 16KB 内闭合" in catalog.errors[0].reason
 
 
 @pytest.mark.parametrize("resource", ["C:/secret", r"C:\\secret", r"\\server\share", "guide\x7f.md", "guide\x85.md"])
