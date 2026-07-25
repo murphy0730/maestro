@@ -231,7 +231,11 @@ class SkillCatalog:
             try:
                 self._snapshot().require(name)
             except KeyError as error:
-                raise SkillValidationError(f"allowed-tools contains unknown capability: {requested}") from error
+                raise SkillValidationError(
+                    f"allowed-tools contains unknown capability: {requested}"
+                    "（本宿主未注册该能力；如为 Claude Code 技能常见的 Bash/WebFetch 等，"
+                    "需宿主先注册对应能力并登记别名）"
+                ) from error
             allowed.append(name)
         return SkillMetadata(
             name=frontmatter.name,

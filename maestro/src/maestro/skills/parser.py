@@ -26,16 +26,17 @@ RUNTIME_FIELD_ALIASES = {
     "disable-model-invocation": "disable_model_invocation",
 }
 RUNTIME_KNOWN_FIELDS = set(RuntimeSkillFrontmatter.model_fields) - {"extensions"}
+# Claude tool names mapped onto this host's capabilities.  Only map a name the
+# host actually registers: an alias pointing at nothing turns every skill that
+# declares it into a discovery failure, and hides why.  `Bash`, `PowerShell`,
+# `WebFetch` and `TodoWrite` have no counterpart here — a host that wants them
+# registers the capability and adds the alias with it.
 DEFAULT_TOOL_ALIASES = {
     "Read": "read_file",
     "Write": "write_file",
     "Edit": "edit_file",
-    "Bash": "bash",
-    "PowerShell": "powershell",
     "Glob": "glob",
     "Grep": "grep",
-    "WebFetch": "web_fetch",
-    "TodoWrite": "todo_write",
 }
 
 

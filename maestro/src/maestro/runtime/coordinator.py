@@ -565,7 +565,15 @@ class RunCoordinator:
             self._publish(run, "artifact.created", artifact.model_dump())
             return
         context_items.append(
-            ContextItem(key=f"capability:{name}", text=json.dumps(content, ensure_ascii=False, default=str))
+            ContextItem(
+                key=f"capability:{name}",
+                text=json.dumps(content, ensure_ascii=False, default=str),
+                # File contents, script stdout and MCP responses are external
+                # data, not instructions.  Skill bodies and artifacts are already
+                # fenced this way; capability results were the gap.
+                trust=Trust.UNTRUSTED,
+                source=f"capability:{name}",
+            )
         )
 
     async def _prepare_conversation(self, run: RunRecord) -> tuple[list[dict], ContextItem | None]:
@@ -815,10 +823,45 @@ class RunCoordinator:
 
     @staticmethod
     def _arguments_match_schema(arguments: dict[str, object], schema: dict[str, object]) -> bool:
+        """Check required keys and declared top-level types.
+
+        Deliberately shallow — nested schemas and unknown keys are left to each
+        executor, which already validates what it reads.  This only catches the
+        mistakes worth spending a turn to correct.
+        """
         if not schema or schema.get("type", "object") != "object":
             return not schema
         required = schema.get("required", [])
-        return isinstance(required, list) and all(isinstance(key, str) and key in arguments for key in required)
+        if not isinstance(required, list) or not all(
+            isinstance(key, str) and key in arguments for key in required
+        ):
+            return False
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            return True
+        return all(
+            RunCoordinator._value_matches_type(arguments[key], declared.get("type"))
+            for key, declared in properties.items()
+            if key in arguments and isinstance(declared, dict)
+        )
+
+    @staticmethod
+    def _value_matches_type(value: object, declared: object) -> bool:
+        if not isinstance(declared, str):
+            return True
+        if declared == "string":
+            return isinstance(value, str)
+        if declared == "integer":
+            return isinstance(value, int) and not isinstance(value, bool)
+        if declared == "number":
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if declared == "boolean":
+            return isinstance(value, bool)
+        if declared == "array":
+            return isinstance(value, list)
+        if declared == "object":
+            return isinstance(value, dict)
+        return True
 
     def _fail(self, run: RunRecord, reason: str) -> RunRecord:
         run = transition_run(run, RunStatus.FAILED, reason)

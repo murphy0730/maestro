@@ -121,7 +121,19 @@ def register_filesystem_capabilities(registry: CapabilityRegistry, workspace_roo
             scope = safe_join(root, relative) if relative else root.resolve()
         except UnsafePathError as error:
             return _failed(str(error))
-        candidates = [scope] if scope.is_file() else sorted(p for p in scope.rglob("*") if p.is_file())
+        base = root.resolve()
+        # `safe_join` only vetted the scope; each match still has to be checked,
+        # or a symlink inside the workspace would let grep read the file it
+        # points at outside.  `read_file` and `glob` already re-check this way.
+        candidates = (
+            [scope]
+            if scope.is_file()
+            else sorted(
+                path
+                for path in scope.rglob("*")
+                if path.is_file() and path.resolve().is_relative_to(base)
+            )
+        )
         hits: list[dict[str, object]] = []
         for path in candidates:
             try:

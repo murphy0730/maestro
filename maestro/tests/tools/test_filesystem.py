@@ -77,6 +77,33 @@ async def test_read_file_refuses_a_symlink_pointing_outside(
     assert "classified" not in str(result.content)
 
 
+async def test_grep_refuses_a_symlink_pointing_outside(
+    registry: CapabilityRegistry, workspace: Path, tmp_path: Path
+) -> None:
+    """grep re-checks every match, not just the scope it was pointed at."""
+    secret = tmp_path / "secret.txt"
+    secret.write_text("classified needle\n", "utf-8")
+    (workspace / "link.txt").symlink_to(secret)
+
+    result = await call(registry, "grep", pattern="needle")
+
+    assert result.status == "succeeded"
+    assert "classified" not in str(result.content)
+    assert all(hit["path"] != "link.txt" for hit in result.content["matches"])
+
+
+async def test_glob_refuses_a_symlink_pointing_outside(
+    registry: CapabilityRegistry, workspace: Path, tmp_path: Path
+) -> None:
+    secret = tmp_path / "secret.md"
+    secret.write_text("classified", "utf-8")
+    (workspace / "link.md").symlink_to(secret)
+
+    result = await call(registry, "glob", pattern="*.md")
+
+    assert "link.md" not in result.content["matches"]
+
+
 async def test_write_and_edit_are_high_risk_writes(registry: CapabilityRegistry) -> None:
     """The Policy Gate turns writes=True + HIGH into a human approval."""
     for name in ("write_file", "edit_file"):
