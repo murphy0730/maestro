@@ -12,7 +12,15 @@
 - 以本计划的 `maestro/src/maestro/extensions/` 模块、`ExtensionCatalogStore` 与 `/extension-catalog/*` 路由为准，**不再**新建 v1 提出的 `skillhub/`、`connectors/` 目录，也不实现 `/skillhub/*`、`/mcp/catalog` 路由与两段式 `prepare-install` + `install_token` 流程。
 - 用「安装时按固定 commit 重新下载并重新预检」替代 v1 的 `install_token` 绑定流：commit 固定 + 重新校验对「防止 Review 后包被替换」是等价且更简单的保证，不再引入一次性 Token 与临时包生命周期。
 
-继续沿用 v1 中**已经落地**的 MCP 本地管理（`MCPConfigStore`、`SettingsJsonStore`、`/mcp/servers` 系列）和 Skill 本地生命周期（`SkillStore`、`validate_skill_package`、信任模型）。v1 §11 的安全基线尚未完整落地，其中 §11.1 privileged local/admin 认证是本计划阶段 0 的阻断项，不能视为已有能力。
+继续沿用 MCP 本地管理（`MCPConfigStore`、`SettingsJsonStore`、`/mcp/servers` 系列）和 Skill 本地生命周期（`SkillStore`、`validate_skill_package`、信任模型）。
+
+> **2026-07-26 更正**：本段原文称上述 MCP 组件「已经在 v1 落地」，这是**错误**的。
+> Agent Runtime 重写（提交 `7f2d838`）删除了整个 `maestro/mcp/` 包与 `/mcp/servers`
+> 路由，此后 `runtime/mcp.py` 长期只是一个 45 行的注册钩子，没有任何传输实现。
+> MCP 传输、`MCPConfigStore` 与 `/mcp/servers` 是在 2026-07-26 才重新落地的
+> （stdio + tools，未含 resources / SSE / HTTP）。阅读本计划时请以代码为准。
+
+v1 §11 的安全基线尚未完整落地，其中 §11.1 privileged local/admin 认证是本计划阶段 0 的阻断项，不能视为已有能力。
 
 v1 文档保留为背景与已实现部分的说明；两者冲突时以本计划为准。
 

@@ -13,6 +13,8 @@ from maestro.runtime.events import EventPublisher
 from maestro.runtime.intent import IntentClassifier
 from maestro.runtime.journal import JsonlJournal
 from maestro.runtime.model import LLMRuntimeModel
+from maestro.foundation.mcp_config_store import MCPConfigStore
+from maestro.mcp.manager import MCPManager
 from maestro.runtime.mcp import MCPConnector
 from maestro.runtime.policy import PolicyGate
 from maestro.runtime.skills import SkillCatalog
@@ -38,6 +40,8 @@ class Platform:
     skill_catalog: SkillCatalog
     capabilities: CapabilityRegistry
     mcp: MCPConnector
+    mcp_manager: MCPManager
+    mcp_config: MCPConfigStore
     session_store: SessionStore
     skill_trust: SkillTrustStore
     _registered_skill_names: set[str] = field(default_factory=set)
@@ -114,6 +118,7 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         summary_store=session_store if settings.summary_enabled else None,
         summary_batch_messages=settings.summary_batch_messages,
     )
+    connector = MCPConnector(capabilities)
     platform = Platform(
         settings=settings,
         llm=llm,
@@ -123,7 +128,12 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         artifact_store=artifact_store,
         skill_catalog=skill_catalog,
         capabilities=capabilities,
-        mcp=MCPConnector(capabilities),
+        mcp=connector,
+        # Servers are started by the host after construction (see
+        # `api/app.py::lifespan`): connecting is async, and a slow or broken
+        # server must not be able to stop the Runtime from coming up.
+        mcp_manager=MCPManager(connector),
+        mcp_config=MCPConfigStore(),
         session_store=session_store,
         skill_trust=skill_trust,
     )

@@ -55,7 +55,9 @@ Every request becomes a persisted **Run**. `IntentClassifier` picks the initial 
 - **`runtime/intent.py` — `IntentClassifier`** selects FAST only when neither a deterministic signal nor a model complexity signal demands structure.
 - **`runtime/context.py`** — priority + trust-ranked context assembly with a char budget and a truncating summarizer.
 - **`runtime/journal.py` — `JsonlJournal`** is a per-process locked, fsynced JSONL journal; `runtime/recovery.py` refuses to resume a Run it cannot prove safe.
-- **`runtime/store.py`** — `RunStore` + content-addressed `ArtifactStore`; **`runtime/mcp.py`** — `MCPConnector` registers MCP capabilities post-startup; **`runtime/skills.py`** — `SkillCatalog` does read-only, bounded-metadata skill discovery.
+- **`runtime/store.py`** — `RunStore` + content-addressed `ArtifactStore`; **`runtime/mcp.py`** — `MCPConnector` is the governed registration boundary for MCP capabilities (transport-agnostic; see `mcp/` below); **`runtime/skills.py`** — `SkillCatalog` does read-only, bounded-metadata skill discovery.
+
+The agent loop speaks standard function calling: after each capability call the coordinator appends the assistant turn and a matching `role=tool` result to the conversation. A recoverable failure — executor exception, `status="failed"`, schema mismatch, undecodable arguments — is fed back to the model to correct and costs a step; only authorization decisions, ownership violations and budgets end a Run. A definitive write returns to the loop so the model can answer, rather than stranding the Run in `running_structured`.
 
 `bootstrap.py::build_platform()` is the composition root — it wires stores, registries, gate, classifier and coordinator into a `Platform`; both FastAPI (`main.py` / `api/app.py`) and the CLI use it. It registers **only** generic host primitives (see `tools/` below) — there is currently no domain capability in the tree. A host adds one by calling `platform.capabilities.register(...)` after `build_platform()` returns; do it before `refresh_skills()` so skills naming that tool in `allowed-tools` can still be discovered.
 
@@ -63,6 +65,7 @@ Every request becomes a persisted **Run**. `IntentClassifier` picks the initial 
 - `POST /runs` (202) — create and execute asynchronously; `GET /runs/{id}`; `GET /runs/{id}/stream` — resumable SSE.
 - `POST /runs/{id}/approvals/{approval_id}` — approve/reject by revision (stale revision ⇒ rejected); `POST /runs/{id}/cancel` — idempotent.
 - `/sessions` CRUD + `GET /sessions/{id}/messages`; `/artifacts` POST/GET.
+- `GET /mcp/servers` is read-only; `PUT|DELETE /mcp/servers/{name}` and `POST /mcp/servers/{name}/reconnect` are host administration and require the same privileged token as the skill APIs.
 - `GET /skills`, `POST /skills/validate` are read-only. **Mutating skill APIs** (`POST /skills/import`, `POST|DELETE /skills/{name}/trust`, `DELETE /skills/{name}`) are host administration, not model capabilities: they require `Authorization: Bearer <PRIVILEGED_API_TOKEN>` via `api/security.py::require_privileged` and return **403**, never 401.
 
 Shapes in `docs/api-contract/agent-runtime-v1.md`.
@@ -89,7 +92,16 @@ One broken package never hides the others: `discover()` collects per-skill failu
 `tools/sandbox.py` is **containment, not a security boundary** — the approval and the hash binding are the real gates. It always spawns via `create_subprocess_exec` (never a shell) into a throwaway workspace with an allowlisted environment (no API keys inherited), wall-clock and output caps, and copies artifacts out before deleting the workspace. macOS adds a `sandbox-exec` profile; Windows gets the baseline only. `SandboxResult.isolation` reports what actually took effect — do not claim more.
 
 ### Host capabilities (`tools/`)
-`tools/` holds generic primitives a skill's `allowed-tools` can name — `read_file`/`glob`/`grep` (read-only, fast path) and `write_file`/`edit_file` (`writes=True, risk=HIGH`, so they require approval). All are confined to `config.py::workspace_root` via `runtime/paths.py::safe_join`, the single path-confinement helper shared with skill resources. They live outside `runtime/` and are registered from `bootstrap.py`, keeping the Runtime core capability-agnostic. These are the only capabilities a default platform has; `test_b1_invariants.py::GENERIC_PRIMITIVES` is the allowlist that keeps it that way — add a primitive there, never a domain tool.
+`tools/` holds generic primitives a skill's `allowed-tools` can name — `read_file`/`glob`/`grep` (read-only, fast path), `write_file`/`edit_file` (`writes=True, risk=HIGH`, so they require approval), and `read_artifact`, which dereferences a result too large to inline. All filesystem paths are confined to `config.py::workspace_root` via `runtime/paths.py::safe_join`, the single path-confinement helper shared with skill resources; `glob` and `grep` additionally re-check every match, since `safe_join` only vets the scope they were pointed at. They live outside `runtime/` and are registered from `bootstrap.py`, keeping the Runtime core capability-agnostic. These are the only capabilities a default platform has; `test_b1_invariants.py::GENERIC_PRIMITIVES` is the allowlist that keeps it that way — add a primitive there, never a domain tool.
+
+`DEFAULT_TOOL_ALIASES` (`skills/parser.py`) maps Claude's tool names onto these. Only map a name the host actually registers — an alias pointing at nothing turns every skill declaring it into a discovery failure. `Bash`, `PowerShell`, `WebFetch` and `TodoWrite` have no counterpart here by design.
+
+### MCP (`mcp/`)
+`mcp/` is the stdio client: `transport.py` (newline-delimited JSON-RPC over a child process), `client.py` (protocol `2024-11-05` — `initialize`, `notifications/initialized`, `tools/list`, `tools/call`), `manager.py` (lifecycle + publication). Resources, SSE and HTTP are **not** implemented; don't document them as if they were.
+
+Two properties are load-bearing. The child inherits only `PATH`/`LANG`/`LC_ALL`/`TZ`/`HOME`/`TMPDIR` plus its own configured `env`, so `LLM_API_KEY` never reaches an MCP server; and stderr is drained continuously, because a server that logs freely will otherwise fill the pipe and hang. Every discovered tool registers as `writes=True, risk=HIGH` — the Runtime cannot know what a remote tool touches, so each call takes a human approval. Remote metadata supplies the schema and description only, and can never shadow a same-named TOOL/SKILL (`MCPCapabilityConflict`).
+
+Servers are configured under the `mcp_servers` key of `<data root>/settings.json` (`foundation/mcp_config_store.py`), never via env vars, and connected from `api/app.py::lifespan` — after `build_platform()`, so a slow or broken server cannot stop the Runtime coming up. `api/routes/mcp.py` mirrors the skills routes: reads are open, mutations need `PRIVILEGED_API_TOKEN` and answer 403.
 
 ### Degraded mode
 With no `LLM_API_KEY`, Runs can still be created, resumed, cancelled, approved and audited; only the model's answers degrade. The test suite never touches the network.

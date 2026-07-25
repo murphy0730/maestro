@@ -43,9 +43,43 @@ data: {"final_text":"..."}
 客户端以 `Last-Event-ID` 恢复，服务器先订阅实时事件、再稳定重放其后的 Journal 事件，因此不会有 replay/live 间隙或重复。公开事件包括：
 `run.created`、`run.path_selected`、`run.path_upgraded`、`run.waiting_approval`、`run.reconciling`、`run.completed`、`run.failed`、`run.cancelled`、`step.started`、`step.succeeded`、`step.failed`、`approval.requested`、`approval.expired`、`approval.resolved`、`artifact.created`、`token.delta`。
 
+`step.*` 的 `data` 结构：`step.started` 为 `{step_id, idempotency_key}`；`step.succeeded` 为 `{name, status}`；`step.failed` 为 `{name, status, error}`（写路径为 `{step_id, status}`）。`artifact.created` 为 `ArtifactRef`，即 `{artifact_id, sha256, media_type, bytes}`。只读能力只在完成时发事件，因此不会出现 `step.started`。
+
 ## Extensions
 
 宿主可在启动后通过 `Platform.capabilities.register(...)` 注册通用 Tool 能力；`Platform.mcp.register(...)` 注册 MCP transport 的本地能力描述与执行器。风险、写入与幂等元数据由本地注册者提供，不能由远端描述降低。Skill 发现会在每个 Run 意图判断时读取当前能力注册表。
+
+## Host primitives
+
+默认平台注册以下通用原语，Skill 的 `allowed-tools` 可以直接命名它们（Claude 名称别名见 `skills/parser.py::DEFAULT_TOOL_ALIASES`）。全部路径参数经 `runtime/paths.py::safe_join` 限制在 `workspace_root` 内：
+
+| capability | 别名 | 参数 | writes / risk |
+| --- | --- | --- | --- |
+| `read_file` | `Read` | `path`，可选 `offset`/`limit` | 否 / low |
+| `glob` | `Glob` | `pattern` | 否 / low |
+| `grep` | `Grep` | `pattern`，可选 `path` | 否 / low |
+| `write_file` | `Write` | `path`, `content` | 是 / high |
+| `edit_file` | `Edit` | `path`, `old`, `new`（`old` 必须唯一） | 是 / high |
+| `read_artifact` | — | `artifact_id` | 否 / low |
+
+`write_file` 与 `edit_file` 是 `writes=true, risk=high`，因此**必然**经 Policy Gate 产生审批记录。`read_artifact` 用于取回超过内联阈值而被存为产物的能力结果，且只能读取当前 Run 见过或作为输入传入的产物，否则 Run 以 `artifact_not_visible` 失败。
+
+`Bash`、`PowerShell`、`WebFetch`、`TodoWrite` **没有**对应实现：宿主若需要，须自行注册能力并登记别名。声明了未注册能力的 Skill 会作为坏包出现在 `GET /skills` 的 `errors` 中。
+
+## MCP
+
+MCP 工具经 stdio 传输接入（协议版本 `2024-11-05`，实现 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`；未实现 resources、SSE 与 HTTP）。发现到的工具以 `mcp__{server}__{tool}` 注册为 `CapabilityKind.MCP`。
+
+风险姿态在本地决定：Runtime 无法知道任意远端工具会触及什么，因此一律注册为 `writes=true, risk=high`，每次调用都要人工审批。远端描述只提供参数 schema 与说明，不能降低这一判定，也不能顶替同名的 TOOL/SKILL 能力。
+
+服务器配置存放在 `<数据根>/settings.json` 的 `mcp_servers` 键下，**不经环境变量**。子进程只继承 `PATH`/`LANG`/`LC_ALL`/`TZ`/`HOME`/`TMPDIR` 与该服务器配置中显式声明的 `env`，宿主的 `LLM_API_KEY` 不会泄漏给 MCP 服务器。
+
+- `GET /mcp/servers`：只读，列出配置、连接状态与已发布的能力名；
+- `PUT /mcp/servers/{name}`：新增或更新并立即重连；
+- `DELETE /mcp/servers/{name}`：删除配置并注销其能力；
+- `POST /mcp/servers/{name}/reconnect`：按现有配置重连。
+
+后三者与 Skill 包管理同属宿主管理接口，要求 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`，无效或缺失凭证返回 403。响应中的 `env_keys` 只回显键名，不回显值。连接失败通过 `status: "error"` 与 `error` 字段上报，不会让启动或请求失败。
 
 ## Skills
 

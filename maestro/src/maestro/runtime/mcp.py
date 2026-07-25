@@ -1,15 +1,27 @@
 """Generic local MCP capability registration boundary.
 
-Transport clients may call this adapter after discovery; remote metadata never
-sets write/risk policy on its own.
+Transport clients call this adapter after discovery; remote metadata never sets
+write/risk policy on its own.  The adapter is deliberately transport-agnostic —
+it takes an executor and knows nothing about how the call travels.
 """
 
 from collections.abc import Awaitable, Callable
 
-from maestro.runtime.capabilities import CapabilityCall, CapabilityKind, CapabilityRegistry, CapabilityResult, CapabilitySpec, RiskLevel
-
+from maestro.runtime.capabilities import (
+    CapabilityCall,
+    CapabilityKind,
+    CapabilityRegistry,
+    CapabilityResult,
+    CapabilitySpec,
+    RiskLevel,
+)
+from maestro.runtime.models import RuntimeErrorKind
 
 MCPExecutor = Callable[[str, dict[str, object]], Awaitable[object]]
+
+
+class MCPCapabilityConflict(ValueError):
+    """A remote tool tried to take a name an operational capability already holds."""
 
 
 class MCPConnector:
@@ -30,9 +42,20 @@ class MCPConnector:
     ) -> str:
         """Register locally governed MCP metadata and its transport executor."""
         name = f"mcp__{server_name}__{tool_name}"
+        self._refuse_foreign_owner(name)
 
         async def execute(call: CapabilityCall, _key: str | None) -> CapabilityResult:
-            return CapabilityResult(status="succeeded", content=await executor(tool_name, call.arguments))
+            # A transport or remote failure is this capability failing, not the
+            # Runtime crashing: report it as data so the Run can react.
+            try:
+                content = await executor(tool_name, call.arguments)
+            except Exception as error:  # noqa: BLE001 — boundary to an external process
+                return CapabilityResult(
+                    status="failed",
+                    error_kind=RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE,
+                    error_message=f"{type(error).__name__}: {error}",
+                )
+            return CapabilityResult(status="succeeded", content=content)
 
         self._capabilities.register(
             CapabilitySpec(
@@ -43,3 +66,23 @@ class MCPConnector:
             replace=True,
         )
         return name
+
+    def unregister(self, server_name: str, tool_name: str) -> bool:
+        return self._capabilities.unregister(
+            f"mcp__{server_name}__{tool_name}", kind=CapabilityKind.MCP
+        )
+
+    def _refuse_foreign_owner(self, name: str) -> None:
+        """Mirror the Skill rule: a remote tool may only replace its own entry.
+
+        Registration is `replace=True` so a reconnect can refresh metadata, which
+        would otherwise let a server called `read` shadow the host's own tool.
+        """
+        try:
+            existing = self._capabilities.require(name)
+        except KeyError:
+            return
+        if existing.kind is not CapabilityKind.MCP:
+            raise MCPCapabilityConflict(
+                f"capability {name} is already registered as {existing.kind.value}"
+            )
