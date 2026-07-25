@@ -125,6 +125,23 @@ export async function apiPost<T>(
   return res.json() as Promise<T>;
 }
 
+/** JSON PUT. Throws {@link ApiError} on non-2xx. */
+export async function apiPut<T>(
+  path: string,
+  body: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+  if (!res.ok) throw await toApiError(res);
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
 /** JSON PATCH. Throws {@link ApiError} on non-2xx. */
 export async function apiPatch<T>(
   path: string,

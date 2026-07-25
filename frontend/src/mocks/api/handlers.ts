@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw';
 import { API_BASE } from '@/api/client';
 import type { RunSnapshot } from '@/types/api/runs';
 import type { SessionMessage, SessionSummary } from '@/api/sessions';
-import type { SkillMeta } from '@/types';
+import type { McpServer, SkillMeta } from '@/types';
 import { sseResponse } from './sse';
 
 const url = (path: string) => API_BASE.startsWith('http') ? `${API_BASE}${path}` : `*${API_BASE}${path}`;
@@ -11,6 +11,7 @@ const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString
 let sessions: SessionSummary[] = [{ session_id: 'mock-default', title: '离线演示会话', updated_at: now(), message_count: 0, active_run_id: null }];
 const messages = new Map<string, SessionMessage[]>([['mock-default', []]]);
 const runs = new Map<string, RunSnapshot>();
+let mcpServers: McpServer[] = [];
 let skills: SkillMeta[] = [{ name: 'offline-manufacturing', display_name: '离线制造助手', description: 'MSW 离线模式下用于验证技能选择与 run 提交。', user_invocable: true, file_count: 1, bytes: 512, added_at: now(), package_sha256: 'mock-sha256', compatibility_status: 'ready' }];
 const artifacts = new Map<string, File>();
 
@@ -26,6 +27,12 @@ export const handlers = [
   http.post(url('/skills/:name/trust'), ({ params }) => HttpResponse.json({ level: 'user_trusted', valid: true, package_sha256: `mock-${String(params.name)}` })),
   http.delete(url('/skills/:name/trust'), ({ params }) => HttpResponse.json({ level: 'untrusted', valid: true, package_sha256: `mock-${String(params.name)}` })),
   http.delete(url('/skills/:name'), ({ params }) => { skills = skills.filter((item) => item.name !== params.name); return new HttpResponse(null, { status: 204 }); }),
+
+  // MCP servers — 离线演示下的 stdio 连接器目录。
+  http.get(url('/mcp/servers'), () => HttpResponse.json({ servers: mcpServers })),
+  http.put(url('/mcp/servers/:name'), async ({ request }) => { const body = await request.json() as { name: string; command: string; args: string[]; env: Record<string, string>; enabled: boolean }; const server = { name: body.name, command: body.command, args: body.args ?? [], env_keys: Object.keys(body.env ?? {}).sort(), enabled: body.enabled ?? true, status: 'connected' as const, error: '', tools: [{ name: 'echo', capability: `mcp__${body.name}__echo`, description: 'MSW 离线模式下的示例工具' }] }; mcpServers = [server, ...mcpServers.filter((item) => item.name !== server.name)]; return HttpResponse.json(server); }),
+  http.delete(url('/mcp/servers/:name'), ({ params }) => { const before = mcpServers.length; mcpServers = mcpServers.filter((item) => item.name !== params.name); return before === mcpServers.length ? new HttpResponse(null, { status: 404 }) : new HttpResponse(null, { status: 204 }); }),
+  http.post(url('/mcp/servers/:name/reconnect'), ({ params }) => { const server = mcpServers.find((item) => item.name === params.name); return server ? HttpResponse.json(server) : new HttpResponse(null, { status: 404 }); }),
   http.post(url('/artifacts'), async ({ request }) => { const form = await request.formData(); const file = form.get('file') as File; const artifactId = id('mock-artifact'); artifacts.set(artifactId, file); return HttpResponse.json({ artifact_id: artifactId, sha256: artifactId, media_type: file.type || 'application/octet-stream', bytes: file.size }); }),
   http.get(url('/artifacts/:artifactId'), ({ params }) => { const file = artifacts.get(String(params.artifactId)); return file ? new HttpResponse(file, { headers: { 'Content-Type': file.type || 'application/octet-stream' } }) : HttpResponse.json({ detail: { code: 'artifact_not_found', message: 'artifact not found' } }, { status: 404 }); }),
   http.post(url('/runs'), async ({ request }) => { const body = await request.json() as { message: string; session_id: string; source?: 'chat' | 'expert' | 'event' | 'resume'; skill_names?: string[]; artifact_ids?: string[] }; const run: RunSnapshot = { run_id: id('mock-run'), session_id: body.session_id, objective: body.message, path: 'fast', status: 'running_fast', steps: {}, pending_approvals: [], revision: 1, input_artifact_ids: body.artifact_ids ?? [], intent: { requested_skills: body.skill_names ?? [], source: body.source ?? 'chat' } }; runs.set(run.run_id, run); const history = messages.get(body.session_id) ?? []; history.push({ role: 'user', content: body.message, ts: now(), skill_names: body.skill_names, artifact_ids: body.artifact_ids, run_id: run.run_id }); messages.set(body.session_id, history); const session = sessions.find((item) => item.session_id === body.session_id); if (session) Object.assign(session, { active_run_id: run.run_id, message_count: history.length, updated_at: now() }); return HttpResponse.json(run, { status: 202 }); }),
