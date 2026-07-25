@@ -1,14 +1,12 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Maestro design tokens — Linear/Vercel restyle.
- * The CSS custom properties live in src/index.css (light = :root default,
- * dark = [data-theme='dark'] overrides); this file mirrors them as semantic
- * Tailwind utilities for Runtime UI semantic tokens.
+ * Maestro v2 deep-field design tokens. Raw values live only in index.css;
+ * this file mirrors semantic names for Runtime UI utilities.
  *
  * Every color references its CSS var so hues can differ per theme — no
  * raw hex here. Source of truth for the raw values is index.css, which in
- * turn tracks docs/design/maestro-design-system-v1.html.
+ * turn tracks docs/design/maestro-design-system-v2.html.
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -30,6 +28,10 @@ const config: Config = {
         'text-disabled': 'var(--text-disabled)',
         'text-on-color': 'var(--text-on-color)',
         'text-inverse': 'var(--text-inverse)',
+        // ink colours for solid status fills (amber/green/red buttons)
+        'on-success': 'var(--on-success)',
+        'on-warning': 'var(--on-warning)',
+        'on-danger': 'var(--on-danger)',
 
         // ---- Borders / hairlines ----
         'border-subtle': 'var(--border-subtle)',
@@ -72,6 +74,18 @@ const config: Config = {
           fg: 'var(--accent-fg)',
           bg: 'var(--accent-bg)',
           border: 'var(--accent-border)',
+        },
+        path: {
+          controlled: 'var(--path-controlled)',
+          'controlled-bg': 'var(--path-controlled-bg)',
+        },
+        mode: {
+          planning: 'var(--mode-planning)',
+          'planning-bg': 'var(--mode-planning-bg)',
+          scheduling: 'var(--mode-scheduling)',
+          'scheduling-bg': 'var(--mode-scheduling-bg)',
+          query: 'var(--mode-query)',
+          'query-bg': 'var(--mode-query-bg)',
         },
 
         // ============================================================
@@ -150,9 +164,10 @@ const config: Config = {
         '12': '64px',
         '13': '80px',
         // ---- Layout dimensions ----
-        sidebar: '228px',
-        'context-panel': '400px',
-        header: '56px',
+        sidebar: '264px',
+        'sidebar-rail': '56px',
+        'context-panel': '308px',
+        header: '50px',
         composer: '88px',
         'max-readable': '720px',
         // standard control height (buttons, inputs)
@@ -198,14 +213,14 @@ const config: Config = {
       },
 
       transitionTimingFunction: {
-        out: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        out: 'cubic-bezier(.2,.8,.2,1)',
         'in-out': 'cubic-bezier(0.65, 0, 0.35, 1)',
       },
 
       transitionDuration: {
-        fast: '120ms',
+        fast: '150ms',
         normal: '200ms',
-        slow: '320ms',
+        slow: '280ms',
       },
     },
   },

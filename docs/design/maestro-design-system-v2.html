@@ -104,7 +104,7 @@ h1,h2,h3,h4 { letter-spacing:-.01em; }
   background:var(--bg2); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
   border-bottom:1px solid var(--line);
 }
-.doc-nav .logo { font-weight:700; letter-spacing:.22em; font-size:13px; }
+.doc-nav .logo { font-weight:700; letter-spacing:.22em; font-size:13px; display:flex; align-items:center; gap:9px; }
 .doc-nav .logo i { color:var(--cyan); font-style:normal; }
 .doc-nav a { color:var(--tx3); text-decoration:none; font-size:12px; transition:color .18s; }
 .doc-nav a:hover { color:var(--cyan); }
@@ -196,8 +196,8 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
 
 .btn {
-  cursor:pointer; font:inherit; font-size:13px; font-weight:500;
-  padding:8px 18px; border-radius:6px; border:1px solid transparent;
+  cursor:pointer; font:inherit; font-size:12px; font-weight:500;
+  padding:6px 14px; border-radius:6px; border:1px solid transparent;
   display:inline-flex; align-items:center; gap:8px;
   transition:all .18s cubic-bezier(.2,.8,.2,1);
 }
@@ -213,7 +213,6 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 .b-danger { background:transparent; border-color:var(--red); color:var(--red); }
 .b-danger:hover { background:var(--red-dim); }
 .b-disabled { opacity:.38; pointer-events:none; }
-.chamfer { clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px); border-radius:0; }
 
 .chip {
   display:inline-flex; align-items:center; gap:7px;
@@ -241,19 +240,19 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 .bdg-o { color:var(--orange); border-color:color-mix(in srgb,var(--orange) 35%,transparent); background:var(--orange-dim); }
 .bdg-t { color:var(--teal); border-color:color-mix(in srgb,var(--teal) 35%,transparent); background:var(--teal-dim); }
 
-/* 模式分段控件（自动/排产/调度/查询） */
-.seg { display:inline-flex; background:var(--bg1); border:1px solid var(--line); border-radius:9px; padding:3px; gap:2px; }
-.seg button {
-  border:none; background:none; cursor:pointer; font:inherit; font-size:11px; font-weight:500;
-  color:var(--tx3); padding:4px 13px; border-radius:6px; transition:all .16s;
-  display:inline-flex; align-items:center; gap:6px;
+/* 模式下拉选择器（自动/排产/调度/查询） */
+.mode-sel {
+  appearance:none; -webkit-appearance:none; font:inherit; font-size:11px; cursor:pointer;
+  color:var(--tx2); background-color:var(--bg1); border:1px solid var(--line); border-radius:8px; padding:4px 26px 4px 10px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2396A2BA' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat:no-repeat; background-position:right 9px center; transition:all .16s;
 }
-.seg button::before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.5; }
-.seg button:hover { color:var(--tx1); }
-.seg button.on[data-m="auto"] { background:var(--cyan-dim); color:var(--cyan); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--cyan) 35%,transparent); }
-.seg button.on[data-m="plan"] { background:var(--blue-dim); color:var(--blue); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--blue) 35%,transparent); }
-.seg button.on[data-m="sched"] { background:var(--orange-dim); color:var(--orange); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--orange) 35%,transparent); }
-.seg button.on[data-m="query"] { background:var(--teal-dim); color:var(--teal); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--teal) 35%,transparent); }
+.mode-sel:hover { border-color:var(--line2); color:var(--tx1); }
+.mode-sel:focus { outline:none; border-color:var(--cyan); }
+.mode-sel[data-m="auto"] { color:var(--cyan); border-color:color-mix(in srgb,var(--cyan) 35%,transparent); background-color:var(--cyan-dim); }
+.mode-sel[data-m="plan"] { color:var(--blue); border-color:color-mix(in srgb,var(--blue) 35%,transparent); background-color:var(--blue-dim); }
+.mode-sel[data-m="sched"] { color:var(--orange); border-color:color-mix(in srgb,var(--orange) 35%,transparent); background-color:var(--orange-dim); }
+.mode-sel[data-m="query"] { color:var(--teal); border-color:color-mix(in srgb,var(--teal) 35%,transparent); background-color:var(--teal-dim); }
 
 /* 技能选择弹层 */
 .skp {
@@ -345,17 +344,35 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   width:56px; flex:none; background:var(--bg1); border-right:1px solid var(--line);
   display:flex; flex-direction:column; align-items:center; padding:14px 0; gap:6px;
 }
-.f-rail .rlogo {
-  width:32px; height:32px; margin-bottom:12px; display:grid; place-items:center;
-  background:linear-gradient(140deg,var(--cyan),var(--violet)); color:var(--cyan-ink);
-  font-weight:700; font-size:15px; border-radius:9px;
-  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
-}
 .ric { width:38px; height:38px; border-radius:9px; display:grid; place-items:center; color:var(--tx3); cursor:pointer; position:relative; transition:all .16s; border:none; background:none; }
 .ric:hover { color:var(--tx1); background:var(--bg3); }
 .ric.on { color:var(--cyan); background:var(--cyan-dim); }
 .ric.on::before { content:""; position:absolute; left:-9px; top:9px; bottom:9px; width:2px; background:var(--cyan); box-shadow:var(--glow-cyan); }
 .f-rail .sp { flex:1; }
+
+/* 会话侧栏（展开态）与品牌标识 */
+.lm { display:inline-flex; line-height:0; }
+.f-side { width:264px; flex:none; background:var(--bg1); border-right:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+.sd-top { display:flex; align-items:center; gap:9px; padding:13px 14px 10px; }
+.sd-word { font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; letter-spacing:.22em; color:var(--tx1); }
+.sd-fold { margin-left:auto; width:24px; height:24px; display:grid; place-items:center; color:var(--tx3); background:none; border:none; cursor:pointer; border-radius:6px; transition:all .14s; }
+.sd-fold:hover { color:var(--cyan); background:var(--bg3); }
+.sd-new { margin:2px 12px 10px; padding:9px 14px; background:var(--bg2); border:1px solid var(--line); border-radius:8px; color:var(--tx1); font:inherit; font-size:12.5px; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all .18s; }
+.sd-new:hover { border-color:var(--cyan); color:var(--cyan); box-shadow:0 0 0 1px var(--cyan),var(--glow-cyan); }
+.sd-search { padding:0 12px 8px; }
+.sd-search .inp { width:100%; min-width:0; padding:7px 12px; font-size:12px; }
+.sd-list { flex:1; overflow:hidden; padding:0 8px; }
+.sd-bot { border-top:1px solid var(--line); padding:8px; }
+.brow { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; color:var(--tx2); font-size:12px; cursor:pointer; transition:all .14s; }
+.brow:hover { background:var(--bg3); color:var(--tx1); }
+/* 侧栏底部用户区：头像 + 姓名，设置图标在其右侧（右下角） */
+.sd-user { display:flex; align-items:center; gap:10px; margin-top:4px; padding:8px 8px 2px; border-top:1px solid var(--line); }
+.sd-user .nm { flex:1; min-width:0; font-size:12px; font-weight:500; color:var(--tx1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sd-set { width:28px; height:28px; flex:none; display:grid; place-items:center; color:var(--tx3); background:none; border:none; cursor:pointer; border-radius:7px; transition:all .14s; }
+.sd-set:hover { color:var(--cyan); background:var(--bg3); }
+.u-av { width:28px; height:28px; flex:none; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:600; color:#fff; background:linear-gradient(135deg,var(--cyan),var(--violet)); box-shadow:0 0 0 1px color-mix(in srgb,var(--cyan) 45%,transparent); }
+.trc { width:20px; height:20px; display:grid; place-items:center; color:var(--tx3); background:none; border:none; cursor:pointer; border-radius:5px; transition:all .14s; }
+.trc:hover { color:var(--cyan); background:var(--bg3); }
 
 .f-main { flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg0); position:relative; }
 .f-main::before { content:""; position:absolute; inset:0; background:var(--aurora); pointer-events:none; }
@@ -370,17 +387,20 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 .f-chat { flex:1; overflow:hidden; padding:22px 26px; position:relative; z-index:1; }
 .f-chat .col { max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
 
+.m-user-row { display:flex; justify-content:flex-end; align-items:flex-start; gap:10px; }
+.m-user-row .u-av { width:24px; height:24px; font-size:10px; margin-top:1px; }
 .m-user {
-  align-self:flex-end; max-width:82%;
+  max-width:82%;
   background:linear-gradient(160deg,var(--cyan-dim),transparent 70%),var(--bg2);
   border:1px solid color-mix(in srgb,var(--cyan) 25%,transparent);
   border-radius:12px 12px 4px 12px; padding:10px 14px; color:var(--tx1);
 }
 .m-sys { display:flex; gap:10px; align-items:flex-start; }
 .m-sys .av {
-  width:24px; height:24px; flex:none; margin-top:2px; border-radius:7px;
-  background:linear-gradient(140deg,var(--cyan),var(--violet));
-  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
+  width:24px; height:24px; flex:none; margin-top:1px; display:grid; place-items:center;
+  border-radius:8px; background:var(--cyan-dim); border:1px solid color-mix(in srgb,var(--cyan) 35%,transparent);
+  color:var(--cyan); font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:700; letter-spacing:.04em;
+  box-shadow:var(--glow-cyan);
 }
 .m-sys .bd { color:var(--tx1); min-width:0; }
 .m-sys .bd p { margin-bottom:6px; }
@@ -390,15 +410,6 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   display:flex; align-items:center; gap:8px; margin-bottom:8px;
   font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--tx3); letter-spacing:.06em;
 }
-.obj {
-  position:relative; border:1px solid var(--line); border-radius:12px;
-  background:var(--bg2); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
-  padding:14px 16px;
-}
-.obj .oh { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
-.obj .ol { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; letter-spacing:.16em; color:var(--tx3); text-transform:uppercase; }
-.obj .ot { font-size:14px; font-weight:500; margin-bottom:6px; }
-.obj .om { font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--tx3); display:flex; gap:14px; }
 .upg {
   border-left:2px solid var(--violet); background:var(--violet-dim);
   padding:8px 12px; border-radius:0 8px 8px 0; font-size:12px; color:var(--tx2);
@@ -420,9 +431,10 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 .send {
   width:34px; height:34px; border:none; cursor:pointer;
   background:var(--cyan); color:var(--cyan-ink); display:grid; place-items:center;
-  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
-  box-shadow:var(--glow-cyan); transition:filter .16s;
+  border-radius:8px;
+  box-shadow:var(--glow-cyan); transition:all .18s cubic-bezier(.2,.8,.2,1);
 }
+.send:active { transform:translateY(1px); }
 .send:hover { filter:brightness(1.15); }
 .send.stop { background:var(--red); color:#fff; box-shadow:0 0 16px rgba(255,100,115,.4); }
 
@@ -432,9 +444,50 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 }
 .tr-sec { padding:14px 16px; border-bottom:1px solid var(--line); }
 .tr-h { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; letter-spacing:.16em; color:var(--tx3); text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; }
-.tr-runid { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--cyan); }
 .tr-ev { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--tx3); line-height:1.9; }
 .tr-ev b { color:var(--tx2); font-weight:400; }
+
+/* 设置模态（侧栏左下「设置」→ 居中弹窗） */
+.modal-mask {
+  position:absolute; inset:0; z-index:5; display:grid; place-items:center;
+  background:rgba(3,5,11,.56); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px);
+}
+.settings {
+  width:640px; max-width:94%; height:432px; display:flex; overflow:hidden;
+  border:1px solid var(--line2); border-radius:14px;
+  background:var(--bg2); backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
+  box-shadow:var(--shadow-pop);
+}
+.st-menu {
+  width:172px; flex:none; background:var(--bg1); border-right:1px solid var(--line);
+  padding:14px 8px 10px; display:flex; flex-direction:column; gap:2px;
+}
+.st-mlab {
+  font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600;
+  letter-spacing:.16em; color:var(--tx3); text-transform:uppercase; padding:0 10px 10px;
+}
+.st-item {
+  display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:8px;
+  color:var(--tx2); font-size:12.5px; cursor:pointer; transition:all .14s;
+}
+.st-item:hover { background:var(--bg3); color:var(--tx1); }
+.st-item.on { background:var(--cyan-dim); color:var(--cyan); }
+.st-item .n { margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:9.5px; color:var(--amber); }
+.st-ver { margin-top:auto; padding:4px 10px 0; font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:.12em; color:var(--tx3); }
+.st-pane { flex:1; min-width:0; display:flex; flex-direction:column; }
+.st-ph { height:48px; flex:none; display:flex; align-items:center; gap:10px; padding:0 16px; border-bottom:1px solid var(--line); }
+.st-ph .t { font-size:13.5px; font-weight:500; }
+.st-pb { flex:1; overflow:hidden; padding:2px 18px 12px; }
+.set-g {
+  font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600;
+  letter-spacing:.16em; color:var(--tx3); text-transform:uppercase; margin:14px 0 2px;
+}
+.set-row { display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--line); }
+.set-row:last-child { border-bottom:none; }
+.set-row .si { flex:1; min-width:0; }
+.set-row .si .t { font-size:13px; font-weight:500; color:var(--tx1); }
+.set-row .si .d { font-size:11.5px; color:var(--tx3); margin-top:1px; }
+.set-row .mode-sel { min-width:0; }
 
 /* 空状态 */
 .empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; position:relative; z-index:1; text-align:center; }
@@ -443,18 +496,16 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 .sugg { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px; }
 
 /* 会话抽屉 */
-.sess { width:288px; flex:none; border-right:1px solid var(--line); background:var(--bg1); display:flex; flex-direction:column; }
-.sess .sh { padding:14px 14px 10px; display:flex; align-items:center; gap:8px; }
-.sess .list { flex:1; overflow:hidden; padding:4px 8px; }
-.srow { position:relative; padding:9px 10px; border-radius:9px; cursor:pointer; transition:background .15s; }
+.srow { position:relative; display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:9px; cursor:pointer; transition:background .15s; }
 .srow:hover { background:var(--bg3); }
 .srow.on { background:var(--bg3); }
-.srow.on::before { content:""; position:absolute; left:-8px; top:10px; bottom:10px; width:2px; background:var(--cyan); box-shadow:var(--glow-cyan); }
-.srow .st2 { font-size:12.5px; font-weight:500; color:var(--tx1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.srow .sm { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--tx3); margin-top:2px; display:flex; gap:8px; }
-.srow .acts { position:absolute; right:8px; top:9px; display:none; gap:4px; }
+.srow.on::before { content:""; position:absolute; left:-8px; top:9px; bottom:9px; width:2px; background:var(--cyan); box-shadow:var(--glow-cyan); }
+.srow .dt { width:6px; height:6px; border-radius:50%; flex:none; }
+.srow .st2 { flex:1; min-width:0; font-size:12.5px; font-weight:500; color:var(--tx1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.srow .sm { flex:none; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--tx3); }
+.srow .acts { position:absolute; right:6px; top:50%; transform:translateY(-50%); display:none; gap:3px; background:var(--bg3); border:1px solid var(--line2); border-radius:7px; padding:2px; }
 .srow:hover .acts { display:flex; }
-.srow .acts span { color:var(--tx3); font-size:11px; padding:2px 5px; border-radius:5px; }
+.srow .acts span { color:var(--tx3); font-size:10.5px; padding:2px 6px; border-radius:5px; }
 .srow .acts span:hover { color:var(--cyan); background:var(--bg1); }
 
 /* 技能卡 */
@@ -479,7 +530,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 }
 .splash::before { content:""; position:absolute; inset:0; background:var(--aurora); }
 .splash > * { position:relative; }
-.splash .sl { width:40px; height:40px; display:grid; place-items:center; font-weight:700; font-size:19px; color:var(--cyan-ink); background:linear-gradient(140deg,var(--cyan),var(--violet)); clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px); }
+.splash .sl { line-height:0; }
 .splash .sn { font-family:'JetBrains Mono',monospace; letter-spacing:.34em; font-size:12px; color:var(--tx1); }
 .splash .st3 { font-size:11px; color:var(--tx3); }
 .prog { width:150px; height:2px; background:var(--bg3); border-radius:2px; overflow:hidden; }
@@ -507,8 +558,10 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="brand-g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" style="stop-color:var(--cyan)"/><stop offset="1" style="stop-color:var(--violet)"/></linearGradient></defs></svg>
+
 <nav class="doc-nav">
-  <div class="logo">MAESTRO<i>·DS·v2</i></div>
+  <div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg><span>MAESTRO<i>·DS·v2</i></span></div>
   <a href="#concept">概念</a>
   <a href="#color">色彩</a>
   <a href="#type">字体</a>
@@ -546,9 +599,9 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
     <tr><th style="width:180px">原则</th><th>含义</th><th style="width:340px">界面体现</th></tr>
     <tr><td>深色为主场</td><td>值班场景长时间注视，深色降低眩光；霓虹语义色在暗底上获得最高信噪比。</td><td>深空默认；浅色（极昼）不是反色，是重设计的同级主题。</td></tr>
     <tr><td>一色一职</td><td>颜色只承担语义，不做装饰。全App同一颜色永远代表同一件事。</td><td>青=沟通与导航 · 绿=执行与成功 · 琥珀=等待你确认 · 红=失败与危险 · 紫=受控执行路径。</td></tr>
-    <tr><td>模式四色</td><td>「谁接单」独立于「能不能做」：模式轴（自动/排产/调度/查询）与授权轴（绿/琥珀/红）正交，互不借色。</td><td>自动=青 · 排产=蓝 · 调度=橙 · 查询=青绿；只出现在模式分段、徽标与徽点。</td></tr>
+    <tr><td>模式四色</td><td>「谁接单」独立于「能不能做」：模式轴（自动/排产/调度/查询）与授权轴（绿/琥珀/红）正交，互不借色。</td><td>自动=青 · 排产=蓝 · 调度=橙 · 查询=青绿；只出现在模式下拉、徽标与徽点。</td></tr>
     <tr><td>玻璃分层</td><td>信息分三层：虚空（底）→ 舱体（实心）→ 玻璃（悬浮）。层级靠材质而非投影堆叠。</td><td>对话流在虚空上，任务卡/输入条是玻璃，轨迹坞是舱体。</td></tr>
-    <tr><td>HUD 秩序</td><td>等宽字体做标签与数据、切角与括号做聚焦、网格做底色——秩序感来自工程制图，不是科幻贴纸。</td><td>JetBrains Mono 微标签 · HUD 角括号 · 蓝图网格 · 切角按钮。</td></tr>
+    <tr><td>HUD 秩序</td><td>等宽字体做标签与数据、切角与括号做聚焦、网格做底色——秩序感来自工程制图，不是科幻贴纸。</td><td>JetBrains Mono 微标签 · HUD 角括号 · 蓝图网格 · 切角造型。</td></tr>
     <tr><td>动效有任务</td><td>动画只表达状态转移（流式、等待、升级、完成），不做装饰性表演；可被系统减动效关闭。</td><td>扫描线=正在生成 · 脉冲点=等待审批 · 全部遵守 prefers-reduced-motion。</td></tr>
   </table>
 </section>
@@ -602,14 +655,14 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 
   <table class="spec" style="margin-top:24px">
     <tr><th>语义</th><th>职责（全 App 唯一）</th><th>典型落点</th></tr>
-    <tr><td><span class="bdg bdg-c">青 CYAN</span></td><td>沟通与导航：用户气泡、发送、激活态、品牌、流式光标、快速执行路径、<b>自动模式</b></td><td>发送键 · 导航激活 · 流式光标 · 聚焦环</td></tr>
+    <tr><td><span class="bdg bdg-c">青 CYAN</span></td><td>沟通与导航：用户气泡、发送、激活态、品牌、流式光标、<b>自动模式</b></td><td>发送键 · 导航激活 · 流式光标 · 聚焦环</td></tr>
     <tr><td><span class="bdg bdg-g">绿 GREEN</span></td><td>执行与成功：可 auto 授权的写操作、运行完成、步骤成功</td><td>「直接执行」· 完成徽标 · 步骤对勾</td></tr>
     <tr><td><span class="bdg bdg-a">琥珀 AMBER</span></td><td>等待人工确认：requires_confirmation 审批、过期提醒</td><td>审批卡 · 「确认」键 · 等待脉冲点</td></tr>
     <tr><td><span class="bdg bdg-r">红 RED</span></td><td>失败与危险：运行失败、拒绝、停止、删除</td><td>「停止/拒绝」· 失败徽标</td></tr>
-    <tr><td><span class="bdg bdg-v">紫 VIOLET</span></td><td>受控执行路径：快速执行被升级为受控执行后的路径标识</td><td>升级提示条 · 路径徽标</td></tr>
-    <tr><td><span class="bdg bdg-b">蓝 BLUE</span></td><td>中性信息与<b>排产模式</b>：提示、链接、运行编号、排产引擎直达</td><td>信息条 · run id · 排产徽标</td></tr>
-    <tr><td><span class="bdg bdg-o">橙 ORANGE</span></td><td><b>调度模式</b>唯一标识：调度引擎直达（执行跟单 / 异常 / 催料）</td><td>模式分段 · 调度徽标</td></tr>
-    <tr><td><span class="bdg bdg-t">青绿 TEAL</span></td><td><b>查询模式</b>唯一标识：查询引擎直达（只读问答）</td><td>模式分段 · 查询徽标</td></tr>
+    <tr><td><span class="bdg bdg-v">紫 VIOLET</span></td><td>受控执行路径：任务涉及写入、被升级为受控执行后的路径标识</td><td>升级提示条 · 路径徽标</td></tr>
+    <tr><td><span class="bdg bdg-b">蓝 BLUE</span></td><td>中性信息与<b>排产模式</b>：提示、链接、排产引擎直达</td><td>信息条 · 排产徽标</td></tr>
+    <tr><td><span class="bdg bdg-o">橙 ORANGE</span></td><td><b>调度模式</b>唯一标识：调度引擎直达（执行跟单 / 异常 / 催料）</td><td>模式下拉 · 调度徽标</td></tr>
+    <tr><td><span class="bdg bdg-t">青绿 TEAL</span></td><td><b>查询模式</b>唯一标识：查询引擎直达（只读问答）</td><td>模式下拉 · 查询徽标</td></tr>
   </table>
   <div class="note"><b>禁律：</b>语义色之外不允许出现彩色装饰。极光背景只允许使用 青/紫/蓝 三色低透明度混合，且不进入任何组件。<b>两轴正交：</b>模式轴（自动=青 / 排产=蓝 / 调度=橙 / 查询=青绿）决定「谁接单」，授权轴（绿=可执行 / 琥珀=待确认 / 红=危险）决定「能不能做」——同一界面元素从不混用两轴的颜色。</div>
 </section>
@@ -623,7 +676,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
     <div style="font-size:30px;font-weight:700;letter-spacing:.02em">排产方案已生成 <span style="color:var(--cyan)">PLAN READY</span></div>
     <div style="font-size:20px;font-weight:500;margin-top:10px">华东工厂 · 未来三天 · 最小化总延误</div>
     <div style="font-size:14px;color:var(--tx2);margin-top:10px">已检索 28 张在制工单，识别到 3 张临近交期。正在以最小化总延误为目标求解，预计影响 12 张工单、3 条产线。Body text renders in Space Grotesk 400 with CJK fallback.</div>
-    <div class="mono" style="font-size:12px;color:var(--tx3);margin-top:12px">RUN a3f9c2d1 · 2026-07-23 14:32:08 · 28 WOs · 3 LINES · T+00:41</div>
+    <div class="mono" style="font-size:12px;color:var(--tx3);margin-top:12px">2026-07-23 14:32:08 · 28 WOs · 3 LINES · T+00:41</div>
     <div class="mono" style="font-size:10.5px;font-weight:600;letter-spacing:.16em;color:var(--cyan);margin-top:12px;text-transform:uppercase">OBJECTIVE · PATH: FAST · AUTH: REQUIRES_CONFIRMATION</div>
   </div>
   <table class="spec">
@@ -631,7 +684,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
     <tr><td>Display</td><td><code>SG 700 · 30–34px · ls .02em</code></td><td>空状态主标、封面（拉丁可大写）</td></tr>
     <tr><td>Title</td><td><code>SG/PingFang 500 · 14–16px</code></td><td>卡片标题、会话标题、顶栏标题</td></tr>
     <tr><td>Body</td><td><code>SG 400 / PingFang · 13.5–14px · lh 1.6</code></td><td>对话正文、说明文字（行长 ≤ 68 字符）</td></tr>
-    <tr><td>Data</td><td><code>JBM 400 · 11–12.5px · tabular</code></td><td>run id、工单号、数量、时钟、事件流</td></tr>
+    <tr><td>Data</td><td><code>JBM 400 · 11–12.5px · tabular</code></td><td>工单号、数量、时钟、事件流</td></tr>
     <tr><td>HUD Label</td><td><code>JBM 600 · 10–10.5px · ls .14em · 大写</code></td><td>分区标签、徽标、路径标识（中文标签不拉大字距）</td></tr>
   </table>
 </section>
@@ -655,7 +708,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
     <tr><td>发光</td><td><code>--glow-cyan 等外发光</code></td><td>替换为柔影+彩色描边（白底发光不可见）</td><td>仅主行动点/激活态，一屏 ≤ 2 处</td></tr>
     <tr><td>HUD 括号</td><td colspan="2"><code>1.5px · 14px 臂长 · 语义色</code></td><td>仅当前焦点对象：封面、审批卡、活动面板</td></tr>
     <tr><td>扫描线</td><td colspan="2"><code>7s 线性 · 青 6% 透明</code></td><td>仅「正在生成」区域，生成结束即停</td></tr>
-    <tr><td>切角</td><td colspan="2"><code>clip-path 8px 对角</code></td><td>仅品牌标与主发送键，不滥用</td></tr>
+    <tr><td>切角</td><td colspan="2"><code>clip-path 8px 对角</code></td><td>仅作品牌六边形造型语言，不用于按钮</td></tr>
   </table>
 </section>
 
@@ -665,8 +718,21 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   <h2 class="sec-title">组件</h2>
   <p class="sec-desc">按钮圆角 6px（工程感），徽标 4px，卡片 12px，容器 14–16px；所有可点元素 <code>cursor:pointer</code>、过渡 150–250ms <code>cubic-bezier(.2,.8,.2,1)</code>、可见焦点环。</p>
 
+  <div class="demo"><div class="row" style="gap:30px;align-items:flex-end">
+    <div style="text-align:center"><svg width="64" height="64" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg><div class="mono" style="font-size:10px;color:var(--tx3);margin-top:10px">64 · SPLASH</div></div>
+    <div style="text-align:center"><svg width="40" height="40" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg><div class="mono" style="font-size:10px;color:var(--tx3);margin-top:10px">40 · ICON</div></div>
+    <div style="text-align:center"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg><div class="mono" style="font-size:10px;color:var(--tx3);margin-top:10px">28 · RAIL</div></div>
+    <div style="text-align:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg><div class="mono" style="font-size:10px;color:var(--tx3);margin-top:10px">20 · AVATAR</div></div>
+    <div style="text-align:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg><div class="mono" style="font-size:10px;color:var(--tx3);margin-top:10px">16 · FAVICON</div></div>
+    <div style="flex:1;min-width:280px">
+      <div style="font-weight:500;margin-bottom:6px">HEXFLOW 执行轨迹标</div>
+      <div style="font-size:12.5px;color:var(--tx2);line-height:1.75">六边形取自工程螺母与蜂巢结构——制造与秩序；内部上升折线是任务被逐步执行的轨迹（亦是指挥棒的扬起），末端光点 = Agent 当前活跃步。青→紫渐变表达「从沟通到受控执行」的完整链路，深浅主题自动切换明度，16px 下仍清晰可辨。</div>
+    </div>
+  </div></div>
+  <div class="demo-label">品牌标识 · 替代原字母 M；渐变随主题（深空霓虹 / 极昼墨色），无色盒底、无描边依赖</div>
+
   <div class="demo"><div class="row">
-    <button class="btn b-primary chamfer">发送</button>
+    <button class="btn b-primary">发送</button>
     <button class="btn b-exec">直接执行</button>
     <button class="btn b-confirm">确认</button>
     <button class="btn b-ghost">取消</button>
@@ -676,25 +742,16 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   <div class="demo-label">按钮 · 授权色对：绿=auto 可直接执行 / 琥珀=需确认</div>
 
   <div class="demo"><div class="row">
-    <div class="seg">
-      <button data-m="auto" class="on">自动</button><button data-m="plan">排产</button><button data-m="sched">调度</button><button data-m="query">查询</button>
-    </div>
-    <div class="seg">
-      <button data-m="auto">自动</button><button data-m="plan" class="on">排产</button><button data-m="sched">调度</button><button data-m="query">查询</button>
-    </div>
-    <div class="seg">
-      <button data-m="auto">自动</button><button data-m="plan">排产</button><button data-m="sched" class="on">调度</button><button data-m="query">查询</button>
-    </div>
-    <div class="seg">
-      <button data-m="auto">自动</button><button data-m="plan">排产</button><button data-m="sched">调度</button><button data-m="query" class="on">查询</button>
-    </div>
+    <select class="mode-sel" data-m="auto"><option value="auto" selected>自动</option><option value="plan">排产</option><option value="sched">调度</option><option value="query">查询</option></select>
+    <select class="mode-sel" data-m="plan"><option value="auto">自动</option><option value="plan" selected>排产</option><option value="sched">调度</option><option value="query">查询</option></select>
+    <select class="mode-sel" data-m="sched"><option value="auto">自动</option><option value="plan">排产</option><option value="sched" selected>调度</option><option value="query">查询</option></select>
+    <select class="mode-sel" data-m="query"><option value="auto">自动</option><option value="plan">排产</option><option value="sched">调度</option><option value="query" selected>查询</option></select>
   </div></div>
-  <div class="demo-label">模式分段控件 · 选中态着色：自动=青 / 排产=蓝 / 调度=橙 / 查询=青绿</div>
+  <div class="demo-label">模式下拉选择器 · 折叠于对话框工具栏，选中态着色：自动=青 / 排产=蓝 / 调度=橙 / 查询=青绿</div>
 
   <div class="demo"><div class="row">
-    <span class="bdg bdg-c">快速执行</span>
     <span class="bdg bdg-v">受控执行</span>
-    <span class="bdg bdg-a">等待确认</span>
+    <span class="bdg bdg-a">待确认</span>
     <span class="bdg bdg-g">已完成</span>
     <span class="bdg bdg-r">执行失败</span>
     <span class="bdg bdg-b">排产</span>
@@ -707,7 +764,6 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   <div class="demo-label">徽标与状态点 · 徽标一律 JBM 大写微标签，状态点带脉冲</div>
 
   <div class="demo"><div class="row">
-    <span class="chip on">⚡ 专家上下文</span>
     <span class="chip">技能 · 排产专家 <span class="x">✕</span></span>
     <span class="chip">附件 · 工单快照.xlsx <span class="x">✕</span></span>
     <input class="inp" placeholder="搜索会话…">
@@ -719,7 +775,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   <div class="duo">
     <div>
       <div class="appr brk" data-theme="dark" style="--bg2:rgba(13,20,35,.62)">
-        <div class="h">◈ ACTION APPROVAL · REV 3</div>
+        <div class="h">◈ 操作审批 · 第 3 版</div>
         <div class="t">下发排产方案 · 影响 12 张工单、3 条产线</div>
         <div class="r">POLICY: write_dispatch requires_confirmation</div>
         <div class="row">
@@ -745,39 +801,37 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
 <section id="screens">
   <div class="sec-tag">06 / Screens</div>
   <h2 class="sec-title">界面设计稿</h2>
-  <p class="sec-desc">按现有能力重排：单屏工作区（对话 + 运行轨迹坞）+ 图标轨 + 会话抽屉与历史页 + 技能弹层/管理 + 启动屏。对话框顶部为<b style="color:var(--tx1)">模式分段（自动/排产/调度/查询）</b>与<b style="color:var(--tx1)">技能选择</b>。除模式选择器需契约补充 mode 字段外，其余元素均可在现有 API 上落地。</p>
+  <p class="sec-desc">按业界主流重排：<b style="color:var(--tx1)">左侧常驻会话侧栏</b>（展示全部历史会话，顶部为长条「新建会话」，可折叠为 56px 图标轨）+ 中央对话 + <b style="color:var(--tx1)">右侧详情栏</b>（内容复杂时可全屏、不需要时可隐藏，栏头与顶栏均有按钮）+ 技能弹层/管理 + 设置模态 + 启动屏。模式（自动/排产/调度/查询）以<b style="color:var(--tx1)">折叠下拉框</b>置于对话框工具栏，另可挂载<b style="color:var(--tx1)">技能</b>。除模式选择器需契约补充 mode 字段外，其余元素均可在现有 API 上落地。</p>
 
   <!-- A. 深空 · 流式运行中 -->
   <h3 style="margin:34px 0 12px;font-size:16px">A · 主工作区 — 流式运行中（深空·默认 · 排产模式）</h3>
   <div class="frame" data-theme="dark">
     <div class="f-body">
-      <div class="f-rail">
-        <div class="rlogo">M</div>
-        <button class="ric on" title="对话"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg></button>
-        <button class="ric" title="会话"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z"/></svg></button>
-        <button class="ric" title="技能"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-        <div class="sp"></div>
-        <button class="ric" title="主题"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
-        <button class="ric" title="设置"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button>
+      <div class="f-side">
+        <div class="sd-top"><span class="lm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></span><span class="sd-word">MAESTRO</span><button class="sd-fold" title="折叠侧栏"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6M17 6l-6 6 6 6"/></svg></button></div>
+        <button class="sd-new"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg> 新建会话</button>
+        <div class="sd-search"><input class="inp" placeholder="搜索会话…"></div>
+        <div class="sd-list"><div class="hgroup" style="margin:12px 4px 6px">今天</div><div class="srow on"><span class="dt" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan)"></span><span class="st2">华东工厂排产调整</span><span class="sm">14:31</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">夜班产能分析</span><span class="sm">09:15</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="hgroup" style="margin:12px 4px 6px">昨天</div><div class="srow"><span class="dt" style="background:var(--amber)"></span><span class="st2">缺料催料跟进</span><span class="sm">18:02</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">供应商交期确认</span><span class="sm">11:40</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="hgroup" style="margin:12px 4px 6px">本周</div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">质量月报初稿</span><span class="sm">周一</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--tx3)"></span><span class="st2">新产线爬坡方案</span><span class="sm">周二</span><div class="acts"><span>改名</span><span>删除</span></div></div></div>
+        <div class="sd-bot">
+          <div class="brow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg> 技能·连接器管理</div>
+          <div class="brow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg> 主题：深空</div>
+          <div class="sd-user"><span class="u-av">周</span><span class="nm">周文涛</span><button class="sd-set" title="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button></div>
+        </div>
       </div>
+
       <div class="f-main">
         <div class="f-tbar">
           <span class="tt">华东工厂排产调整</span>
           <span class="bdg bdg-b">排产</span>
-          <span class="bdg bdg-c">快速执行</span>
           <div class="sp"></div>
           <span class="pill"><span class="dot g"></span><span class="mono" style="font-size:10.5px">已连接</span></span>
           <span class="f-clock">14:32:08</span>
+          <button class="trc" title="详情栏" style="color:var(--cyan);width:26px;height:26px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
         </div>
         <div class="f-chat"><div class="col">
-          <div class="m-user">帮我把华东工厂未来三天的注塑工单重新排一下，优先保证交期。</div>
-          <div class="obj brk">
-            <div class="oh"><span class="ol">Objective</span><span class="bdg bdg-b">排产</span><span class="bdg bdg-c">PATH · FAST</span></div>
-            <div class="ot">重排华东工厂未来三天注塑工单，交期优先</div>
-            <div class="om"><span>RUN a3f9c2d1</span><span>SRC chat</span><span>附件 ×1</span></div>
-          </div>
+          <div class="m-user-row"><div class="m-user">帮我把华东工厂未来三天的注塑工单重新排一下，优先保证交期。</div><span class="u-av">周</span></div>
           <div class="m-sys">
-            <div class="av"></div>
+            <div class="av">AI</div>
             <div class="bd">
               <div class="think"><span class="dot c"></span>分析进展 · 正在核对产线产能…</div>
               <p>已检索 <b>28</b> 张在制工单，识别到 <b>3</b> 张临近交期。正在以「最小化总延误」为目标求解…<span class="caret"></span></p>
@@ -787,15 +841,11 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
         </div></div>
         <div class="f-comp">
           <div class="comp-box">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
-              <div class="seg"><button data-m="auto">自动</button><button data-m="plan" class="on">排产</button><button data-m="sched">调度</button><button data-m="query">查询</button></div>
-              <span class="mono" style="font-size:9.5px;color:var(--tx3);letter-spacing:.14em">MODE</span>
-            </div>
             <div class="comp-ta">描述要完成的制造任务，或附加资料…</div>
             <div class="comp-foot">
               <button class="cico" title="附件"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.5l-8.5 8.5a5.5 5.5 0 0 1-7.78-7.78L13 5a3.7 3.7 0 0 1 5.23 5.23l-8.2 8.2a1.85 1.85 0 0 1-2.62-2.6L15 8"/></svg></button>
               <button class="cico" title="技能" style="color:var(--cyan)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-              <span class="chip on" style="font-size:11px;padding:3px 10px">⚡ 专家</span>
+              <select class="mode-sel" data-m="plan" title="模式"><option value="auto">自动</option><option value="plan" selected>排产</option><option value="sched">调度</option><option value="query">查询</option></select>
               <span class="chip" style="font-size:11px;padding:3px 10px">排产专家 ✕</span>
               <div class="sp" style="flex:1"></div>
               <span class="hint">ENTER ↵</span>
@@ -806,12 +856,11 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
       </div>
       <div class="f-trace">
         <div class="tr-sec">
-          <div class="tr-h">RUN TRACE <span class="bdg bdg-a">等待确认</span></div>
-          <div class="tr-runid">#a3f9c2d1</div>
-          <div style="margin-top:6px"><span class="bdg bdg-v">受控执行 · REV 3</span></div>
+          <div class="tr-h">运行轨迹 <span style="display:flex;align-items:center;gap:5px"><button class="trc" title="全屏"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H3v5m13-5h5v5M8 21H3v-5m13 5h5v-5"/></svg></button><button class="trc" title="隐藏"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 6l6 6-6 6M7 6l6 6-6 6"/></svg></button></span></div>
+          <div><span class="bdg bdg-v">受控执行 · 第 3 版</span></div>
         </div>
         <div class="tr-sec">
-          <div class="tr-h">STEPS · 2/4</div>
+          <div class="tr-h">步骤 · 2/4</div>
           <ul class="steps">
             <li class="done"><span class="n">✓</span><div class="st">解析任务约束</div><div class="ss">1.2s</div></li>
             <li class="done"><span class="n">✓</span><div class="st">拉取工单与产能</div><div class="ss">2.8s</div></li>
@@ -821,7 +870,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
         </div>
         <div class="tr-sec">
           <div class="appr brk">
-            <div class="h">◈ ACTION APPROVAL</div>
+            <div class="h">◈ 操作审批</div>
             <div class="t">下发排产方案 · 12 工单 / 3 产线</div>
             <div class="r">write_dispatch · requires_confirmation</div>
             <div class="row">
@@ -831,7 +880,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
           </div>
         </div>
         <div class="tr-sec" style="border-bottom:none">
-          <div class="tr-h">EVENTS</div>
+          <div class="tr-h">事件</div>
           <div class="tr-ev">
             <div><b>14:31:22</b> run.created</div>
             <div><b>14:31:23</b> run.path_selected → fast</div>
@@ -847,15 +896,18 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   <h3 style="margin:44px 0 12px;font-size:16px">B · 主工作区 — 运行完成（极昼 · 查询模式）</h3>
   <div class="frame" data-theme="light">
     <div class="f-body">
-      <div class="f-rail">
-        <div class="rlogo">M</div>
-        <button class="ric on"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg></button>
-        <button class="ric"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z"/></svg></button>
-        <button class="ric"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-        <div class="sp"></div>
-        <button class="ric"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg></button>
-        <button class="ric"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button>
+      <div class="f-side">
+        <div class="sd-top"><span class="lm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></span><span class="sd-word">MAESTRO</span><button class="sd-fold" title="折叠侧栏"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6M17 6l-6 6 6 6"/></svg></button></div>
+        <button class="sd-new"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg> 新建会话</button>
+        <div class="sd-search"><input class="inp" placeholder="搜索会话…"></div>
+        <div class="sd-list"><div class="hgroup" style="margin:12px 4px 6px">今天</div><div class="srow"><span class="dt" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan)"></span><span class="st2">华东工厂排产调整</span><span class="sm">14:31</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow on"><span class="dt" style="background:var(--green)"></span><span class="st2">夜班产能分析</span><span class="sm">09:15</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="hgroup" style="margin:12px 4px 6px">昨天</div><div class="srow"><span class="dt" style="background:var(--amber)"></span><span class="st2">缺料催料跟进</span><span class="sm">18:02</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">供应商交期确认</span><span class="sm">11:40</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="hgroup" style="margin:12px 4px 6px">本周</div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">质量月报初稿</span><span class="sm">周一</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--tx3)"></span><span class="st2">新产线爬坡方案</span><span class="sm">周二</span><div class="acts"><span>改名</span><span>删除</span></div></div></div>
+        <div class="sd-bot">
+          <div class="brow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg> 技能·连接器管理</div>
+          <div class="brow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg> 主题：深空</div>
+          <div class="sd-user"><span class="u-av">周</span><span class="nm">周文涛</span><button class="sd-set" title="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button></div>
+        </div>
       </div>
+
       <div class="f-main">
         <div class="f-tbar">
           <span class="tt">夜班产能分析</span>
@@ -864,33 +916,24 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
           <div class="sp"></div>
           <span class="pill"><span class="dot g"></span><span class="mono" style="font-size:10.5px">已连接</span></span>
           <span class="f-clock">09:15:42</span>
+          <button class="trc" title="详情栏" style="color:var(--cyan);width:26px;height:26px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
         </div>
         <div class="f-chat"><div class="col">
-          <div class="m-user">总结一下上周夜班三条产线的产能利用率，给出瓶颈分析。</div>
-          <div class="obj brk">
-            <div class="oh"><span class="ol">Objective</span><span class="bdg bdg-t">查询</span><span class="bdg bdg-c">PATH · FAST</span></div>
-            <div class="ot">上周夜班三产线产能利用率与瓶颈分析</div>
-            <div class="om"><span>RUN b71e04ac</span><span>SRC expert</span></div>
-          </div>
+          <div class="m-user-row"><div class="m-user">总结一下上周夜班三条产线的产能利用率，给出瓶颈分析。</div><span class="u-av">周</span></div>
           <div class="m-sys">
-            <div class="av"></div>
+            <div class="av">AI</div>
             <div class="bd">
               <p>上周夜班三条产线平均利用率 <b>87.4%</b>。瓶颈在 <b>2 号线</b>（换模等待占停机 61%）。建议：① 2 号线换模前置到白班；② 3 号线 02:00–04:00 存在空窗，可吸收急单。</p>
-              <p class="mono" style="font-size:11px;color:var(--tx3)">来源：MES 报工记录 · 设备 OEE 日志</p>
             </div>
           </div>
         </div></div>
         <div class="f-comp">
           <div class="comp-box">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
-              <div class="seg"><button data-m="auto">自动</button><button data-m="plan">排产</button><button data-m="sched">调度</button><button data-m="query" class="on">查询</button></div>
-              <span class="mono" style="font-size:9.5px;color:var(--tx3);letter-spacing:.14em">MODE</span>
-            </div>
             <div class="comp-ta">继续追问，或描述下一个任务…</div>
             <div class="comp-foot">
               <button class="cico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.5l-8.5 8.5a5.5 5.5 0 0 1-7.78-7.78L13 5a3.7 3.7 0 0 1 5.23 5.23l-8.2 8.2a1.85 1.85 0 0 1-2.62-2.6L15 8"/></svg></button>
               <button class="cico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-              <span class="chip" style="font-size:11px;padding:3px 10px">⚡ 专家</span>
+              <select class="mode-sel" data-m="query" title="模式"><option value="auto">自动</option><option value="plan">排产</option><option value="sched">调度</option><option value="query" selected>查询</option></select>
               <div class="sp" style="flex:1"></div>
               <span class="hint">ENTER ↵</span>
               <button class="send" title="发送"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5m-7 7 7-7 7 7"/></svg></button>
@@ -900,12 +943,11 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
       </div>
       <div class="f-trace">
         <div class="tr-sec">
-          <div class="tr-h">RUN TRACE <span class="bdg bdg-g">已完成</span></div>
-          <div class="tr-runid">#b71e04ac</div>
-          <div style="margin-top:6px"><span class="bdg bdg-c">快速执行 · 41s</span></div>
+          <div class="tr-h">运行轨迹 <span style="display:flex;align-items:center;gap:5px"><span class="bdg bdg-g">已完成</span><button class="trc" title="全屏"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H3v5m13-5h5v5M8 21H3v-5m13 5h5v-5"/></svg></button><button class="trc" title="隐藏"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 6l6 6-6 6M7 6l6 6-6 6"/></svg></button></span></div>
+          <div><span class="bdg bdg-g">已完成 · 用时 41s</span></div>
         </div>
         <div class="tr-sec">
-          <div class="tr-h">STEPS · 3/3</div>
+          <div class="tr-h">步骤 · 3/3</div>
           <ul class="steps">
             <li class="done"><span class="n">✓</span><div class="st">拉取 OEE 与报工</div><div class="ss">3.1s</div></li>
             <li class="done"><span class="n">✓</span><div class="st">计算利用率</div><div class="ss">0.8s</div></li>
@@ -913,7 +955,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
           </ul>
         </div>
         <div class="tr-sec" style="border-bottom:none">
-          <div class="tr-h">EVENTS</div>
+          <div class="tr-h">事件</div>
           <div class="tr-ev">
             <div><b>09:14:58</b> run.created</div>
             <div><b>09:15:39</b> run.completed ✓</div>
@@ -931,7 +973,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
         <div class="f-body" style="height:380px">
           <div class="f-main">
             <div class="empty">
-              <div class="rlogo" style="width:44px;height:44px;font-size:20px;margin:0">M</div>
+              <div style="margin:0;line-height:0"><svg width="44" height="44" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></div>
               <h3>制造执行 Agent</h3>
               <p>选择模式、挂载技能，然后描述任务——Agent 自主拆解、执行、并在关键写入前请求你的确认。</p>
               <div class="sugg">
@@ -945,92 +987,110 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
       </div>
     </div>
     <div>
-      <h3 style="margin:0 0 12px;font-size:16px">D · 会话抽屉（图标轨 → 滑出）</h3>
+      <h3 style="margin:0 0 12px;font-size:16px">D · 会话侧栏：展开 264px ↔ 折叠 56px</h3>
       <div class="frame" data-theme="dark">
-        <div class="f-body" style="height:380px">
-          <div class="sess">
-            <div class="sh">
-              <input class="inp" style="min-width:0;flex:1;padding:7px 12px;font-size:12px" placeholder="搜索会话…">
-              <button class="btn b-primary chamfer" style="padding:7px 12px;font-size:12px">新建</button>
-            </div>
-            <div class="list">
-              <div class="srow on"><div class="st2">华东工厂排产调整</div><div class="sm"><span>14:31</span><span>运行中</span></div><div class="acts"><span>改名</span><span>删除</span></div></div>
-              <div class="srow"><div class="st2">夜班产能分析</div><div class="sm"><span>09:15</span><span>已完成</span></div><div class="acts"><span>改名</span><span>删除</span></div></div>
-              <div class="srow"><div class="st2">缺料催料跟进</div><div class="sm"><span>昨天</span><span>等待外部</span></div><div class="acts"><span>改名</span><span>删除</span></div></div>
-              <div class="srow"><div class="st2">质量月报初稿</div><div class="sm"><span>周一</span><span>已完成</span></div><div class="acts"><span>改名</span><span>删除</span></div></div>
-            </div>
-            <div style="padding:10px 14px;border-top:1px solid var(--line)"><span class="mono" style="font-size:10px;color:var(--tx3)">4 SESSIONS · </span><a style="font-size:11px;color:var(--cyan);cursor:pointer;text-decoration:none">查看全部 →</a></div>
+        <div class="f-body" style="height:400px">
+          <div class="f-side">
+        <div class="sd-top"><span class="lm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></span><span class="sd-word">MAESTRO</span><button class="sd-fold" title="折叠侧栏"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6M17 6l-6 6 6 6"/></svg></button></div>
+        <button class="sd-new"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg> 新建会话</button>
+        <div class="sd-search"><input class="inp" placeholder="搜索会话…"></div>
+        <div class="sd-list"><div class="hgroup" style="margin:12px 4px 6px">今天</div><div class="srow on"><span class="dt" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan)"></span><span class="st2">华东工厂排产调整</span><span class="sm">14:31</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">夜班产能分析</span><span class="sm">09:15</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="hgroup" style="margin:12px 4px 6px">昨天</div><div class="srow"><span class="dt" style="background:var(--amber)"></span><span class="st2">缺料催料跟进</span><span class="sm">18:02</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">供应商交期确认</span><span class="sm">11:40</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="hgroup" style="margin:12px 4px 6px">本周</div><div class="srow"><span class="dt" style="background:var(--green)"></span><span class="st2">质量月报初稿</span><span class="sm">周一</span><div class="acts"><span>改名</span><span>删除</span></div></div><div class="srow"><span class="dt" style="background:var(--tx3)"></span><span class="st2">新产线爬坡方案</span><span class="sm">周二</span><div class="acts"><span>改名</span><span>删除</span></div></div></div>
+        <div class="sd-bot">
+          <div class="brow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg> 技能·连接器管理</div>
+          <div class="brow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg> 主题：深空</div>
+          <div class="sd-user"><span class="u-av">周</span><span class="nm">周文涛</span><button class="sd-set" title="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button></div>
+        </div>
+      </div>
+          <div style="width:56px;flex:none;background:var(--bg1);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px">
+            <span class="lm" style="margin-bottom:8px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></span>
+            <button class="ric" title="展开侧栏"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+            <button class="ric" title="新建会话"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></button>
+            <div style="width:20px;height:1px;background:var(--line2);margin:4px 0"></div>
+            <button class="ric" title="技能·连接器管理"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+            <div style="flex:1"></div>
+            <button class="ric" title="主题"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+            <span class="u-av" style="width:30px;height:30px;font-size:11px">周</span>
+            <button class="ric" title="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button>
           </div>
-          <div class="f-main"></div>
+          <div class="f-main" style="display:grid;place-items:center"><span class="mono" style="font-size:10px;color:var(--tx3);letter-spacing:.16em">CHAT AREA</span></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- E. 历史会话全屏 -->
-  <h3 style="margin:44px 0 12px;font-size:16px">E · 历史会话（全屏管理：分组 / 搜索 / 继续 / 改名 / 删除）</h3>
-  <div class="frame" data-theme="dark">
-    <div class="f-body" style="height:600px">
-      <div class="f-rail">
-        <div class="rlogo">M</div>
-        <button class="ric" title="对话"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg></button>
-        <button class="ric on" title="历史会话"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z"/></svg></button>
-        <button class="ric" title="技能"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-        <div class="sp"></div>
-        <button class="ric" title="主题"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
-        <button class="ric" title="设置"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button>
-      </div>
-      <div class="f-main">
-        <div class="f-tbar">
-          <span class="tt">历史会话</span>
-          <div class="sp"></div>
-          <input class="inp" style="min-width:0;width:200px;padding:6px 12px;font-size:12px" placeholder="搜索标题与内容…">
-          <button class="btn b-primary chamfer" style="padding:6px 14px;font-size:12px">新建会话</button>
+  <!-- E · 详情栏三态 -->
+  <h3 style="margin:44px 0 12px;font-size:16px">E · 详情栏三态：驻留 ↔ 隐藏 ↔ 全屏（栏头与顶栏按钮切换）</h3>
+  <div class="duo">
+    <div>
+      <h3 style="margin:0 0 12px;font-size:13.5px;color:var(--tx2)">隐藏态 · 对话全宽，顶栏图标一键唤回</h3>
+      <div class="frame" data-theme="dark"><div class="f-body" style="height:380px">
+        <div class="f-rail">
+  <span class="lm" style="margin-bottom:10px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></span>
+  <button class="ric" title="展开侧栏"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+  <button class="ric" title="新建会话"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></button>
+  <div style="width:20px;height:1px;background:var(--line2);margin:4px 0"></div>
+  <button class="ric" title="技能·连接器管理"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+  <div class="sp"></div>
+  <button class="ric" title="主题"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+  <span class="u-av" style="width:30px;height:30px;font-size:11px">周</span>
+  <button class="ric" title="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button>
+</div>
+        <div class="f-main">
+          <div class="f-tbar"><span class="tt">华东工厂排产调整</span><span class="bdg bdg-b">排产</span><div class="sp"></div>
+            <button class="trc" title="显示详情栏" style="color:var(--cyan);width:26px;height:26px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+            <span class="f-clock">14:32:08</span></div>
+          <div class="f-chat"><div class="col">
+            <div class="m-user-row"><div class="m-user">帮我把华东工厂未来三天的注塑工单重新排一下，优先保证交期。</div><span class="u-av">周</span></div>
+          </div></div>
         </div>
-        <div style="flex:1;overflow:hidden;padding:6px 24px 18px;position:relative;z-index:1">
-          <div style="max-width:780px;margin:0 auto">
-            <div class="hgroup">今天 · 2026-07-23</div>
-            <div class="hrow">
-              <span class="hdot" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></span>
-              <div class="hmain"><div class="ht">华东工厂排产调整</div><div class="hp">已检索 28 张在制工单，识别到 3 张临近交期…</div></div>
-              <div class="hmeta"><span class="bdg bdg-b">排产</span><span class="htm">14:31 · 12 条</span></div>
-              <div class="hacts"><span>继续</span><span>改名</span><span class="del">删除</span></div>
+      </div></div>
+    </div>
+    <div>
+      <h3 style="margin:0 0 12px;font-size:13.5px;color:var(--tx2)">全屏态 · 详情铺满工作区，可还原驻留</h3>
+      <div class="frame" data-theme="dark"><div class="f-body" style="height:380px">
+        <div class="f-rail">
+  <span class="lm" style="margin-bottom:10px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></span>
+  <button class="ric" title="展开侧栏"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+  <button class="ric" title="新建会话"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></button>
+  <div style="width:20px;height:1px;background:var(--line2);margin:4px 0"></div>
+  <button class="ric" title="技能·连接器管理"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+  <div class="sp"></div>
+  <button class="ric" title="主题"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+  <span class="u-av" style="width:30px;height:30px;font-size:11px">周</span>
+  <button class="ric" title="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.24.4-1.51 1z"/></svg></button>
+</div>
+        <div class="f-main">
+          <div class="f-tbar"><span class="mono" style="font-size:10px;letter-spacing:.16em;color:var(--tx3)">运行轨迹 · 全屏</span><div class="sp"></div>
+            <button class="trc" title="还原驻留"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v6H3m18 0h-6V3M9 21v-6H3m18 0h-6v6"/></svg></button>
+            <button class="trc" title="关闭"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div style="flex:1;padding:14px 18px;display:grid;grid-template-columns:1.1fr .9fr;gap:16px;overflow:hidden;position:relative;z-index:1">
+            <div>
+              <div class="tr-h">步骤 · 2/4</div>
+              <ul class="steps">
+                <li class="done"><span class="n">✓</span><div class="st">解析任务约束</div><div class="ss">1.2s</div></li>
+                <li class="done"><span class="n">✓</span><div class="st">拉取工单与产能</div><div class="ss">2.8s</div></li>
+                <li class="run"><span class="n"></span><div class="st">生成排产方案</div><div class="ss">CP-SAT</div></li>
+                <li class="pend"><span class="n"></span><div class="st">下发排产方案</div></li>
+              </ul>
+              <div class="tr-h" style="margin-top:6px">事件</div>
+              <div class="tr-ev"><div><b>14:31:40</b> run.path_upgraded → controlled</div><div><b>14:32:05</b> approval.requested</div></div>
             </div>
-            <div class="hrow">
-              <span class="hdot" style="background:var(--green)"></span>
-              <div class="hmain"><div class="ht">夜班产能分析</div><div class="hp">平均利用率 87.4%，瓶颈在 2 号线换模等待…</div></div>
-              <div class="hmeta"><span class="bdg bdg-t">查询</span><span class="htm">09:15 · 8 条</span></div>
-              <div class="hacts"><span>继续</span><span>改名</span><span class="del">删除</span></div>
-            </div>
-            <div class="hgroup">昨天 · 2026-07-22</div>
-            <div class="hrow">
-              <span class="hdot" style="background:var(--amber)"></span>
-              <div class="hmain"><div class="ht">缺料催料跟进</div><div class="hp">3 家供应商已回复，A-1042 料号仍在途…</div></div>
-              <div class="hmeta"><span class="bdg bdg-o">调度</span><span class="htm">18:02 · 23 条</span></div>
-              <div class="hacts"><span>继续</span><span>改名</span><span class="del">删除</span></div>
-            </div>
-            <div class="hrow">
-              <span class="hdot" style="background:var(--green)"></span>
-              <div class="hmain"><div class="ht">供应商交期确认</div><div class="hp">全部 7 张采购单交期已确认，无延误风险。</div></div>
-              <div class="hmeta"><span class="bdg bdg-o">调度</span><span class="htm">11:40 · 6 条</span></div>
-              <div class="hacts"><span>继续</span><span>改名</span><span class="del">删除</span></div>
-            </div>
-            <div class="hgroup">本周</div>
-            <div class="hrow">
-              <span class="hdot" style="background:var(--green)"></span>
-              <div class="hmain"><div class="ht">质量月报初稿</div><div class="hp">SPC 合格率 99.2%，缺陷帕累托前三项…</div></div>
-              <div class="hmeta"><span class="bdg bdg-t">查询</span><span class="htm">周一 · 15 条</span></div>
-              <div class="hacts"><span>继续</span><span>改名</span><span class="del">删除</span></div>
-            </div>
-            <div class="hrow">
-              <span class="hdot" style="background:var(--tx3)"></span>
-              <div class="hmain"><div class="ht" style="color:var(--tx2)">新产线爬坡方案</div><div class="hp">已取消 · 方案草稿保留在附件</div></div>
-              <div class="hmeta"><span class="bdg bdg-b">排产</span><span class="htm">周二 · 31 条</span></div>
-              <div class="hacts"><span>继续</span><span>改名</span><span class="del">删除</span></div>
+            <div>
+              <div class="tr-h">待审批</div>
+              <div class="appr brk">
+                <div class="h">◈ 操作审批</div>
+                <div class="t">下发排产方案 · 12 工单 / 3 产线</div>
+                <div class="r">write_dispatch · requires_confirmation</div>
+                <div class="row">
+                  <button class="btn b-confirm" style="padding:5px 12px;font-size:11.5px">确认</button>
+                  <button class="btn b-ghost" style="padding:5px 12px;font-size:11.5px">拒绝</button>
+                </div>
+              </div>
+              <div class="tr-ev" style="margin-top:10px">第 3 版 · 模式 排产</div>
             </div>
           </div>
         </div>
-      </div>
+      </div></div>
     </div>
   </div>
 
@@ -1053,14 +1113,11 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
               <div class="sf2"><span>已选 <b style="color:var(--cyan)">2</b> 项</span><a>清空</a><div class="sp" style="flex:1"></div><a>＋ 导入技能</a></div>
             </div>
             <div class="comp-box" style="width:100%;margin-top:14px;max-width:none">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
-                <div class="seg"><button data-m="auto" class="on">自动</button><button data-m="plan">排产</button><button data-m="sched">调度</button><button data-m="query">查询</button></div>
-                <span class="mono" style="font-size:9.5px;color:var(--tx3);letter-spacing:.14em">MODE</span>
-              </div>
               <div class="comp-ta">描述要完成的制造任务，或附加资料…</div>
               <div class="comp-foot">
                 <button class="cico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.5l-8.5 8.5a5.5 5.5 0 0 1-7.78-7.78L13 5a3.7 3.7 0 0 1 5.23 5.23l-8.2 8.2a1.85 1.85 0 0 1-2.62-2.6L15 8"/></svg></button>
                 <button class="cico" style="color:var(--cyan)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+                <select class="mode-sel" data-m="auto" title="模式"><option value="auto" selected>自动</option><option value="plan">排产</option><option value="sched">调度</option><option value="query">查询</option></select>
                 <span class="chip" style="font-size:11px;padding:3px 10px">排产专家 ✕</span>
                 <span class="chip" style="font-size:11px;padding:3px 10px">数据可视化 ✕</span>
                 <div class="sp" style="flex:1"></div>
@@ -1102,12 +1159,67 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   <h3 style="margin:44px 0 12px;font-size:16px">H · 桌面端启动屏（Electron）</h3>
   <div class="frame" data-theme="dark" style="background:var(--bg1);display:grid;place-items:center;padding:40px 0">
     <div class="splash">
-      <div class="sl">M</div>
+      <div class="sl"><svg width="40" height="40" viewBox="0 0 24 24" fill="none"><polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="url(#brand-g)" stroke-width="1.7" stroke-linejoin="round"/><polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="var(--tx1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/><circle cx="16.6" cy="8.8" r="1.7" fill="var(--cyan)" style="filter:drop-shadow(0 0 2px var(--cyan))"/></svg></div>
       <div class="sn">MAESTRO</div>
       <div class="prog"></div>
       <div class="st3">正在准备运行时…</div>
     </div>
   </div>
+
+  <!-- I. 设置模态 -->
+  <h3 style="margin:44px 0 12px;font-size:16px">I · 设置（侧栏左下「设置」→ 居中模态，Esc / 遮罩点击关闭）</h3>
+  <div class="frame" data-theme="dark">
+    <div class="f-body" style="height:580px;display:block;position:relative;background:var(--bg0)">
+      <div style="position:absolute;inset:0;background:var(--aurora)"></div>
+      <div class="modal-mask">
+        <div class="settings">
+          <div class="st-menu">
+            <div class="st-mlab">设置 · Settings</div>
+            <div class="st-item on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="7" cy="16" r="2.2"/></svg> 通用</div>
+            <div class="st-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v2m6-2v2M9 20v2m6-2v2M2 9h2m-2 6h2m16-6h2m-2 6h2"/></svg> 模型与引擎</div>
+            <div class="st-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7L12.5 19"/></svg> 系统集成</div>
+            <div class="st-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v5c0 4.4-3 8.4-7 10-4-1.6-7-5.6-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg> 授权与审批 <span class="n">2</span></div>
+            <div class="st-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg> 通知</div>
+            <div class="st-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5.5" rx="8" ry="2.8"/><path d="M4 5.5V12c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8V5.5"/><path d="M4 12v6.5c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8V12"/></svg> 数据与存储</div>
+            <div class="st-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".6" fill="currentColor"/></svg> 关于</div>
+            <div class="st-ver">MAESTRO v0.2.0</div>
+          </div>
+          <div class="st-pane">
+            <div class="st-ph">
+              <span class="t">通用</span>
+              <div class="sp" style="flex:1"></div>
+              <button class="trc" title="关闭" style="width:24px;height:24px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+            <div class="st-pb">
+              <div class="set-g">外观</div>
+              <div class="set-row">
+                <div class="si"><div class="t">主题</div><div class="d">深空为值班主场，切换即时生效</div></div>
+                <select class="mode-sel"><option selected>深空（默认）</option><option>极昼</option><option>跟随系统</option></select>
+              </div>
+              <div class="set-row">
+                <div class="si"><div class="t">减少动效</div><div class="d">关闭扫描线与脉冲，遵循系统 prefers-reduced-motion</div></div>
+                <span class="sw-switch"></span>
+              </div>
+              <div class="set-g">对话</div>
+              <div class="set-row">
+                <div class="si"><div class="t">默认模式</div><div class="d">新会话的默认引擎路由，可在输入条随时改</div></div>
+                <select class="mode-sel" data-m="auto"><option value="auto" selected>自动</option><option value="plan">排产</option><option value="sched">调度</option><option value="query">查询</option></select>
+              </div>
+              <div class="set-row">
+                <div class="si"><div class="t">流式输出</div><div class="d">逐 token 渲染回复；关闭后等待整段返回</div></div>
+                <span class="sw-switch on"></span>
+              </div>
+              <div class="set-row">
+                <div class="si"><div class="t">运行详情栏</div><div class="d">详情栏的默认状态，栏头与顶栏按钮可随时切换</div></div>
+                <select class="mode-sel"><option selected>驻留</option><option>默认隐藏</option></select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="demo-label" style="margin-top:10px">设置模态 · 左侧菜单 172px 舱体层 + 右侧玻璃内容层；「授权与审批」挂琥珀计数，与待办审批联动</div>
 </section>
 
 <!-- ================= 07 动效 ================= -->
@@ -1121,7 +1233,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
     <tr><td>扫描线</td><td><code>7s linear infinite · 青 6%</code></td><td>流式区域生成中 → 完成即停</td></tr>
     <tr><td>等待脉冲</td><td><code>1.2s ease-in-out · 琥珀点</code></td><td>approval.requested → resolved/expired</td></tr>
     <tr><td>路径升级</td><td><code>300ms · 提示条自左划入</code></td><td>run.path_upgraded → 常驻</td></tr>
-    <tr><td>抽屉/弹层</td><td><code>280ms · 滑入 + 背景 blur 加深</code></td><td>会话抽屉、技能菜单、设置模态</td></tr>
+    <tr><td>抽屉/弹层</td><td><code>280ms · 滑入 + 背景 blur 加深</code></td><td>会话侧栏折叠、技能弹层、设置模态</td></tr>
     <tr><td>减动效</td><td colspan="2"><code>prefers-reduced-motion</code> 时全部动画与脉冲关闭，仅保留瞬时状态切换</td></tr>
   </table>
 </section>
@@ -1151,7 +1263,7 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
     <tr><td><code>--aurora / --grid-line（新增）</code></td><td>见 02 节配方</td><td>见 02 节配方</td></tr>
     <tr><td><code>--data-1…6（图表序）</code></td><td>青→紫→蓝→绿→琥珀→红</td><td>同序（极昼值）</td></tr>
   </table>
-  <div class="note"><b>实施顺序建议：</b>① 变量与双主题（index.css）→ ② 主题切换 UI 接入 themeStore → ③ 图标轨 + 会话抽屉（Layout 已有 sidebar/panel 插槽）→ ④ 对话区组件（任务卡/审批卡/时间线/Composer）→ ⑤ 历史会话页（sessions 已有 GET/POST/PATCH/DELETE）→ ⑥ 技能页接入信任接口（trustSkill 已在 API 层）→ ⑦ 极光/扫描线/噪点收尾。字体改 @fontsource 为 Space Grotesk + JetBrains Mono。<b>契约缺口：</b>模式选择器需 POST /runs 增加 <code>mode</code> 字段（auto/planning/scheduling/query）；会话列表的「消息数/最后预览」需 GET /sessions 扩展字段，否则首版只显标题与时间。</div>
+  <div class="note"><b>实施顺序建议：</b>① 变量与双主题（index.css）→ ② 主题切换 UI 接入 themeStore → ③ 会话侧栏（264px ⇄ 56px 折叠，全部历史常驻；Layout 已有 sidebar 插槽；sessions GET/POST/PATCH/DELETE 已有）→ ④ 对话区组件（任务卡/审批卡/时间线/Composer 模式下拉与技能弹层）→ ⑤ 详情栏三态（驻留/隐藏/全屏，纯前端布局状态）→ ⑥ 技能页接入信任接口（trustSkill 已在 API 层）→ ⑦ 品牌标识与极光/扫描线/噪点收尾。字体改 @fontsource 为 Space Grotesk + JetBrains Mono。<b>契约缺口：</b>模式选择器需 POST /runs 增加 <code>mode</code> 字段（auto/planning/scheduling/query）；会话列表的「消息数/最后预览」需 GET /sessions 扩展字段，否则首版只显标题与时间。</div>
 </section>
 
 <!-- ================= 09 验收 ================= -->
@@ -1183,13 +1295,9 @@ table.spec code { font-family:'JetBrains Mono',monospace; font-size:12px; color:
   btn.addEventListener('click',function(){
     html.setAttribute('data-theme', html.getAttribute('data-theme')==='dark'?'light':'dark'); sync();
   });
-  // 界面稿内模式分段控件：点击切换选中态（演示用）
-  document.querySelectorAll('.seg').forEach(function(seg){
-    seg.addEventListener('click',function(e){
-      var b=e.target.closest('button'); if(!b) return;
-      seg.querySelectorAll('button').forEach(function(x){x.classList.remove('on');});
-      b.classList.add('on');
-    });
+  // 界面稿内模式下拉：切换选中态着色（演示用）
+  document.querySelectorAll('.mode-sel').forEach(function(sel){
+    sel.addEventListener('change',function(){ sel.setAttribute('data-m', sel.value); });
   });
   sync();
 })();

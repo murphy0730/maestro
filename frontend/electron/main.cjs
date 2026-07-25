@@ -9,9 +9,10 @@
 const { app, BrowserWindow, nativeTheme, shell, dialog, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const http = require('node:http');
 const { spawn, execSync } = require('node:child_process');
 const bc = require('./backend-config.cjs');
+const { splashHtml } = require('./splash.cjs');
+const { waitForBackend } = require('./backend-health.cjs');
 
 const isMac = process.platform === 'darwin';
 const isSidecar = app.isPackaged || process.env.MAESTRO_SIDECAR === '1';
@@ -61,26 +62,6 @@ function buildBackendEnv(port) {
   return env;
 }
 
-function waitForHealth(port, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + timeoutMs;
-    const tick = () => {
-      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
-        res.resume();
-        if (res.statusCode === 200) return resolve();
-        if (Date.now() > deadline) return reject(new Error(`/health non-200 on ${port}`));
-        setTimeout(tick, 200);
-      });
-      req.on('error', () => {
-        if (Date.now() > deadline) return reject(new Error(`/health timeout on ${port}`));
-        setTimeout(tick, 200);
-      });
-      req.setTimeout(500, () => req.destroy());
-    };
-    tick();
-  });
-}
-
 async function startBackend() {
   fs.mkdirSync(userDataDir(), { recursive: true });
   const port = await bc.pickFreePort();
@@ -98,7 +79,7 @@ async function startBackend() {
     }
   });
   backend = { child, port };
-  await waitForHealth(port, 60000);
+  await waitForBackend(port, 60000);
   return backend;
 }
 
@@ -131,18 +112,16 @@ function stopBackendAsync() {
 function createSplash() {
   splash = new BrowserWindow({
     width: 360, height: 220, frame: false, resizable: false,
-    transparent: false, backgroundColor: '#f5f5f7', show: true,
+    transparent: false, backgroundColor: '#04060D', show: true,
     webPreferences: { contextIsolation: true },
   });
-  splash.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
-    `<body style="margin:0;font-family:-apple-system,system-ui,sans-serif;background:#f5f5f7;height:100vh;display:flex;align-items:center;justify-content:center;color:#1a1a1e;font-size:14px;">Maestro 正在准备…</body>`
-  ));
+  splash.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(splashHtml()));
 }
 
 function createWindow(port) {
   const win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 1024, minHeight: 680,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1a1a1e' : '#f5f5f7',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#04060D' : '#E7ECF5',
     title: 'Maestro', autoHideMenuBar: true,
     ...(isMac && { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 16 } }),
     webPreferences: {

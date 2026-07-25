@@ -2,41 +2,31 @@ import type { ReactNode } from 'react';
 import { isMacDesktop } from '@/lib/platform';
 
 /**
- * Layout — the app frame: a fixed left sidebar beside a body of a top bar over
- * two columns (conversation on the left, context panel on the right). The right
- * column collapses when no panel is supplied. Pure presentational shell.
+ * Layout — 设计稿 06 的应用框：左侧会话侧栏 + 中央工作区（顶栏 / 对话 / Composer）
+ * + 右侧运行详情栏。详情栏由 `conversation` 自行携带，因为它的驻留/隐藏/全屏三态
+ * 需要跟对话区共享同一个定位上下文。
  *
- * On the macOS Electron shell (hiddenInset titlebar) a dedicated 44px drag
- * strip sits at the very top — the traffic lights live there, and the app
- * chrome (sidebar/topbar) starts below it instead of colliding with them.
+ * 极光只铺在中央工作区（设计稿 .f-main::before），蓝图网格铺满整个外框；
+ * macOS Electron（hiddenInset 标题栏）顶部保留 44px 拖拽区，红绿灯不与应用 chrome 冲突。
  */
 interface LayoutProps {
   sidebar?: ReactNode;
   topBar: ReactNode;
   conversation: ReactNode;
-  panel?: ReactNode;
 }
 
-export function Layout({ sidebar, topBar, conversation, panel }: LayoutProps) {
+export function Layout({ sidebar, topBar, conversation }: LayoutProps) {
   return (
-    <div className="flex h-full flex-col bg-bg-base">
+    <div className="maestro-shell flex h-full flex-col bg-bg-base">
       {isMacDesktop && (
-        <div className="app-drag material-chrome h-[44px] flex-none border-b border-border-subtle" />
+        <div className="app-drag h-[44px] flex-none border-b border-border-subtle bg-surface-1" />
       )}
       <div className="flex min-h-0 flex-1">
+        <div className="noise-overlay" aria-hidden="true" />
         {sidebar}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="aurora-field flex min-w-0 flex-1 flex-col bg-bg-base">
           {topBar}
-          <div className="flex min-h-0 flex-1">
-            <main
-              className={`flex min-w-0 flex-1 flex-col ${panel ? 'border-r border-border-subtle' : ''}`}
-            >
-              {conversation}
-            </main>
-            {panel && (
-              <div className="flex w-[42%] min-w-[388px] max-w-[600px] flex-none">{panel}</div>
-            )}
-          </div>
+          <div className="flex min-h-0 flex-1">{conversation}</div>
         </div>
       </div>
     </div>

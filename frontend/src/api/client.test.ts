@@ -17,3 +17,11 @@ describe('API_BASE resolution', () => {
     expect(API_BASE).toBe('/api/v1');
   });
 });
+
+describe('FastAPI errors', () => {
+  it('surfaces structured detail messages such as stale approval conflicts', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code: 'stale_approval', message: 'revision mismatch' } }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+    const { apiPost } = await import('./client');
+    await expect(apiPost('/runs/r1/approvals/a1', {})).rejects.toMatchObject({ status: 409, code: 'stale_approval', message: 'revision mismatch' });
+  });
+});

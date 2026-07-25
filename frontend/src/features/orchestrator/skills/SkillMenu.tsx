@@ -1,18 +1,23 @@
 import { useState } from 'react';
-import { Sparkles, Check, Search, ChevronDown, Import, Ban, ShieldCheck } from 'lucide-react';
+import { Check } from 'lucide-react';
 import type { SkillMeta } from '@/types/api';
+import { Badge } from '@/components/ui/Badge';
 
 interface SkillMenuProps {
   skills: SkillMeta[];
   selected: SkillMeta[];
-  onToggleSkill: (s: SkillMeta) => void;
+  onToggleSkill: (skill: SkillMeta) => void;
   onClear: () => void;
   onImportSkill: () => void;
   onTrustSkill?: (skill: SkillMeta) => void;
   open: boolean;
-  onToggle: () => void;
 }
 
+/**
+ * SkillMenu — 设计稿 F：浮在输入条上方的 400px 技能选择面板。
+ * 勾选框直接挂载到本次 run；信任状态用真实的 `trust.valid` 呈现，未信任项就地可信任。
+ * 触发按钮在 ComposerToolbar 里，面板由 Composer 定位在整个输入条之上。
+ */
 export function SkillMenu({
   skills,
   selected,
@@ -21,123 +26,124 @@ export function SkillMenu({
   onImportSkill,
   onTrustSkill,
   open,
-  onToggle,
 }: SkillMenuProps) {
-  const [q, setQ] = useState('');
-  const visible = skills.filter((s) => s.user_invocable !== false);
-  const filtered = visible.filter((s) =>
-    [s.name, s.display_name, s.summary_zh, s.description_zh, s.description]
+  const [query, setQuery] = useState('');
+  const visible = skills.filter((skill) => skill.user_invocable !== false);
+  const filtered = visible.filter((skill) =>
+    [skill.name, skill.display_name, skill.summary_zh, skill.description_zh, skill.description]
       .join(' ')
       .toLowerCase()
-      .includes(q.toLowerCase()),
+      .includes(query.toLowerCase()),
   );
-  const isSel = (s: SkillMeta) => selected.some((x) => x.name === s.name);
+  const isSelected = (skill: SkillMeta) => selected.some((item) => item.name === skill.name);
 
-  // Same chip shape as the rest of the composer controls.
-  const active = open || selected.length > 0;
-  const chip = `inline-flex h-8 cursor-pointer items-center gap-[6px] rounded-md border px-[9px] font-sans text-caption font-semibold text-text-secondary transition-colors duration-fast ease-out ${
-    active ? 'border-accent-border bg-accent-bg' : 'border-border-default hover:bg-border-subtle'
-  }`;
-
-  // One compact dropdown row per available Skill.
-  const row =
-    'flex w-full items-center gap-[10px] rounded-sm px-2 py-[7px] text-left transition-colors duration-fast ease-out';
-
+  if (!open) return null;
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className={chip}
-      >
-        <Sparkles size={13} className="text-accent" />
-        <span className="text-text-primary">
-          {selected.length > 0 ? `技能 · ${selected.length}` : '技能'}
-        </span>
-        <ChevronDown size={13} className="text-text-tertiary" />
-      </button>
+    <div
+      role="menu"
+      aria-label="选择技能"
+      className="material-popover absolute bottom-full left-0 z-30 mb-[14px] w-[400px] max-w-full overflow-hidden rounded-[14px] border border-border-strong shadow-popover"
+    >
+      <div className="flex items-center gap-[10px] border-b border-border-subtle px-[14px] py-[12px]">
+        <span className="hud-label text-text-tertiary">选择技能 · Skills</span>
+        <span className="flex-1" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索…"
+          aria-label="搜索技能"
+          className="w-[132px] rounded-md border border-border-subtle bg-surface-2 px-[10px] py-[5px] text-[11.5px] text-text-primary outline-none transition-colors focus:border-accent placeholder:text-text-tertiary"
+        />
+      </div>
 
-      {open && (
-        <div className="material-popover absolute bottom-full left-0 mb-2 w-[264px] rounded-md border border-border-default shadow-popover">
-          <div className="flex items-center gap-[6px] border-b border-border-default px-[10px] py-[7px]">
-            <Search size={13} className="flex-none text-text-tertiary" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索技能"
-              className="w-full bg-transparent text-body-sm text-text-primary placeholder:text-text-tertiary focus:outline-none"
-            />
-          </div>
-
-          <div className="max-h-[280px] overflow-auto px-1 py-1">
-            <button
-              type="button"
-              onClick={onClear}
-              disabled={selected.length === 0}
-              className={`${row} ${
-                selected.length === 0 ? 'opacity-50' : 'hover:bg-border-subtle'
-              }`}
+      <div className="max-h-[300px] overflow-y-auto">
+        {filtered.map((skill) => {
+          const checked = isSelected(skill);
+          const trusted = skill.trust?.valid ?? false;
+          return (
+            <div
+              key={skill.name}
+              role="menuitemcheckbox"
+              aria-checked={checked}
+              tabIndex={0}
+              onClick={() => onToggleSkill(skill)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onToggleSkill(skill);
+                }
+              }}
+              className="flex cursor-pointer items-start gap-[11px] px-[14px] py-[11px] transition-colors duration-fast hover:bg-surface-3"
             >
-              <Ban size={14} className="flex-none text-text-tertiary" />
-              <span className="min-w-0 flex-1 text-body-sm text-text-secondary">清空已选</span>
-            </button>
-
-            {filtered.map((s) => {
-              const selectedNow = isSel(s);
-              return (
-                <div
-                  key={s.name}
-                  role="menuitemcheckbox"
-                  aria-checked={selectedNow}
-                  onClick={() => onToggleSkill(s)}
-                  className={`${row} ${selectedNow ? 'bg-accent-bg' : 'hover:bg-border-subtle'}`}
+              <span
+                aria-hidden="true"
+                className={`mt-[2px] grid h-[16px] w-[16px] flex-none place-items-center rounded-[5px] border-[1.5px] transition-all duration-fast ${
+                  checked
+                    ? 'border-accent bg-accent text-text-on-color shadow-glow-accent'
+                    : 'border-text-tertiary text-transparent'
+                }`}
+              >
+                <Check size={10} strokeWidth={3} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-[8px] text-body-sm font-medium text-text-primary">
+                  <span className="truncate">{skill.display_name ?? skill.name}</span>
+                  <Badge tone={trusted ? 'success' : 'warning'} className="flex-none !text-[9px]">
+                    {trusted ? '已信任' : '未信任'}
+                  </Badge>
+                </span>
+                <span className="mt-[2px] block truncate text-[11.5px] text-text-secondary">
+                  {skill.summary_zh ?? skill.description}
+                </span>
+              </span>
+              {!trusted && skill.scripts?.length ? (
+                <button
+                  type="button"
+                  title="信任当前版本脚本"
+                  aria-label={`信任 ${skill.display_name ?? skill.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onTrustSkill?.(skill);
+                  }}
+                  className="flex-none rounded-sm border border-border-strong px-[9px] py-[2px] text-[10.5px] text-text-primary transition-colors hover:border-accent hover:text-accent"
                 >
-                  <Sparkles size={14} className="flex-none text-text-secondary" />
-                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <span className="truncate text-body-sm font-semibold text-text-primary">
-                      {s.display_name ?? s.name}
-                    </span>
-                    <span className="truncate text-[11px] text-text-tertiary">
-                      {s.summary_zh ?? s.description}
-                    </span>
-                  </span>
-                  {s.scripts?.length && !s.trust?.valid ? (
-                    <button
-                      type="button"
-                      title="信任当前版本脚本"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onTrustSkill?.(s);
-                      }}
-                      className="rounded-sm border border-status-warning/40 p-1 text-status-warning"
-                    >
-                      <ShieldCheck size={13} />
-                    </button>
-                  ) : null}
-                  {selectedNow && <Check size={14} className="flex-none text-accent" />}
-                </div>
-              );
-            })}
+                  信任
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
 
-            {filtered.length === 0 && (
-              <div className="px-2 py-2 text-[11px] text-text-tertiary">暂无技能，点击下方导入</div>
-            )}
-          </div>
+        {filtered.length === 0 && (
+          <p className="px-[14px] py-[16px] text-[11.5px] text-text-tertiary">
+            暂无匹配的技能，可从下方导入
+          </p>
+        )}
+      </div>
 
-          <div className="border-t border-border-default px-1 py-1">
-            <button
-              type="button"
-              onClick={onImportSkill}
-              className={`${row} text-text-secondary hover:bg-border-subtle`}
-            >
-              <Import size={14} className="flex-none text-text-tertiary" />
-              <span className="text-body-sm font-medium">导入技能</span>
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center gap-[10px] border-t border-border-subtle px-[14px] py-[10px] text-[11.5px] text-text-tertiary">
+        <span>
+          已选 <b className="font-medium text-accent">{selected.length}</b> 项
+        </span>
+        <button
+          type="button"
+          aria-label="清空已选"
+          onClick={onClear}
+          disabled={selected.length === 0}
+          className="text-accent transition-opacity hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          清空
+        </button>
+        <span className="flex-1" />
+        <button
+          type="button"
+          aria-label="导入技能"
+          onClick={onImportSkill}
+          className="text-accent transition-colors hover:underline"
+        >
+          ＋ 导入技能
+        </button>
+      </div>
     </div>
   );
 }

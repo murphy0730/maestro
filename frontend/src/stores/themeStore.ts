@@ -4,10 +4,10 @@ export type Theme = 'light' | 'dark';
 
 const STORAGE_KEY = 'maestro-theme';
 
-/** 读取初始主题：localStorage 优先，缺省浅色。 */
+/** 读取初始主题：localStorage 优先，缺省为设计系统主场「深空」。 */
 function readInitialTheme(): Theme {
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved === 'dark' ? 'dark' : 'light';
+  return saved === 'light' ? 'light' : 'dark';
 }
 
 /** 把主题写到 <html data-theme>，驱动 index.css 的 token 覆盖。 */

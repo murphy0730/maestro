@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from time import monotonic
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -42,6 +43,8 @@ class RunCoordinator:
         events: EventPublisher,
         skill_catalog: SkillCatalog | None = None,
         artifact_threshold_bytes: int = 4096,
+        history_provider: Callable[[str], list[dict]] | None = None,
+        max_history_messages: int = 20,
     ) -> None:
         self._model = model
         self._capabilities = capabilities
@@ -53,6 +56,8 @@ class RunCoordinator:
         self._events = events
         self._skill_catalog = skill_catalog
         self._artifact_threshold_bytes = artifact_threshold_bytes
+        self._history_provider = history_provider
+        self._max_history_messages = max_history_messages
 
     def set_intent_classifier(self, classifier: IntentClassifier) -> None:
         """Replace the injected classifier when a host updates its capability registry."""
@@ -149,6 +154,7 @@ class RunCoordinator:
         started_at = monotonic()
         calls_seen: dict[str, int] = {}
         context_items = self._initial_context(run)
+        messages = self._conversation_messages(run)
         parent_allowed = set(run.intent.candidate_capabilities) or None
         skill_allowed: set[str] | None = None
         prepared, skill_allowed = self._apply_explicit_manual_skills(
@@ -166,7 +172,7 @@ class RunCoordinator:
                 return self._fail(run, "time_exhausted")
             capabilities = self._available(snapshot, parent_allowed, skill_allowed)
             context = self._context_provider.assemble(context_items)
-            action = await self._model.next_turn(context, capabilities)
+            action = await self._model.next_turn(context, capabilities, messages)
             self._publish(run, "model.turn", {"kind": action.kind})
             if action.kind == "final":
                 run = transition_run(run, RunStatus.COMPLETED, "model final")
@@ -187,7 +193,7 @@ class RunCoordinator:
             if spec.writes:
                 upgraded = self._upgrade_to_controlled_execution(run, "high_risk_write", context_items)
                 return await self._run_controlled(
-                    upgraded, snapshot, context_items, parent_allowed, skill_allowed
+                    upgraded, snapshot, context_items, parent_allowed, skill_allowed, messages
                 )
             if spec.kind is CapabilityKind.SKILL:
                 loaded = self._load_inline_skill(spec, action.call, run)
@@ -249,11 +255,14 @@ class RunCoordinator:
         context_items: list[ContextItem] | None = None,
         parent_allowed: set[str] | None = None,
         skill_allowed: set[str] | None = None,
+        messages: list[dict] | None = None,
     ) -> RunRecord:
         """Execute sequential model actions with controlled budgets and no plan graph."""
         assert run.intent is not None
         is_initial_execution = context_items is None
         context_items = context_items or self._initial_context(run)
+        if messages is None:
+            messages = self._conversation_messages(run)
         if parent_allowed is None:
             parent_allowed = set(run.intent.candidate_capabilities) or None
         if is_initial_execution:
@@ -278,6 +287,7 @@ class RunCoordinator:
             action = await self._model.next_turn(
                 self._context_provider.assemble(context_items),
                 self._available(snapshot, parent_allowed, skill_allowed),
+                messages,
             )
             self._publish(run, "model.turn", {"kind": action.kind})
             if action.kind == "final":
@@ -385,6 +395,8 @@ class RunCoordinator:
             [ContextItem.from_run(child), ContextItem.from_skill(loaded)],
             child_allowed,
             child_allowed,
+            # A child is an isolated unit: it carries its own objective, not the session.
+            [{"role": "user", "content": child.objective}],
         )
         artifact = self._artifact_store.put(
             json.dumps(
@@ -415,6 +427,28 @@ class RunCoordinator:
         context_items.append(
             ContextItem(key=f"capability:{name}", text=json.dumps(content, ensure_ascii=False, default=str))
         )
+
+    def _conversation_messages(self, run: RunRecord) -> list[dict]:
+        """Prior turns of this session followed by the objective the model must answer."""
+        return [*self._session_history(run), {"role": "user", "content": run.objective}]
+
+    def _session_history(self, run: RunRecord) -> list[dict]:
+        if self._history_provider is None:
+            return []
+        try:
+            stored = self._history_provider(run.session_id)
+        except Exception:
+            # A damaged session file must not take the Run down with it.
+            return []
+        usable = [
+            {"role": message["role"], "content": message["content"]}
+            for message in stored
+            if message.get("role") in ("user", "assistant")
+            and message.get("content")
+            # This Run's own turn is appended explicitly by _conversation_messages.
+            and message.get("run_id") != run.run_id
+        ]
+        return usable[-self._max_history_messages :] if self._max_history_messages > 0 else []
 
     def _initial_context(self, run: RunRecord) -> list[ContextItem]:
         items = [ContextItem.from_run(run)]

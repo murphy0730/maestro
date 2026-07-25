@@ -7,3 +7,5 @@ export { useThemeStore } from './themeStore';
 export type { Theme } from './themeStore';
 export { usePersonalizationStore } from './personalizationStore';
 export type { Personalization } from './personalizationStore';
+export { useUiPreferencesStore } from './uiPreferencesStore';
+export type { RunMode, TraceDefault } from './uiPreferencesStore';

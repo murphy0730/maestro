@@ -7,14 +7,15 @@ export interface RunProjection {
   upgradeReason?: string;
   recovered: boolean;
   diagnostics: string[];
+  events: string[];
 }
-export const INITIAL_RUN_STATE: RunProjection = { run: null, tokens: '', diagnostics: [], recovered: false };
+export const INITIAL_RUN_STATE: RunProjection = { run: null, tokens: '', diagnostics: [], events: [], recovered: false };
 
 const terminal = new Set<RunStatus>(['completed', 'failed', 'cancelled']);
-const statusFor = (type: string): RunStatus | undefined => ({ 'run.completed': 'completed', 'run.failed': 'failed', 'run.cancelled': 'cancelled', 'run.waiting_approval': 'waiting_approval', 'run.reconciling': 'reconciling' })[type] as RunStatus | undefined;
+const statusFor = (type: string): RunStatus | undefined => ({ 'run.controlled_started': 'running_structured', 'run.completed': 'completed', 'run.failed': 'failed', 'run.cancelling': 'cancelling', 'run.cancelled': 'cancelled', 'run.waiting_approval': 'waiting_approval', 'run.waiting_external': 'waiting_external', 'run.reconciling': 'reconciling' })[type] as RunStatus | undefined;
 const stepStatus = (type: string): RunStep['status'] | undefined => ({ 'step.started': 'running', 'step.succeeded': 'succeeded', 'step.failed': 'failed' })[type] as RunStep['status'] | undefined;
 
-export function reduceRunEvent(state: RunProjection, event: RunEvent): RunProjection {
+function reduceRunEventCore(state: RunProjection, event: RunEvent): RunProjection {
   const data: Record<string, unknown> = event.data;
   if (event.type === 'run.created') {
     if (state.run) return state;
@@ -28,9 +29,14 @@ export function reduceRunEvent(state: RunProjection, event: RunEvent): RunProjec
   if (event.type === 'run.path_upgraded') return { ...state, run: { ...state.run, path: 'structured', status: 'running_structured' }, upgradeReason: String(data.reason ?? '') };
   const newStepStatus = stepStatus(event.type);
   if (newStepStatus) {
-    const stepId = String(data.step_id ?? data.capability_id ?? 'runtime');
+    const existingSteps = Object.values(state.run.steps);
+    const runningSteps = existingSteps.filter((step) => step.status === 'running');
+    const namedStep = typeof data.name === 'string'
+      ? existingSteps.find((step) => step.kind === data.name) ?? (runningSteps.length === 1 ? runningSteps[0] : undefined)
+      : undefined;
+    const stepId = String(data.step_id ?? data.capability_id ?? namedStep?.step_id ?? data.name ?? 'runtime');
     const previous = state.run.steps[stepId] ?? { step_id: stepId, kind: String(data.kind ?? 'capability'), status: 'pending' as const };
-    return { ...state, run: { ...state.run, steps: { ...state.run.steps, [stepId]: { ...previous, status: newStepStatus, error_message: data.error_message as string | undefined } } } };
+    return { ...state, run: { ...state.run, steps: { ...state.run.steps, [stepId]: { ...previous, kind: String(data.kind ?? data.name ?? previous.kind), status: newStepStatus, error_message: data.error_message as string | undefined } } } };
   }
   if (event.type === 'approval.requested') {
     if (!data.approval_id) return { ...state, diagnostics: [...state.diagnostics, 'Approval detail will be loaded from snapshot'] };
@@ -43,8 +49,21 @@ export function reduceRunEvent(state: RunProjection, event: RunEvent): RunProjec
   }
   if (event.type === 'artifact.created') return state;
   const runStatus = statusFor(event.type);
-  if (runStatus) return { ...state, run: { ...state.run, status: runStatus, final_text: terminal.has(runStatus) ? String(data.final_text ?? state.tokens) : state.run.final_text } };
+  if (runStatus) return { ...state, run: { ...state.run, status: runStatus, final_text: terminal.has(runStatus) ? String(data.final_text ?? state.tokens) : state.run.final_text }, diagnostics: event.type === 'run.failed' && (data.reason || data.error_message) ? [...state.diagnostics, String(data.reason ?? data.error_message)] : state.diagnostics };
   return { ...state, diagnostics: [...state.diagnostics, `Ignored unknown event ${event.type}`] };
+}
+
+function eventSummary(event: RunEvent): string | undefined {
+  if (event.type === 'token.delta') return undefined;
+  const data = event.data as Record<string, unknown>;
+  const detail = data.step_id ?? data.capability_id ?? data.approval_id ?? data.path ?? data.reason;
+  return `${event.type}${detail ? ` · ${String(detail)}` : ''}`;
+}
+
+export function reduceRunEvent(state: RunProjection, event: RunEvent): RunProjection {
+  const next = reduceRunEventCore(state, event);
+  const summary = eventSummary(event);
+  return summary ? { ...next, events: [...next.events, summary].slice(-100) } : next;
 }
 export function reduceRunEvents(state: RunProjection, events: RunEvent[]) { return events.reduce(reduceRunEvent, state); }
 
@@ -53,5 +72,5 @@ function mergeSnapshot(state: RunProjection, snapshot: RunSnapshot | null): RunP
   const current = state.run;
   return { ...state, run: { ...snapshot, steps: { ...(current?.steps ?? {}), ...(snapshot.steps ?? {}) } }, recovered: state.recovered || snapshot.intent?.source === 'resume' };
 }
-interface RunStore extends RunProjection { apply: (event: RunEvent) => void; diagnose: (message: string) => void; setRun: (run: RunSnapshot | null) => void; mergeRun: (run: RunSnapshot) => void; reset: () => void; }
-export const useRunStore = create<RunStore>((set) => ({ ...INITIAL_RUN_STATE, apply: (event) => set((state) => reduceRunEvent(state, event)), diagnose: (message) => set((state) => ({ diagnostics: [...state.diagnostics, message] })), setRun: (run) => set({ ...INITIAL_RUN_STATE, run, recovered: run?.intent?.source === 'resume' }), mergeRun: (run) => set((state) => mergeSnapshot(state, run)), reset: () => set(INITIAL_RUN_STATE) }));
+interface RunStore extends RunProjection { apply: (event: RunEvent) => void; diagnose: (message: string) => void; setRun: (run: RunSnapshot | null) => void; mergeRun: (run: RunSnapshot) => void; markRecovered: () => void; reset: () => void; }
+export const useRunStore = create<RunStore>((set) => ({ ...INITIAL_RUN_STATE, apply: (event) => set((state) => reduceRunEvent(state, event)), diagnose: (message) => set((state) => ({ diagnostics: [...state.diagnostics, message] })), setRun: (run) => set({ ...INITIAL_RUN_STATE, run, recovered: run?.intent?.source === 'resume' }), mergeRun: (run) => set((state) => mergeSnapshot(state, run)), markRecovered: () => set({ recovered: true }), reset: () => set(INITIAL_RUN_STATE) }));

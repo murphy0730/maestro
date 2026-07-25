@@ -21,6 +21,12 @@ interface ModalProps {
   bodyClassName?: string;
   /** Optional fixed action row below the scrollable body. */
   footer?: React.ReactNode;
+  /**
+   * `false` drops the default title bar so the caller can draw its own chrome
+   * (设计稿 I 的设置模态：标题与关闭键在右侧面板头里). The dialog stays labelled
+   * by `title`, and Escape / overlay / focus behaviour is unchanged.
+   */
+  chrome?: boolean;
 }
 
 export function Modal({
@@ -32,6 +38,7 @@ export function Modal({
   widthClassName = 'max-w-[420px]',
   bodyClassName = 'p-4',
   footer,
+  chrome = true,
 }: ModalProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -74,19 +81,21 @@ export function Modal({
   if (!open) return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 sm:p-6"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[5px] sm:p-6"
       onClick={onClose}
     >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={chrome ? undefined : title}
+        aria-labelledby={chrome ? titleId : undefined}
         aria-describedby={subtitle ? descriptionId : undefined}
         tabIndex={-1}
         className={`flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] flex-col overflow-hidden rounded-lg border border-border-default bg-surface-1 shadow-popover outline-none sm:max-h-[min(80vh,760px)] sm:w-[calc(100vw-48px)] ${widthClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
+        {chrome && (
         <div className="flex flex-none items-start justify-between gap-3 border-b border-border-subtle px-5 py-[14px]">
           <div className="flex min-w-0 flex-col gap-1">
             <span id={titleId} className="font-display text-h4 font-semibold text-text-primary">
@@ -109,6 +118,7 @@ export function Modal({
             <X size={16} />
           </button>
         </div>
+        )}
         <div className={`min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}>{children}</div>
         {footer && (
           <div className="flex flex-none flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-2 px-5 py-[14px]">

@@ -60,6 +60,7 @@ async def create_run(payload: CreateRunRequest, request: Request):
     platform.session_store.append_message(
         payload.session_id, "user", payload.message,
         artifact_ids=payload.artifact_ids, skill_names=payload.skill_names,
+        run_id=run.run_id,
     )
     platform.session_store.set_active_run(payload.session_id, run.run_id)
     async def execute_and_persist_reply() -> None:

@@ -29,22 +29,24 @@ export interface RunSnapshot {
   run_id: string; session_id: string; objective: string; path: RunPath; status: RunStatus;
   steps: Record<string, RunStep>; pending_approvals: ApprovalView[]; final_text?: string | null;
   revision: number; intent?: { requested_skills?: string[]; source?: 'chat' | 'expert' | 'event' | 'resume' } | null;
+  created_at?: string; updated_at?: string; input_artifact_ids?: string[];
 }
 export interface CreateRunRequest { session_id: string; message: string; source?: 'chat' | 'expert' | 'event' | 'resume'; skill_names?: string[]; artifact_ids?: string[] }
 export interface ArtifactUpload { artifact_id: string; sha256: string; media_type: string; bytes: number }
 export type PublicRunEventName =
-  | 'run.created' | 'run.path_selected' | 'run.path_upgraded' | 'run.waiting_approval'
-  | 'run.reconciling' | 'run.completed' | 'run.failed' | 'run.cancelled'
+  | 'run.created' | 'run.path_selected' | 'run.controlled_started' | 'run.path_upgraded' | 'run.waiting_approval'
+  | 'run.waiting_external' | 'run.reconciling' | 'run.cancelling' | 'run.completed' | 'run.failed' | 'run.cancelled'
   | 'step.started' | 'step.succeeded' | 'step.failed' | 'approval.requested'
   | 'approval.expired' | 'approval.resolved' | 'artifact.created' | 'token.delta';
 type Event<T extends PublicRunEventName, D extends Record<string, unknown>> = { event_id?: string; type: T; data: D };
 export type RunEvent =
   | Event<'run.created', Partial<RunSnapshot>>
   | Event<'run.path_selected', { path: RunPath }>
+  | Event<'run.controlled_started', Record<string, unknown>>
   | Event<'run.path_upgraded', { from?: RunPath; to: 'structured'; reason?: string }>
-  | Event<'run.waiting_approval' | 'run.reconciling' | 'artifact.created', Record<string, unknown>>
-  | Event<'run.completed' | 'run.failed' | 'run.cancelled', { final_text?: string }>
-  | Event<'step.started' | 'step.succeeded' | 'step.failed', { step_id?: string; capability_id?: string; kind?: string; error_message?: string }>
+  | Event<'run.waiting_approval' | 'run.waiting_external' | 'run.reconciling' | 'run.cancelling' | 'artifact.created', Record<string, unknown>>
+  | Event<'run.completed' | 'run.failed' | 'run.cancelled', { final_text?: string; reason?: string; error_message?: string }>
+  | Event<'step.started' | 'step.succeeded' | 'step.failed', { step_id?: string; capability_id?: string; name?: string; kind?: string; status?: string; error_message?: string }>
   | Event<'approval.requested', Partial<ApprovalView>>
   | Event<'approval.expired' | 'approval.resolved', { approval_id?: string; status?: ApprovalView['status'] }>
   | Event<'token.delta', { delta?: string }>;

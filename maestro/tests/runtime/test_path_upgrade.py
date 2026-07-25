@@ -114,11 +114,11 @@ async def test_upgrade_persists_the_running_controlled_snapshot_before_next_turn
     class SnapshotCheckingModel(FakeRuntimeModel):
         observed_status: RunStatus | None = None
 
-        async def next_turn(self, context, capabilities):
+        async def next_turn(self, context, capabilities, messages=None):
             if len(self.contexts) == 2:
                 run_id = next(runs.directory.glob("*.json")).stem
                 self.observed_status = runs.load(run_id).status
-            return await super().next_turn(context, capabilities)
+            return await super().next_turn(context, capabilities, messages)
 
     model = SnapshotCheckingModel()
     model.queue_call("read")

@@ -1,249 +1,331 @@
-/* Self-hosted variable fonts — no CDN, so the Electron shell works offline. */
-@import '@fontsource-variable/geist';
-@import '@fontsource-variable/geist-mono';
-@import '@fontsource-variable/inter';
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/jetbrains-mono';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ============================================================
-   Maestro — design tokens (CSS custom properties)
-   Linear/Vercel language. Light is the default theme (:root);
-   dark is a designed sibling under :root[data-theme='dark'].
-
-   tailwind.config.ts mirrors every var below as a semantic utility;
-   components use those, never raw hex.
-   ============================================================ */
-:root {
-  color-scheme: light;
-
-  /* ---- Base backgrounds (depth: sunken < base < raised surfaces) ---- */
-  --bg-sunken: #f4f5f6;
-  --bg-base: #fbfbfc;
-  --surface-1: #ffffff;
-  --surface-2: #f7f8f8;
-  --surface-3: #eff0f2;
-  --surface-inset: #f4f5f6;
-
-  /* ---- Chrome surfaces ----
-     The macOS glass material is gone: in this language material reads as
-     noise, and backdrop blur drops frames on long Electron lists. The vars
-     survive so the `.material-*` classes keep working — they now paint solid. */
-  --glass-fill: #ffffff;
-  --glass-popover: #ffffff;
-  --glass-tint: transparent;
-  --glass-blur: 0px;
-
-  /* ---- Borders / hairlines (cool-tinted black alpha on light) ---- */
-  --border-subtle: rgba(9, 10, 14, 0.06);
-  --border-default: rgba(9, 10, 14, 0.1);
-  --border-strong: rgba(9, 10, 14, 0.17);
-  --border-accent: rgba(47, 111, 235, 0.28);
-
-  /* ---- Text ---- */
-  --text-primary: #0e0f11;
-  --text-secondary: #5b5f66;
-  --text-tertiary: #8a8f96;
-  --text-disabled: #b7bbc0;
-  --text-on-color: #ffffff;
-  --text-inverse: #fbfbfc;
-
-  /* ---- Status ---- */
-  --status-success: #12a150;
-  --status-success-bg: rgba(18, 161, 80, 0.09);
-  --status-warning: #b45309;
-  --status-warning-bg: rgba(180, 83, 9, 0.09);
-  --status-error: #dc2626;
-  --status-error-bg: rgba(220, 38, 38, 0.08);
-  --status-info: #2f6feb;
-  --status-info-bg: rgba(47, 111, 235, 0.09);
-
-  /* ---- Action authorization: auto borrows green, confirm borrows amber ---- */
-  --auth-auto: #12a150;
-  --auth-auto-bg: rgba(18, 161, 80, 0.09);
-  --auth-auto-border: rgba(18, 161, 80, 0.28);
-  --auth-confirm: #b45309;
-  --auth-confirm-bg: rgba(180, 83, 9, 0.09);
-  --auth-confirm-border: rgba(180, 83, 9, 0.28);
-
-  /* ---- Accent ---- */
-  --accent: #2f6feb;
-  --accent-strong: #2560d4;
-  --accent-fg: #1d53c0;
-  --accent-bg: rgba(47, 111, 235, 0.09);
-  --accent-border: rgba(47, 111, 235, 0.28);
-  --accent-glow: rgba(47, 111, 235, 0.18);
-
-  /* ---- Solid fills for filled controls; white text sits on these,
-     and they hold their value across both themes. ---- */
-  --blue-solid: #2f6feb;
-  --blue-solid-hover: #2560d4;
-  --green-solid: #16a34a;
-  --green-solid-hover: #12813b;
-  --on-solid: #ffffff;
-
-  /* ---- Data-viz sequence ---- */
-  --data-1: #2f6feb;
-  --data-2: #0e8e7f;
-  --data-3: #c2620a;
-  --data-4: #6e7379;
-  --data-5: #12a150;
-  --data-6: #dc2626;
-
-  /* ---- Elevation — restrained. Hierarchy comes from 1px hairlines and
-     surface steps; shadow appears only when something truly floats. ---- */
-  --shadow-elev-1: 0 1px 2px rgba(9, 10, 14, 0.05);
-  --shadow-elev-2: 0 4px 12px rgba(9, 10, 14, 0.07), 0 1px 2px rgba(9, 10, 14, 0.04);
-  --shadow-elev-3: 0 16px 40px rgba(9, 10, 14, 0.12), 0 2px 8px rgba(9, 10, 14, 0.05);
-  --shadow-popover: 0 12px 32px rgba(9, 10, 14, 0.14), 0 0 0 1px var(--border-default);
-  --inset-hi: rgba(255, 255, 255, 0.6);
-
-  /* ---- Typography ----
-     Display: Geist (tight tracking). Body: Inter. Data: Geist Mono (tabular).
-     Latin faces sit before PingFang SC so CJK falls back automatically —
-     no manual span-splitting needed. */
-  --font-display:
-    'Geist Variable', 'Geist', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui,
-    sans-serif;
-  --font-sans:
-    'Inter Variable', 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui,
-    sans-serif;
-  --font-mono:
-    'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas,
-    monospace;
-}
-
-/* ============================================================
-   Dark theme — a designed sibling, not an inversion.
-   Hues brighten for dark grounds; *-fg variants lighten so they stay
-   legible on tinted fills. The solid fills stay put: white text on
-   #2f6feb / #16a34a reads on both themes.
-   ============================================================ */
+:root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-
-  --bg-sunken: #08090a;
-  --bg-base: #0e0f11;
-  --surface-1: #141517;
-  --surface-2: #1a1b1e;
-  --surface-3: #222326;
-  --surface-inset: #0b0c0e;
-
-  --glass-fill: #141517;
-  --glass-popover: #1a1b1e;
-  --glass-tint: transparent;
-
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.15);
-  --border-accent: rgba(76, 141, 255, 0.32);
-
-  --text-primary: #f4f5f6;
-  --text-secondary: #969aa1;
-  --text-tertiary: #62666d;
-  --text-disabled: #3f4247;
-  --text-on-color: #ffffff;
-  --text-inverse: #0e0f11;
-
-  --status-success: #3dd68c;
-  --status-success-bg: rgba(61, 214, 140, 0.12);
+  --bg-sunken: #04060d;
+  --bg-base: #04060d;
+  --surface-1: #0a0e19;
+  --surface-2: rgba(13, 20, 35, 0.62);
+  --surface-3: #131b2d;
+  --surface-inset: #070a12;
+  --glass-fill: rgba(13, 20, 35, 0.62);
+  --glass-popover: rgba(13, 20, 35, 0.94);
+  --glass-tint: rgba(41, 216, 255, 0.025);
+  --glass-blur: 18px;
+  --border-subtle: rgba(148, 163, 184, 0.13);
+  --border-default: rgba(148, 163, 184, 0.2);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --border-accent: rgba(41, 216, 255, 0.35);
+  --text-primary: #e9effa;
+  --text-secondary: #96a2ba;
+  --text-tertiary: #5d6a85;
+  --text-disabled: #46516a;
+  --text-on-color: #03242e;
+  --text-inverse: #04060d;
+  --on-success: #032117;
+  --on-warning: #2a1a00;
+  --on-danger: #2a0a0e;
+  --status-success: #3ce59b;
+  --status-success-bg: rgba(60, 229, 155, 0.12);
   --status-warning: #ffc53d;
   --status-warning-bg: rgba(255, 197, 61, 0.12);
-  --status-error: #ff6369;
-  --status-error-bg: rgba(255, 99, 105, 0.12);
-  --status-info: #4c8dff;
-  --status-info-bg: rgba(76, 141, 255, 0.13);
-
-  --auth-auto: #3dd68c;
-  --auth-auto-bg: rgba(61, 214, 140, 0.12);
-  --auth-auto-border: rgba(61, 214, 140, 0.3);
+  --status-error: #ff6473;
+  --status-error-bg: rgba(255, 100, 115, 0.12);
+  --status-info: #5ea2ff;
+  --status-info-bg: rgba(94, 162, 255, 0.12);
+  --auth-auto: #3ce59b;
+  --auth-auto-bg: rgba(60, 229, 155, 0.12);
+  --auth-auto-border: rgba(60, 229, 155, 0.35);
   --auth-confirm: #ffc53d;
   --auth-confirm-bg: rgba(255, 197, 61, 0.12);
-  --auth-confirm-border: rgba(255, 197, 61, 0.32);
+  --auth-confirm-border: rgba(255, 197, 61, 0.35);
+  --accent: #29d8ff;
+  --accent-strong: #63e5ff;
+  --accent-fg: #29d8ff;
+  --accent-bg: rgba(41, 216, 255, 0.12);
+  --accent-border: rgba(41, 216, 255, 0.35);
+  --accent-glow: rgba(41, 216, 255, 0.22);
+  --path-controlled: #a78bfa;
+  --path-controlled-bg: rgba(167, 139, 250, 0.13);
+  --mode-planning: #5ea2ff;
+  --mode-planning-bg: rgba(94, 162, 255, 0.12);
+  --mode-scheduling: #ffa94d;
+  --mode-scheduling-bg: rgba(255, 169, 77, 0.12);
+  --mode-query: #2dd4bf;
+  --mode-query-bg: rgba(45, 212, 191, 0.12);
+  --blue-solid: #29d8ff;
+  --blue-solid-hover: #63e5ff;
+  --green-solid: #3ce59b;
+  --green-solid-hover: #69edb3;
+  --on-solid: #03242e;
+  --data-1: #29d8ff;
+  --data-2: #a78bfa;
+  --data-3: #5ea2ff;
+  --data-4: #3ce59b;
+  --data-5: #ffc53d;
+  --data-6: #ff6473;
+  --aurora:
+    radial-gradient(720px 480px at 12% -8%, rgba(41, 216, 255, 0.1), transparent 60%),
+    radial-gradient(820px 560px at 88% -4%, rgba(167, 139, 250, 0.1), transparent 62%),
+    radial-gradient(640px 480px at 52% 112%, rgba(94, 162, 255, 0.08), transparent 60%);
+  --grid-line: rgba(148, 163, 184, 0.055);
+  --noise-opacity: 0.032;
+  --shadow-elev-1: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --shadow-elev-2: 0 8px 24px rgba(0, 0, 0, 0.34);
+  --shadow-elev-3: 0 16px 40px rgba(0, 0, 0, 0.5);
+  --shadow-popover: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --glow-accent: 0 0 24px rgba(41, 216, 255, 0.22), 0 0 3px rgba(41, 216, 255, 0.45);
+  --glow-amber: 0 0 20px rgba(255, 197, 61, 0.18);
+  --inset-hi: rgba(255, 255, 255, 0.05);
+  --font-display: 'Space Grotesk Variable', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'Space Grotesk Variable', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SF Mono', ui-monospace, monospace;
+}
 
-  --accent: #4c8dff;
-  --accent-strong: #2f6feb;
-  --accent-fg: #8fbaff;
-  --accent-bg: rgba(76, 141, 255, 0.13);
-  --accent-border: rgba(76, 141, 255, 0.32);
-  --accent-glow: rgba(76, 141, 255, 0.22);
-
-  --data-1: #4c8dff;
-  --data-2: #2dd4bf;
-  --data-3: #f97316;
-  --data-4: #8a8f96;
-  --data-5: #3dd68c;
-  --data-6: #ff6369;
-
-  --shadow-elev-1: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-elev-2: 0 4px 12px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-elev-3: 0 16px 40px rgba(0, 0, 0, 0.46), 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border-default);
-  --inset-hi: rgba(255, 255, 255, 0.06);
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-sunken: #e7ecf5;
+  --bg-base: #e7ecf5;
+  --surface-1: #f4f7fc;
+  --surface-2: rgba(255, 255, 255, 0.78);
+  --surface-3: #ffffff;
+  --surface-inset: #edf1f8;
+  --glass-fill: rgba(255, 255, 255, 0.78);
+  --glass-popover: rgba(255, 255, 255, 0.96);
+  --glass-tint: rgba(14, 116, 144, 0.025);
+  --border-subtle: rgba(18, 45, 92, 0.12);
+  --border-default: rgba(18, 45, 92, 0.18);
+  --border-strong: rgba(18, 45, 92, 0.24);
+  --border-accent: rgba(14, 116, 144, 0.36);
+  --text-primary: #0a1428;
+  --text-secondary: #3d4c66;
+  --text-tertiary: #6a778f;
+  --text-disabled: #9ba5b6;
+  --text-on-color: #ffffff;
+  --text-inverse: #ffffff;
+  --on-success: #ffffff;
+  --on-warning: #ffffff;
+  --on-danger: #ffffff;
+  --status-success: #047857;
+  --status-success-bg: rgba(4, 120, 87, 0.1);
+  --status-warning: #b45309;
+  --status-warning-bg: rgba(180, 83, 9, 0.1);
+  --status-error: #dc2626;
+  --status-error-bg: rgba(220, 38, 38, 0.08);
+  --status-info: #1d4ed8;
+  --status-info-bg: rgba(29, 78, 216, 0.09);
+  --auth-auto: #047857;
+  --auth-auto-bg: rgba(4, 120, 87, 0.1);
+  --auth-auto-border: rgba(4, 120, 87, 0.32);
+  --auth-confirm: #b45309;
+  --auth-confirm-bg: rgba(180, 83, 9, 0.1);
+  --auth-confirm-border: rgba(180, 83, 9, 0.32);
+  --accent: #0e7490;
+  --accent-strong: #155e75;
+  --accent-fg: #0e7490;
+  --accent-bg: rgba(14, 116, 144, 0.1);
+  --accent-border: rgba(14, 116, 144, 0.34);
+  --accent-glow: rgba(14, 116, 144, 0.18);
+  --path-controlled: #6d28d9;
+  --path-controlled-bg: rgba(109, 40, 217, 0.09);
+  --mode-planning: #1d4ed8;
+  --mode-planning-bg: rgba(29, 78, 216, 0.09);
+  --mode-scheduling: #c2620a;
+  --mode-scheduling-bg: rgba(194, 98, 10, 0.1);
+  --mode-query: #0f8a7c;
+  --mode-query-bg: rgba(15, 138, 124, 0.1);
+  --blue-solid: #0e7490;
+  --blue-solid-hover: #155e75;
+  --green-solid: #047857;
+  --green-solid-hover: #065f46;
+  --on-solid: #ffffff;
+  --data-1: #0e7490;
+  --data-2: #6d28d9;
+  --data-3: #1d4ed8;
+  --data-4: #047857;
+  --data-5: #b45309;
+  --data-6: #dc2626;
+  --aurora:
+    radial-gradient(720px 480px at 12% -8%, rgba(14, 116, 144, 0.08), transparent 60%),
+    radial-gradient(820px 560px at 88% -4%, rgba(109, 40, 217, 0.07), transparent 62%),
+    radial-gradient(640px 480px at 52% 112%, rgba(29, 78, 216, 0.06), transparent 60%);
+  --grid-line: rgba(18, 45, 92, 0.05);
+  --noise-opacity: 0.02;
+  --shadow-elev-1: 0 1px 2px rgba(18, 45, 92, 0.06);
+  --shadow-elev-2: 0 8px 24px rgba(18, 45, 92, 0.1);
+  --shadow-elev-3: 0 16px 48px rgba(18, 45, 92, 0.16);
+  --shadow-popover: 0 16px 48px rgba(18, 45, 92, 0.16);
+  --glow-accent: 0 1px 2px rgba(14, 116, 144, 0.25), 0 8px 24px rgba(14, 116, 144, 0.18);
+  --glow-amber: 0 8px 24px rgba(180, 83, 9, 0.16);
+  --inset-hi: rgba(255, 255, 255, 0.7);
 }
 
 @layer base {
   html,
   body,
-  #root {
-    height: 100%;
-  }
-
+  #root { height: 100%; }
   body {
-    background-color: var(--bg-base);
+    margin: 0;
+    overflow: hidden;
+    background: var(--bg-base);
     color: var(--text-primary);
     font-family: var(--font-sans);
+    font-weight: 400;
+    letter-spacing: 0;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-
-  /* Digits line up wherever they stack: tables, gantt, KPI, param rows. */
-  .font-mono {
-    font-variant-numeric: tabular-nums;
-  }
+  button,
+  [role='button'],
+  select,
+  a { cursor: pointer; }
+  button:disabled,
+  select:disabled { cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-bg); color: var(--accent); }
 }
 
 @layer components {
-  /* ---- Chrome surfaces ----
-     Kept as class names so sidebar/topbar/popover/composer markup is
-     unchanged; they now paint solid instead of blurring. */
   .material-chrome,
   .material-dock {
-    background-color: var(--glass-fill);
+    background: linear-gradient(var(--glass-tint), var(--glass-tint)), var(--glass-fill);
+    backdrop-filter: blur(var(--glass-blur));
   }
-
   .material-popover {
-    background-color: var(--glass-popover);
+    background: var(--glass-popover);
+    backdrop-filter: blur(20px);
   }
+  .maestro-shell { position: relative; isolation: isolate; }
+  /*
+   * 设计稿 .f-main::before + body::after：极光与蓝图网格只铺在中央工作区，
+   * 侧栏与详情栏保持实心舱体。两层都是负层级子元素，压在自身背景之上、内容之下。
+   */
+  .aurora-field { position: relative; isolation: isolate; }
+  .aurora-field::before,
+  .aurora-field::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+  .aurora-field::before { background: var(--aurora); }
+  .aurora-field::after {
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 36px 36px;
+    mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 30%, transparent 100%);
+  }
+  .noise-overlay {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    opacity: var(--noise-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .hud-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
+  .cn-head { font-weight: 500; letter-spacing: 0; }
+  .font-mono { font-variant-numeric: tabular-nums; }
+  .app-drag { -webkit-app-region: drag; }
+  .app-no-drag { -webkit-app-region: no-drag; }
+  .mode-select { background: var(--surface-1); border-color: var(--border-default); color: var(--accent); }
+  .mode-select[data-mode='planning'] { background: var(--mode-planning-bg); border-color: var(--mode-planning); color: var(--mode-planning); }
+  .mode-select[data-mode='scheduling'] { background: var(--mode-scheduling-bg); border-color: var(--mode-scheduling); color: var(--mode-scheduling); }
+  .mode-select[data-mode='query'] { background: var(--mode-query-bg); border-color: var(--mode-query); color: var(--mode-query); }
+  .controlled-path { color: var(--path-controlled); background: var(--path-controlled-bg); }
+  .streaming-scan { position: relative; overflow: hidden; }
+  .streaming-scan::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -120px;
+    height: 120px;
+    pointer-events: none;
+    background: linear-gradient(180deg, transparent, rgba(41, 216, 255, 0.06), transparent);
+    animation: scan 7s linear infinite;
+  }
+  .streaming-caret { display: inline-block; width: 8px; height: 15px; margin-left: 3px; vertical-align: -2px; background: var(--accent); box-shadow: var(--glow-accent); animation: pulse 1s steps(2) infinite; }
+  /* 设计稿 .dot：状态点的柔和脉冲，区别于 Tailwind 的 animate-pulse。 */
+  .dot-pulse { animation: pulse 1.6s ease-in-out infinite; }
+  /* 设计稿 .srow.on::before / .ric.on::before：选中项左侧的发光指示条。 */
+  .edge-marker::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 9px;
+    bottom: 9px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    box-shadow: var(--glow-accent);
+  }
+  /* 设计稿 .m-user：青色渐隐的用户气泡。 */
+  .user-bubble {
+    background: linear-gradient(160deg, var(--accent-bg), transparent 70%), var(--surface-2);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  /* 设计稿 .appr：琥珀渐隐的待审批卡。 */
+  .approval-card {
+    background: linear-gradient(160deg, var(--auth-confirm-bg), transparent 55%), var(--surface-2);
+    border: 1px solid color-mix(in srgb, var(--auth-confirm) 32%, transparent);
+  }
+  /* 设计稿 .steps：步骤之间的连接竖线。 */
+  .step-timeline > li { position: relative; padding: 0 0 16px 26px; }
+  .step-timeline > li::before { content: ''; position: absolute; left: 7px; top: 18px; bottom: -2px; width: 1px; background: var(--border-strong); }
+  .step-timeline > li:last-child::before { display: none; }
+  /* 设计稿 .comp-box:focus-within / .sd-new:hover：青色 1px 描边 + 辉光。 */
+  .glow-ring:focus-within,
+  .glow-ring-hover:hover:not(:disabled) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), var(--glow-accent);
+  }
+  .glow-ring-hover:hover:not(:disabled) { color: var(--accent); }
+  /* 设计稿 .send / .send.stop：发送与停止键。 */
+  .send-key { background: var(--accent); color: var(--text-on-color); box-shadow: var(--glow-accent); }
+  .send-key:hover:not(:disabled) { filter: brightness(1.15); }
+  .send-key:active:not(:disabled) { transform: translateY(1px); }
+  .stop-key { background: var(--status-error); color: #fff; box-shadow: 0 0 16px color-mix(in srgb, var(--status-error) 40%, transparent); }
+  .stop-key:hover { filter: brightness(1.08); }
+  /* 设计稿 .btn.b-confirm：琥珀实心确认键。 */
+  .confirm-key { background: var(--auth-confirm); color: var(--on-warning); box-shadow: var(--glow-amber); }
+  .confirm-key:hover:not(:disabled) { filter: brightness(1.08); }
+  /* 设计稿 .u-av：cyan → violet 的用户头像。 */
+  .avatar-gradient {
+    background: linear-gradient(135deg, var(--accent), var(--path-controlled));
+    color: #fff;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .hud-brackets { position: relative; }
+  .hud-brackets::before,
+  .hud-brackets::after { content: ''; position: absolute; width: 14px; height: 14px; pointer-events: none; }
+  .hud-brackets::before { top: -1px; left: -1px; border-top: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); }
+  .hud-brackets::after { right: -1px; bottom: -1px; border-right: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent); }
+}
 
-  /* ---- Chinese typography ----
-     PingFang SC has no true SemiBold: font-weight >= 600 synthesises a
-     faux-bold that smears the strokes, and the -0.02em tracking tuned for
-     Latin crushes Han glyphs. Cap the weight and zero the tracking. */
-  .cn-head {
-    font-weight: 500;
-    letter-spacing: 0;
-  }
+@keyframes scan { to { transform: translateY(calc(100vh + 240px)); } }
+@keyframes pulse { 50% { opacity: 0.35; } }
 
-  /* ---- Electron window drag regions (hiddenInset titlebar) ----
-     Every interactive child inside an .app-drag container MUST carry
-     .app-no-drag, or it will be unclickable (the drag region wins). */
-  .app-drag {
-    -webkit-app-region: drag;
-  }
-
-  .app-no-drag {
-    -webkit-app-region: no-drag;
-  }
+/*
+ * 窄窗：详情栏改为覆盖整个工作区的浮层，而不是压住 Composer 的右半边。
+ * 1100–900px 之间仍是三栏，因为侧栏此时已经折叠成 56px 轨道，宽度够用。
+ */
+@media (max-width: 900px) {
+  .responsive-trace { position: absolute; inset: 0; z-index: 30; width: 100%; box-shadow: var(--shadow-elev-3); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

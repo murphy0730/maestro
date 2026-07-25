@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { StatusDot } from '@/components/ui/StatusDot';
 
 /**
- * ThinkingProcess — concise, user-facing reasoning summaries.
+ * ThinkingProcess — 设计稿 A 的 `.think`：一行等宽的「分析进展 · …」进度提示。
  *
- * Collapsed (default): a two-line viewport that auto-scrolls so the newest
- * lines stay visible while streaming. Expanded: the full trace, scrollable.
- * Rendered both during streaming and on committed turns. This deliberately
- * shows auditable rationale rather than private chain-of-thought or tool logs.
+ * 折叠时只显示最新一条，展开后是完整的等宽行列表。展示的是可审计的执行进展，
+ * 不是模型的私有思维链。
  */
 interface ThinkingProcessProps {
   lines: string[];
-  /** Streaming turns pulse the indicator dot. */
+  /** 流式回合让状态点脉冲。 */
   streaming?: boolean;
 }
 
@@ -19,51 +18,44 @@ export function ThinkingProcess({ lines, streaming = false }: ThinkingProcessPro
   const [expanded, setExpanded] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
 
-  // Keep the newest lines in view while collapsed (2-line rolling window).
   useEffect(() => {
-    const el = viewportRef.current;
-    if (el && !expanded) el.scrollTop = el.scrollHeight;
+    const element = viewportRef.current;
+    if (element && expanded) element.scrollTop = element.scrollHeight;
   }, [lines, expanded]);
 
   if (lines.length === 0) return null;
-  const canExpand = lines.length > 2;
+  const canExpand = lines.length > 1;
+  const latest = lines[lines.length - 1];
 
   return (
-    <div className="mb-[11px] rounded-md border border-border bg-surface-2 px-3 py-2">
-      <div className="flex items-center justify-between">
-        <span className="flex items-center gap-2 text-caption font-medium text-text-tertiary">
-          <span
-            className={`h-[6px] w-[6px] rounded-full bg-accent ${streaming ? 'animate-pulse' : ''}`}
-          />
-          分析进展
-          {streaming && ' · 处理中'}
+    <div className="mb-[8px]">
+      <div className="flex items-center gap-[8px] font-mono text-[10.5px] leading-[1.9] tracking-[0.06em] text-text-tertiary">
+        <StatusDot tone="accent" pulse={streaming} />
+        <span className="min-w-0 flex-1 truncate">
+          分析进展 · {streaming ? `${latest}…` : latest}
         </span>
         {canExpand && (
           <button
             type="button"
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => setExpanded((value) => !value)}
             aria-expanded={expanded}
             aria-label={expanded ? '收起分析进展' : '展开分析进展'}
-            className="flex items-center gap-1 rounded-md px-1 py-0.5 text-caption text-text-tertiary transition-colors hover:text-text-primary"
+            className="flex flex-none items-center gap-[4px] rounded-sm px-[4px] text-text-tertiary transition-colors duration-fast hover:text-accent"
           >
-            {expanded ? '收起' : `查看全部 ${lines.length} 条`}
-            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {expanded ? '收起' : `全部 ${lines.length}`}
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
         )}
       </div>
-      <div
-        ref={viewportRef}
-        className={`mt-1 text-caption leading-[18px] text-text-tertiary ${
-          expanded ? 'max-h-[240px] overflow-y-auto' : 'max-h-[36px] overflow-hidden'
-        }`}
-      >
-        {lines.map((line, i) => (
-          <p key={`${line}-${i}`} className="m-0 flex gap-2 whitespace-pre-wrap break-words">
-            <span className="select-none text-text-tertiary/60">·</span>
-            <span>{line}</span>
-          </p>
-        ))}
-      </div>
+      {expanded && (
+        <div ref={viewportRef} className="mt-[4px] max-h-[240px] overflow-y-auto border-l border-border-subtle pl-[12px] font-mono text-[10.5px] leading-[1.9] text-text-tertiary">
+          {lines.map((line, index) => (
+            <p key={`${line}-${index}`} className="m-0 whitespace-pre-wrap break-words">
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

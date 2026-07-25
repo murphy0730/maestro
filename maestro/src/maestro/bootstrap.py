@@ -1,6 +1,7 @@
 """Composition root for the generic agent runtime."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from maestro.config import Settings
 from maestro.foundation.llm import LLMClient
@@ -71,7 +72,12 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
     run_store = RunStore(settings.runs_dir)
     journal = JsonlJournal(settings.runtime_journal_file)
     artifact_store = ArtifactStore(settings.artifacts_dir)
-    skill_catalog = SkillCatalog({"user": settings.skills_dir}, capabilities)
+    project_skills_dir = Path(__file__).resolve().parents[3] / "skills"
+    skill_catalog = SkillCatalog(
+        {"user": settings.skills_dir, "project": project_skills_dir},
+        capabilities,
+    )
+    session_store = SessionStore(settings.sessions_dir)
     runtime = RunCoordinator(
         model=LLMRuntimeModel(llm),
         capabilities=capabilities,
@@ -82,6 +88,7 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         artifact_store=artifact_store,
         events=EventPublisher(journal),
         skill_catalog=skill_catalog,
+        history_provider=session_store.get_messages,
     )
     platform = Platform(
         settings=settings,
@@ -93,8 +100,13 @@ def build_platform(settings: Settings | None = None, llm: LLMClient | None = Non
         skill_catalog=skill_catalog,
         capabilities=capabilities,
         mcp=MCPConnector(capabilities),
-        session_store=SessionStore(settings.sessions_dir),
+        session_store=session_store,
     )
+    # 注册外部能力桥接（排产查询等）必须在 refresh_skills 之前，
+    # 否则 scheduling-query 技能的 allowed_tools 校验会因找不到工具而失败。
+    from maestro.scheduling_query import register_scheduling_capabilities
+
+    register_scheduling_capabilities(platform)
     runtime.set_intent_classifier(IntentClassifier(capabilities, skills=platform.refresh_skills))
     platform.refresh_skills()
     return platform

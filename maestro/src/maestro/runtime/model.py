@@ -25,7 +25,10 @@ class ModelAction(BaseModel):
 
 class RuntimeModel(Protocol):
     async def next_turn(
-        self, context: ContextBundle, capabilities: list[CapabilitySpec]
+        self,
+        context: ContextBundle,
+        capabilities: list[CapabilitySpec],
+        messages: list[dict] | None = None,
     ) -> ModelAction: ...
 
 
@@ -36,7 +39,10 @@ class LLMRuntimeModel:
         self._llm = llm
 
     async def next_turn(
-        self, context: ContextBundle, capabilities: list[CapabilitySpec]
+        self,
+        context: ContextBundle,
+        capabilities: list[CapabilitySpec],
+        messages: list[dict] | None = None,
     ) -> ModelAction:
         tools = [
             {
@@ -50,7 +56,7 @@ class LLMRuntimeModel:
             for capability in capabilities
         ]
         try:
-            turn = await self._llm.chat_turn(context.system_context, [], tools=tools)
+            turn = await self._llm.chat_turn(context.system_context, list(messages or []), tools=tools)
         except LLMError:
             return ModelAction(kind="final", text="模型当前不可用。")
         if turn.tool_calls:

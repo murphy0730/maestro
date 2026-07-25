@@ -1,26 +1,141 @@
-import { useRef, useState } from 'react';
-import { FileText, Sparkles, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { SkillMeta } from '@/types';
+import type { RunMode } from '@/stores/uiPreferencesStore';
 import { ComposerToolbar } from './ComposerToolbar';
+import { SkillMenu } from './skills/SkillMenu';
 
 interface ComposerProps {
-  onSend: (text: string, attachments: File[]) => void;
-  expert: boolean;
-  onExpertChange: (expert: boolean) => void;
-  disabled?: boolean; isStreaming?: boolean; onStop?: () => void;
-  skills: SkillMeta[]; selectedSkills: SkillMeta[];
-  onToggleSkill: (skill: SkillMeta) => void; onClearSkills: () => void; onImportSkill: () => void; onTrustSkill?: (skill: SkillMeta) => void;
+  onSend: (text: string, attachments: File[]) => void | Promise<void>;
+  disabled?: boolean;
+  isStreaming?: boolean;
+  onStop?: () => void;
+  skills: SkillMeta[];
+  selectedSkills: SkillMeta[];
+  onToggleSkill: (skill: SkillMeta) => void;
+  onClearSkills: () => void;
+  onImportSkill: () => void;
+  onTrustSkill?: (skill: SkillMeta) => void;
+  mode?: RunMode;
+  onModeChange?: (mode: RunMode) => void;
 }
+
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-export function Composer({ onSend, expert, onExpertChange, disabled = false, isStreaming = false, onStop, skills, selectedSkills, onToggleSkill, onClearSkills, onImportSkill, onTrustSkill }: ComposerProps) {
-  const [draft, setDraft] = useState(''); const [attachments, setAttachments] = useState<File[]>([]); const [attachmentError, setAttachmentError] = useState(''); const fileInputRef = useRef<HTMLInputElement>(null);
-  const submit = () => { if (isStreaming || disabled || !draft.trim()) return; onSend(draft.trim(), attachments); setDraft(''); setAttachments([]); onClearSkills(); };
-  const addFiles = (files: FileList | null) => { if (!files) return; const acceptable = Array.from(files).filter((file) => file.size <= MAX_ATTACHMENT_BYTES); if (acceptable.length !== files.length) setAttachmentError('附件不能超过 10 MB'); else setAttachmentError(''); setAttachments((current) => [...current.filter((item) => !acceptable.some((file) => file.name === item.name)), ...acceptable].slice(0, 10)); };
-  return <div className="flex-none px-[30px] pb-[18px] pt-2"><div className="pointer-events-auto mx-auto max-w-[760px]"><div className="material-dock rounded-lg border border-border-default shadow-elev-2">
-    {selectedSkills.length > 0 && <div className="flex flex-wrap gap-[6px] px-[12px] pt-[10px]">{selectedSkills.map((skill) => <span key={skill.name} className="inline-flex h-[26px] items-center gap-[6px] rounded-md border border-accent-border bg-accent-bg px-[8px] text-caption"><Sparkles size={12} className="text-accent" />{skill.display_name ?? skill.name}<button type="button" title="移除技能" onClick={() => onToggleSkill(skill)}><X size={12} /></button></span>)}</div>}
-    {attachments.length > 0 && <div className="flex flex-wrap gap-[6px] px-[12px] pt-[8px]">{attachments.map((file) => <span key={file.name} className="inline-flex h-[26px] items-center gap-[6px] rounded-md border border-border-default bg-surface-2 px-[8px] text-caption"><FileText size={12} />{file.name}<button type="button" title="移除附件" onClick={() => setAttachments((items) => items.filter((item) => item.name !== file.name))}><X size={12} /></button></span>)}</div>}
-    <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
-    <textarea disabled={disabled} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} rows={1} placeholder={disabled ? '正在加载会话…' : '描述要完成的制造任务，或附加资料'} className="block max-h-[120px] w-full resize-none border-none bg-transparent px-[15px] pb-[7px] pt-[13px] font-sans text-body leading-normal text-text-primary outline-none placeholder:text-text-tertiary" />
-    <ComposerToolbar disabled={disabled} isStreaming={isStreaming} expert={expert} onExpertChange={onExpertChange} onClearSkills={onClearSkills} onImportSkill={onImportSkill} onTrustSkill={onTrustSkill} onStop={onStop} onSubmit={submit} onAddAttachment={() => fileInputRef.current?.click()} onToggleSkill={onToggleSkill} selectedSkills={selectedSkills} skills={skills} />
-  </div>{attachmentError && <p className="mt-1 text-caption text-status-error">{attachmentError}</p>}<div className="mt-2 text-[11px] text-text-tertiary">Agent 会按权限策略执行，所有写入操作均需确认</div></div></div>;
+
+/**
+ * Composer — 设计稿 A/B/F 的 `.comp-box`：640px 玻璃输入条，聚焦时青色描边 + 辉光。
+ * 工具栏单行承载附件、技能、模式、已挂载项与发送/停止键。
+ */
+export function Composer({
+  onSend,
+  disabled = false,
+  isStreaming = false,
+  onStop,
+  skills,
+  selectedSkills,
+  onToggleSkill,
+  onClearSkills,
+  onImportSkill,
+  onTrustSkill,
+  mode = 'auto',
+  onModeChange = () => undefined,
+}: ComposerProps) {
+  const [draft, setDraft] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const modeUnsupported = mode !== 'auto' && mode !== 'scheduling';
+
+  // 技能面板：Esc 或点击输入条外部关闭。
+  useEffect(() => {
+    if (!skillMenuOpen) return;
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setSkillMenuOpen(false);
+    const onPointerDown = (event: MouseEvent) => {
+      if (!dockRef.current?.contains(event.target as Node)) setSkillMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [skillMenuOpen]);
+
+  const clearSubmitted = () => {
+    setDraft('');
+    setAttachments([]);
+    onClearSkills();
+  };
+  const submit = () => {
+    if (isStreaming || submitting || disabled || modeUnsupported || !draft.trim()) return;
+    const result = onSend(draft.trim(), attachments);
+    if (result instanceof Promise) {
+      setSubmitting(true);
+      void result.then(clearSubmitted).catch(() => undefined).finally(() => setSubmitting(false));
+    } else clearSubmitted();
+  };
+  const addFiles = (files: FileList | null) => {
+    if (!files) return;
+    const acceptable = Array.from(files).filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
+    if (acceptable.length !== files.length) setAttachmentError('附件不能超过 10 MB');
+    else setAttachmentError('');
+    setAttachments((current) => {
+      const merged = [...current.filter((item) => !acceptable.some((file) => file.name === item.name)), ...acceptable];
+      if (merged.length > 10) setAttachmentError('最多添加 10 个附件');
+      return merged.slice(0, 10);
+    });
+  };
+
+  return (
+    <div className="flex-none px-[26px] pb-[18px] pt-[14px]">
+      <div className="relative mx-auto max-w-[640px]" ref={dockRef}>
+        <SkillMenu
+          open={skillMenuOpen}
+          skills={skills}
+          selected={selectedSkills}
+          onToggleSkill={onToggleSkill}
+          onClear={onClearSkills}
+          onImportSkill={onImportSkill}
+          onTrustSkill={onTrustSkill}
+        />
+        <div className="material-dock glow-ring rounded-[14px] border border-border-strong px-[14px] pb-[10px] pt-[12px] transition duration-normal ease-out">
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+          <textarea
+            disabled={disabled || submitting}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            rows={1}
+            placeholder={submitting ? '正在连接或上传…' : disabled ? '正在加载会话…' : '描述要完成的制造任务，或附加资料…'}
+            className="block max-h-[120px] min-h-[22px] w-full resize-none border-none bg-transparent font-sans text-[13.5px] leading-[1.6] text-text-primary outline-none placeholder:text-text-tertiary"
+          />
+          <ComposerToolbar
+            disabled={disabled || submitting}
+            submitDisabled={disabled || submitting || modeUnsupported || !draft.trim()}
+            isStreaming={isStreaming}
+            attachments={attachments}
+            onRemoveAttachment={(name) => setAttachments((items) => items.filter((item) => item.name !== name))}
+            skillMenuOpen={skillMenuOpen}
+            onToggleSkillMenu={() => setSkillMenuOpen((open) => !open)}
+            onStop={onStop}
+            onSubmit={submit}
+            onAddAttachment={() => fileInputRef.current?.click()}
+            onToggleSkill={onToggleSkill}
+            selectedSkills={selectedSkills}
+            mode={mode}
+            onModeChange={onModeChange}
+          />
+        </div>
+        {attachmentError && <p role="alert" className="mt-[6px] text-caption text-status-error">{attachmentError}</p>}
+        {modeUnsupported && <p role="alert" className="mt-[6px] text-caption text-status-warning">当前仅支持“自动”与“调度”模式直达；其余模式暂未接通，请切换后发送。</p>}
+      </div>
+    </div>
+  );
 }

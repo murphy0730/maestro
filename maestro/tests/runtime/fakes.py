@@ -14,6 +14,7 @@ class FakeRuntimeModel:
         self._actions: deque[ModelAction] = deque()
         self.contexts: list[ContextBundle] = []
         self.capability_names: list[list[str]] = []
+        self.messages: list[list[dict]] = []
 
     def queue_final(self, text: str) -> None:
         self._actions.append(ModelAction(kind="final", text=text))
@@ -23,9 +24,12 @@ class FakeRuntimeModel:
             ModelAction(kind="call", call=CapabilityCall(name=name, arguments=arguments or {}))
         )
 
-    async def next_turn(self, context: ContextBundle, capabilities: list[object]) -> ModelAction:
+    async def next_turn(
+        self, context: ContextBundle, capabilities: list[object], messages: list[dict] | None = None
+    ) -> ModelAction:
         self.contexts.append(context)
         self.capability_names.append([capability.name for capability in capabilities])
+        self.messages.append(list(messages or []))
         return self._actions.popleft()
 
 class RecordingEvents:

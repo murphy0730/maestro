@@ -8,7 +8,7 @@ vi.mock('./client', () => ({
 }));
 
 import { apiGet, apiPost, apiUpload, apiDelete } from './client';
-import { listSkills, importSkill, validateSkill, trustSkill, deleteSkill } from './skills';
+import { listSkills, importSkill, validateSkill, trustSkill, revokeSkillTrust, deleteSkill } from './skills';
 
 describe('skills api', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -50,6 +50,12 @@ describe('skills api', () => {
     const file = new File(['x'], 'cap.md');
     await validateSkill(file);
     expect(apiUpload).toHaveBeenCalledWith('/skills/validate', expect.any(FormData));
+  });
+
+  it('revokeSkillTrust deletes the trust record', async () => {
+    vi.mocked(apiDelete).mockResolvedValue({ level: 'untrusted', valid: true });
+    await revokeSkillTrust('cap');
+    expect(apiDelete).toHaveBeenCalledWith('/skills/cap/trust');
   });
 
   it('deleteSkill calls DELETE /skills/:name', async () => {

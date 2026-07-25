@@ -7,7 +7,7 @@ export const cancelRun = (runId: string) => apiPost<RunSnapshot>(`/runs/${encode
 export const resolveApproval = (runId: string, approvalId: string, approved: boolean, expectedRevision: number) =>
   apiPost<RunSnapshot>(`/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`, { approved, expected_revision: expectedRevision, principal_id: 'local-user' });
 
-const publicNames = new Set<PublicRunEventName>(['run.created', 'run.path_selected', 'run.path_upgraded', 'run.waiting_approval', 'run.reconciling', 'run.completed', 'run.failed', 'run.cancelled', 'step.started', 'step.succeeded', 'step.failed', 'approval.requested', 'approval.expired', 'approval.resolved', 'artifact.created', 'token.delta']);
+const publicNames = new Set<PublicRunEventName>(['run.created', 'run.path_selected', 'run.controlled_started', 'run.path_upgraded', 'run.waiting_approval', 'run.waiting_external', 'run.reconciling', 'run.cancelling', 'run.completed', 'run.failed', 'run.cancelled', 'step.started', 'step.succeeded', 'step.failed', 'approval.requested', 'approval.expired', 'approval.resolved', 'artifact.created', 'token.delta']);
 export async function* streamRun(runId: string, lastEventId?: string, signal?: AbortSignal): AsyncGenerator<RunEvent | UnknownRunEvent> {
   const response = await fetch(`${API_BASE}/runs/${encodeURIComponent(runId)}/stream`, {
     headers: { Accept: 'text/event-stream', ...authHeaders(), ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}) }, signal,

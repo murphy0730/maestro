@@ -62,6 +62,7 @@ function detailMessage(body: unknown): string | undefined {
   if (typeof body === 'object' && body !== null && 'detail' in body) {
     const d = (body as { detail: unknown }).detail;
     if (typeof d === 'string') return d;
+    if (typeof d === 'object' && d !== null && 'message' in d && typeof (d as { message?: unknown }).message === 'string') return (d as { message: string }).message;
   }
   return undefined;
 }
@@ -69,6 +70,13 @@ function detailMessage(body: unknown): string | undefined {
 /** Map either the contract envelope or FastAPI's `{detail}` into an ApiError. */
 function bodyToApiError(status: number, statusText: string, body: unknown): ApiError {
   if (isErrorResponse(body)) return new ApiError(status, body.error);
+  if (typeof body === 'object' && body !== null && 'detail' in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === 'object' && detail !== null && 'message' in detail && typeof (detail as { message?: unknown }).message === 'string') {
+      const detailRecord = detail as Record<string, unknown>;
+      return new ApiError(status, { code: typeof detailRecord.code === 'string' ? detailRecord.code : 'HTTP_ERROR', message: detailRecord.message as string, detail: detailRecord });
+    }
+  }
   const detail = detailMessage(body);
   if (detail) return new ApiError(status, { code: 'HTTP_ERROR', message: detail });
   return new ApiError(status, { code: 'HTTP_ERROR', message: `${status} ${statusText}` });
@@ -96,6 +104,7 @@ export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promis
     signal: opts.signal,
   });
   if (!res.ok) throw await toApiError(res);
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -112,6 +121,7 @@ export async function apiPost<T>(
     signal: opts.signal,
   });
   if (!res.ok) throw await toApiError(res);
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -147,6 +157,7 @@ export async function apiDelete<T>(
     signal: opts.signal,
   });
   if (!res.ok) throw await toApiError(res);
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
