@@ -11,8 +11,15 @@ const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString
 let sessions: SessionSummary[] = [{ session_id: 'mock-default', title: '离线演示会话', updated_at: now(), message_count: 0, active_run_id: null }];
 const messages = new Map<string, SessionMessage[]>([['mock-default', []]]);
 const runs = new Map<string, RunSnapshot>();
-let mcpServers: McpServer[] = [];
-let skills: SkillMeta[] = [{ name: 'offline-manufacturing', display_name: '离线制造助手', description: 'MSW 离线模式下用于验证技能选择与 run 提交。', user_invocable: true, file_count: 1, bytes: 512, added_at: now(), package_sha256: 'mock-sha256', compatibility_status: 'ready' }];
+let mcpServers: McpServer[] = [
+  { name: 'maestro-mes', command: 'python', args: ['/opt/maestro/mes_mcp.py'], env_keys: ['MES_API_KEY', 'MES_BASE_URL'], enabled: true, status: 'connected', error: '', tools: [{ name: 'query_inventory', capability: 'mcp__maestro-mes__query_inventory', description: '按物料 / 库位查询实时库存' }, { name: 'query_work_order', capability: 'mcp__maestro-mes__query_work_order', description: '工单状态与报工进度' }] },
+  { name: 'llm4drd-scheduler', command: 'python', args: ['/opt/llm4drd/mcp_server.py'], env_keys: ['LLM4DRD_BASE_URL'], enabled: true, status: 'error', error: '进程已启动但 10s 内未完成 MCP 握手（handshake_timeout）。', tools: [] },
+];
+let skills: SkillMeta[] = [
+  { name: 'offline-manufacturing', display_name: '离线制造助手', description: 'MSW 离线模式下用于验证技能选择与 run 提交。', user_invocable: true, file_count: 1, bytes: 512, added_at: now(), package_sha256: 'mock-sha256', compatibility_status: 'ready' },
+  { name: 'scheduling-query', display_name: '排产查询', description: '订单 / 工序 / 设备三维排程问答，含查询脚本。', when_to_use: ['用户询问某订单的排程明细', '需要追溯工序的紧前 / 紧后关系'], allowed_tools: ['read_file', 'skill_run_script'], scripts: ['scripts/query.py'], user_invocable: true, version: 'v1.3.0', file_count: 3, bytes: 18_432, added_at: now(), package_sha256: 'mock-scheduling-sha', compatibility_status: 'ready', trust: { level: 'user_trusted', valid: true, package_sha256: 'mock-scheduling-sha' } },
+  { name: 'kitting-check', display_name: '齐套性检查', description: '按 BOM 逐级核物料齐套状态，输出缺料清单。脚本尚未信任。', scripts: ['scripts/check.py', 'scripts/report.sh'], user_invocable: true, version: 'v0.9.2', file_count: 5, bytes: 1_258_291, added_at: now(), package_sha256: 'mock-kitting-sha', compatibility_status: 'degraded', warnings: ['声明的工具 WebFetch 在当前平台未注册，将以降级模式运行'], trust: { level: 'untrusted', valid: false, package_sha256: 'mock-kitting-sha' } },
+];
 const artifacts = new Map<string, File>();
 
 export const handlers = [

@@ -4,7 +4,6 @@ import {
   CircleUserRound,
   Database,
   Info,
-  Link2,
   Settings2,
   ShieldCheck,
   Sliders,
@@ -19,16 +18,14 @@ import {
   type TraceDefault,
 } from '@/stores/uiPreferencesStore';
 import { usePersonalizationStore } from '@/stores/personalizationStore';
-import { McpSettings } from './McpSettings';
 
-type SectionKey = 'general' | 'personalization' | 'integrations';
+type SectionKey = 'general' | 'personalization';
 
 /** 只有真实存在的设置才可保存；其余栏目明确标注暂不可用。 */
 const MENU = [
   { key: 'general' as const, icon: Settings2, label: '通用', available: true },
   { key: 'personalization' as const, icon: CircleUserRound, label: '个性化', available: true },
   { key: null, icon: Sliders, label: '模型与引擎', available: false },
-  { key: 'integrations' as const, icon: Link2, label: '系统集成', available: true },
   { key: null, icon: ShieldCheck, label: '授权与审批', available: false },
   { key: null, icon: Bell, label: '通知', available: false },
   { key: null, icon: Database, label: '数据与存储', available: false },
@@ -46,8 +43,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
   const preferences = useUiPreferencesStore();
   const personalization = usePersonalizationStore((state) => state.data);
   const updatePersonalization = usePersonalizationStore((state) => state.update);
-  const activeLabel =
-    section === 'general' ? '通用' : section === 'personalization' ? '个性化' : '系统集成';
+  const activeLabel = section === 'general' ? '通用' : '个性化';
 
   return (
     <Modal
@@ -108,9 +104,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-[18px] pb-[12px] pt-[2px]">
-            {section === 'integrations' ? (
-              <McpSettings />
-            ) : section === 'general' ? (
+            {section === 'general' ? (
               <>
                 <SettingGroup title="外观">
                   <SettingRow title="主题" description="深空为值班主场，切换即时生效">

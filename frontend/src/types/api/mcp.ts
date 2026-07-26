@@ -19,6 +19,12 @@ export interface McpServer {
   status: McpStatus;
   error: string;
   tools: McpToolSummary[];
+  /**
+   * Not returned by the current backend — every configured server is editable.
+   * Declared optional so the UI can already lock rows the host owns once
+   * `GET /mcp/servers` starts reporting it; absent is read as "editable".
+   */
+  managed?: boolean;
 }
 
 export interface McpServerListResponse {

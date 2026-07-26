@@ -34,6 +34,8 @@ interface Props {
   onOpenSkills: () => void;
   onOpenSettings: () => void;
   onToggleTheme: () => void;
+  /** True while the Extensions Center route is showing, so the entry reads as selected. */
+  skillsActive?: boolean;
 }
 
 function groupLabel(date: string) {
@@ -122,8 +124,9 @@ export function SessionSidebar(props: Props) {
           type="button"
           aria-label="技能管理"
           title="技能·连接器管理"
+          aria-current={props.skillsActive ? 'page' : undefined}
           onClick={props.onOpenSkills}
-          className={railButton}
+          className={`${railButton} ${props.skillsActive ? 'bg-surface-3 text-accent' : ''}`}
         >
           <Grid2X2 size={17} />
         </button>
@@ -289,7 +292,12 @@ export function SessionSidebar(props: Props) {
       </div>
 
       <div className="border-t border-border-subtle p-[8px]">
-        <button type="button" onClick={props.onOpenSkills} className={bottomRow}>
+        <button
+          type="button"
+          onClick={props.onOpenSkills}
+          aria-current={props.skillsActive ? 'page' : undefined}
+          className={`relative ${bottomRow} ${props.skillsActive ? 'edge-marker bg-surface-3 text-accent' : ''}`}
+        >
           <Grid2X2 size={15} />
           技能·连接器管理
         </button>

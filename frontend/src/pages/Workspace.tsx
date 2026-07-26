@@ -1,25 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SessionSidebar } from '@/components/layout/SessionSidebar';
 import { TopBar } from '@/components/layout/TopBar';
 import { Composer } from '@/features/orchestrator/Composer';
 import { ConversationPanel } from '@/features/orchestrator/ConversationPanel';
 import { RunTrace, type TraceView } from '@/features/runtime/RunTrace';
-import { SkillImportModal } from '@/features/orchestrator/skills/SkillImportModal';
-import { SkillManagerModal } from '@/features/orchestrator/skills/SkillManagerModal';
 import { SettingsModal } from '@/features/settings/SettingsModal';
-import {
-  createSession,
-  deleteSession,
-  getSessionMessages,
-  listSessions,
-  renameSession,
-  trustSkill,
-  useSkills,
-  type SessionMessage,
-  type SessionSummary,
-} from '@/api';
+import { getSessionMessages, listSessions, trustSkill, useSkills, type SessionMessage } from '@/api';
 import { useRunStream } from '@/api/useRunStream';
+import { useWorkspaceSessions, messageOf } from '@/hooks/useWorkspaceSessions';
 import { useRunStore } from '@/stores/runStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useUiPreferencesStore, type RunMode } from '@/stores/uiPreferencesStore';
@@ -28,18 +18,13 @@ import { usePersonalizationStore } from '@/stores/personalizationStore';
 import type { SkillMeta } from '@/types';
 
 export function Workspace() {
+  const navigate = useNavigate();
   const [clock, setClock] = useState('--:--:--');
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionId, setSessionId] = useState('');
-  const [sessionsLoading, setSessionsLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [messages, setMessages] = useState<SessionMessage[]>([]);
-  const [workspaceError, setWorkspaceError] = useState<string>();
   const [selectedSkills, setSelectedSkills] = useState<SkillMeta[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState<string>();
-  const [importOpen, setImportOpen] = useState(false);
-  const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<RunMode>(() => useUiPreferencesStore.getState().defaultMode);
   const [traceView, setTraceView] = useState<TraceView>(
@@ -58,6 +43,19 @@ export function Workspace() {
     (state) => state.data.howToAddress.trim() || '本地操作员',
   );
   const skillsQuery = useSkills();
+  const {
+    sessions,
+    setSessions,
+    sessionId,
+    setSessionId,
+    loading: sessionsLoading,
+    error: workspaceError,
+    setError: setWorkspaceError,
+    refresh: refreshSessions,
+    create: createNewSession,
+    rename,
+    remove,
+  } = useWorkspaceSessions();
   const projection = useRunStore((state) => ({
     run: state.run,
     tokens: state.tokens,
@@ -75,35 +73,6 @@ export function Workspace() {
     transport,
     error: transportError,
   } = useRunStream(sessionId);
-
-  const refreshSessions = useCallback(async () => {
-    const result = await listSessions();
-    setSessions(result);
-    return result;
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    setSessionsLoading(true);
-    void refreshSessions()
-      .then(async (result) => {
-        if (!active) return;
-        const savedSessionId = useSessionStore.getState().activeSessionId;
-        const first =
-          result.find((session) => session.session_id === savedSessionId) ??
-          result[0] ??
-          (await createSession('新任务'));
-        if (!active) return;
-        if (result.length === 0) setSessions([first]);
-        setSessionId(first.session_id);
-        setActiveSessionId(first.session_id);
-      })
-      .catch((cause) => active && setWorkspaceError(messageOf(cause, '无法加载会话')))
-      .finally(() => active && setSessionsLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [refreshSessions, setActiveSessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -129,7 +98,7 @@ export function Workspace() {
           setHistoryLoading(false);
       });
     return () => aborter.abort();
-  }, [historyReloadKey, restore, sessionId, setActiveSessionId]);
+  }, [historyReloadKey, restore, sessionId, setActiveSessionId, setSessions, setWorkspaceError]);
 
   useEffect(() => {
     const status = projection.run?.status;
@@ -168,42 +137,6 @@ export function Workspace() {
   );
   const availableSkills = skillsQuery.data?.skills ?? [];
 
-  const createNewSession = async () => {
-    setWorkspaceError(undefined);
-    try {
-      const created = await createSession('新任务');
-      setSessions((items) => [created, ...items]);
-      setMode(useUiPreferencesStore.getState().defaultMode);
-      setSessionId(created.session_id);
-    } catch (cause) {
-      setWorkspaceError(messageOf(cause, '新建会话失败'));
-    }
-  };
-  const rename = async (id: string, title: string) => {
-    try {
-      const updated = await renameSession(id, title);
-      setSessions((items) => items.map((item) => (item.session_id === id ? updated : item)));
-    } catch (cause) {
-      setWorkspaceError(messageOf(cause, '重命名失败'));
-    }
-  };
-  const remove = async (id: string) => {
-    const target = sessions.find((item) => item.session_id === id);
-    if (!target || !window.confirm(`确定删除会话“${target.title}”？此操作会删除其历史消息。`))
-      return;
-    try {
-      await deleteSession(id);
-      const remaining = sessions.filter((item) => item.session_id !== id);
-      setSessions(remaining);
-      if (id === sessionId) {
-        const next = remaining[0] ?? (await createSession('新任务'));
-        if (remaining.length === 0) setSessions([next]);
-        setSessionId(next.session_id);
-      }
-    } catch (cause) {
-      setWorkspaceError(messageOf(cause, '删除会话失败'));
-    }
-  };
   const send = async (message: string, files: File[]) => {
     setWorkspaceError(undefined);
     try {
@@ -235,31 +168,6 @@ export function Workspace() {
 
   return (
     <>
-      <SkillImportModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onImported={() => {
-          void skillsQuery.refetch();
-        }}
-      />
-      <SkillManagerModal
-        open={skillManagerOpen}
-        onClose={() => setSkillManagerOpen(false)}
-        skills={availableSkills}
-        loading={skillsQuery.isLoading}
-        onImport={() => setImportOpen(true)}
-        onChanged={() => {
-          void skillsQuery
-            .refetch()
-            .then((result) =>
-              setSelectedSkills((selected) =>
-                selected.filter((item) =>
-                  (result.data?.skills ?? []).some((skill) => skill.name === item.name),
-                ),
-              ),
-            );
-        }}
-      />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <Layout
         sidebar={
@@ -272,7 +180,9 @@ export function Workspace() {
             loading={sessionsLoading}
             onCollapsedChange={setSidebarCollapsed}
             onCreate={() => {
-              void createNewSession();
+              void createNewSession().then((created) => {
+                if (created) setMode(useUiPreferencesStore.getState().defaultMode);
+              });
             }}
             onSelect={setSessionId}
             onRename={(id, title) => {
@@ -281,7 +191,7 @@ export function Workspace() {
             onDelete={(id) => {
               void remove(id);
             }}
-            onOpenSkills={() => setSkillManagerOpen(true)}
+            onOpenSkills={() => navigate('/settings/skills')}
             onOpenSettings={() => setSettingsOpen(true)}
             onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           />
@@ -343,7 +253,7 @@ export function Workspace() {
                   )
                 }
                 onClearSkills={() => setSelectedSkills([])}
-                onImportSkill={() => setImportOpen(true)}
+                onImportSkill={() => navigate('/settings/skills?import=1')}
                 onTrustSkill={(skill) => {
                   void trustSkill(skill.name, true)
                     .then(() => skillsQuery.refetch())
@@ -374,8 +284,4 @@ export function Workspace() {
       />
     </>
   );
-}
-
-function messageOf(cause: unknown, fallback: string) {
-  return cause instanceof Error && cause.message ? cause.message : fallback;
 }
