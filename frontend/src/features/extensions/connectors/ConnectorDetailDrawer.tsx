@@ -71,23 +71,33 @@ export function ConnectorDetailDrawer({
               key={tool.capability}
               className="border-b border-dashed border-border-subtle py-[7px] last:border-b-0"
             >
-              <Badge tone="planning">{tool.name}</Badge>
+              <div className="flex flex-wrap items-center gap-[6px]">
+                <Badge tone="planning">{tool.name}</Badge>
+                <Badge tone={tool.read_only ? 'success' : 'warning'}>
+                  {tool.risk === 'low' ? '低风险' : tool.risk === 'medium' ? '中风险' : '高风险'}
+                </Badge>
+              </div>
               <p className="m-0 mt-[4px] text-[11.5px] leading-[1.6] text-text-secondary">
                 {tool.description || '远端未提供描述'}
               </p>
               <p className="m-0 font-mono text-[10px] text-text-tertiary">{tool.capability}</p>
+              <p className="m-0 mt-[3px] text-[10.5px] text-text-tertiary">
+                {tool.read_only ? '可信只读 · 无需审批' : '调用前需要审批'}
+              </p>
             </div>
           ))}
           <p className="mt-[6px] text-[10.5px] leading-[1.6] text-text-tertiary">
-            这里不提供直接调用入口；工具只在对话中经 Policy Gate 审批后执行。
+            这里不提供直接调用入口；工具只在对话中经 Policy Gate 评估后执行。
           </p>
         </DrawerSection>
       )}
 
       <DrawerSection title="安全说明">
         <p className="m-0 text-[12.5px] leading-[1.7] text-text-secondary">
-          Runtime 无从判断远端工具会触及什么，因此所有 MCP 工具一律按高风险写操作处理，每次调用都需人工确认。
-          子进程只继承 PATH / LANG / LC_ALL / TZ / HOME / TMPDIR 与此处配置的环境变量，宿主的模型密钥不会传给它。
+          未经本机管理员信任的 MCP
+          工具按高风险写操作处理；只有本地白名单中的工具会以可信只读方式免审批调用。
+          远端声明不能降低风险。子进程只继承 PATH / LANG / LC_ALL / TZ / HOME / TMPDIR
+          与此处配置的环境变量，宿主的模型密钥不会传给它。
         </p>
       </DrawerSection>
 
@@ -97,6 +107,7 @@ export function ConnectorDetailDrawer({
             ['command', server.command],
             ['args', server.args.join(' ') || '—'],
             ['env', server.env_keys.join('、') || '—'],
+            ['可信只读工具', server.read_only_tools.join('、') || '—'],
           ]}
         />
         <p className="mt-[6px] text-[10.5px] leading-[1.6] text-text-tertiary">

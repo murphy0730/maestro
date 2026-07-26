@@ -80,9 +80,19 @@ const servers: McpServer[] = [
     args: ['/opt/mes.py'],
     env_keys: ['MES_API_KEY'],
     enabled: true,
+    read_only_tools: [],
     status: 'connected',
     error: '',
-    tools: [{ name: 'query', capability: 'mcp__maestro-mes__query', description: '查询' }],
+    tools: [
+      {
+        name: 'query',
+        capability: 'mcp__maestro-mes__query',
+        description: '查询',
+        read_only: false,
+        writes: true,
+        risk: 'high',
+      },
+    ],
   },
   {
     name: 'env-managed',
@@ -90,6 +100,7 @@ const servers: McpServer[] = [
     args: [],
     env_keys: [],
     enabled: true,
+    read_only_tools: [],
     status: 'connected',
     error: '',
     tools: [],
@@ -113,7 +124,13 @@ beforeEach(() => {
   api.listSkills.mockResolvedValue({ skills });
   api.listMcpServers.mockResolvedValue({ servers });
   api.listSessions.mockResolvedValue([
-    { session_id: 's1', title: '华东排产', updated_at: '2026-07-25T10:00:00Z', message_count: 1, active_run_id: null },
+    {
+      session_id: 's1',
+      title: '华东排产',
+      updated_at: '2026-07-25T10:00:00Z',
+      message_count: 1,
+      active_run_id: null,
+    },
   ]);
   api.trustSkill.mockResolvedValue({ level: 'user_trusted', valid: true, package_sha256: 'sha' });
   api.deleteSkill.mockResolvedValue(undefined);
@@ -162,7 +179,9 @@ describe('技能管理', () => {
     await screen.findByRole('button', { name: '查看技能 排产查询 详情' });
 
     fireEvent.click(screen.getByRole('button', { name: '信任' }));
-    await waitFor(() => expect(api.trustSkill.mock.calls[0]?.slice(0, 2)).toEqual(['scheduling-query', true]));
+    await waitFor(() =>
+      expect(api.trustSkill.mock.calls[0]?.slice(0, 2)).toEqual(['scheduling-query', true]),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '卸载技能 排产查询' }));
     expect(api.deleteSkill).not.toHaveBeenCalled();
@@ -228,6 +247,7 @@ describe('连接器管理', () => {
     fireEvent.change(within(drawer).getByLabelText('启动命令'), {
       target: { value: 'python3' },
     });
+    fireEvent.click(within(drawer).getByLabelText('将 query 标记为可信只读'));
     fireEvent.click(within(drawer).getByRole('button', { name: '保存并连接' }));
 
     await waitFor(() =>
@@ -237,8 +257,18 @@ describe('连接器管理', () => {
         args: ['/opt/mes.py'],
         env: { MES_API_KEY: '' },
         enabled: true,
+        read_only_tools: ['query'],
       }),
     );
+  });
+
+  it('详情展示工具的本地风险与审批状态', async () => {
+    open('/settings/connectors?connector=maestro-mes');
+    const drawer = await screen.findByRole('dialog');
+
+    expect(within(drawer).getByText('高风险')).toBeTruthy();
+    expect(within(drawer).getByText('调用前需要审批')).toBeTruthy();
+    expect(within(drawer).getByText('mcp__maestro-mes__query')).toBeTruthy();
   });
 
   it('重连与删除：删除需二次确认', async () => {
@@ -259,10 +289,12 @@ describe('连接器管理', () => {
     open('/settings/connectors');
     await screen.findByRole('button', { name: '查看连接器 env-managed 详情' });
     expect(
-      (screen.getByRole('button', { name: '编辑连接器 env-managed' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: '编辑连接器 env-managed' }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByRole('button', { name: '删除连接器 env-managed' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: '删除连接器 env-managed' }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
   });
 });

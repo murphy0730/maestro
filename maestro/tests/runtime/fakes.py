@@ -24,6 +24,8 @@ class FakeRuntimeModel:
         name: str,
         arguments: dict[str, object] | None = None,
         *,
+        assistant_message: dict | None = None,
+        tool_call_id: str = "",
         parse_error: str = "",
         dropped_calls: tuple[str, ...] = (),
     ) -> None:
@@ -31,6 +33,8 @@ class FakeRuntimeModel:
             ModelAction(
                 kind="call",
                 call=CapabilityCall(name=name, arguments=arguments or {}),
+                assistant_message=assistant_message or {},
+                tool_call_id=tool_call_id,
                 parse_error=parse_error,
                 dropped_calls=dropped_calls,
             )

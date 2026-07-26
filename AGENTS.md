@@ -8,3 +8,7 @@ Two points worth repeating here, because getting them wrong breaks the architect
 
 1. **The Runtime is domain-neutral.** `maestro/src/maestro/runtime/` must not gain scheduling, kitting, expediting, dispatch or RAG logic. Business capability is installed at runtime as a governed Skill, Tool or MCP capability, registered into the platform from `bootstrap.py` after construction. `maestro/tests/runtime/test_b1_invariants.py` enforces this.
 2. **Every side effect goes through the Policy Gate**, and host-administration APIs (skill import / trust / delete) require the privileged bearer token — they are never model-callable.
+
+Rules & Constraints
+- Do not use the Superpowers skill by default. Only use it when I explicitly request it.
+- Prefer minimal changes; avoid unnecessary refactors.

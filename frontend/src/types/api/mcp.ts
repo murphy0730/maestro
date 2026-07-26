@@ -7,6 +7,9 @@ export interface McpToolSummary {
   /** Registry name the model sees: `mcp__{server}__{tool}`. */
   capability: string;
   description: string;
+  read_only: boolean;
+  writes: boolean;
+  risk: 'low' | 'medium' | 'high';
 }
 
 export interface McpServer {
@@ -16,6 +19,7 @@ export interface McpServer {
   /** Only key names come back — the backend never echoes secret values. */
   env_keys: string[];
   enabled: boolean;
+  read_only_tools: string[];
   status: McpStatus;
   error: string;
   tools: McpToolSummary[];
@@ -37,4 +41,5 @@ export interface McpServerInput {
   args: string[];
   env: Record<string, string>;
   enabled: boolean;
+  read_only_tools: string[];
 }

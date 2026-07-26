@@ -277,8 +277,10 @@ class RunCoordinator:
                 )
                 continue
             run = self._save_and_publish(run, "capability.completed", {"name": spec.name, "status": result.status})
-            self._thread_result(messages, call_id, result.content)
-            self._append_result_context(context_items, run, spec.name, result.content)
+            threaded = self._append_result_context(
+                context_items, run, spec.name, result.content
+            )
+            self._thread_result(messages, call_id, threaded)
 
     async def _run_controlled(
         self,
@@ -397,10 +399,10 @@ class RunCoordinator:
                 run, write_result = await self._execute_write(run, action.call, spec)
                 if write_result is None:
                     return run
-                self._thread_result(messages, call_id, write_result.content)
-                self._append_result_context(
+                threaded = self._append_result_context(
                     context_items, run, spec.name, write_result.content
                 )
+                self._thread_result(messages, call_id, threaded)
                 continue
             try:
                 result = await spec.executor(action.call, None)
@@ -417,8 +419,10 @@ class RunCoordinator:
             run = self._save_and_publish(
                 run, "capability.completed", {"name": spec.name, "status": result.status}
             )
-            self._thread_result(messages, call_id, result.content)
-            self._append_result_context(context_items, run, spec.name, result.content)
+            threaded = self._append_result_context(
+                context_items, run, spec.name, result.content
+            )
+            self._thread_result(messages, call_id, threaded)
 
     async def _run_child(
         self,
@@ -506,12 +510,27 @@ class RunCoordinator:
         OpenAI-compatible APIs reject a `role=tool` message that does not follow
         an assistant message carrying the matching `tool_call_id`, so when the
         model boundary supplied no assistant message (test doubles, degraded
-        mode) one is synthesised from the call itself.
+        mode) one is synthesised from the call itself.  The runtime executes one
+        call per turn, so parallel calls discarded by the model boundary must
+        also be removed from the threaded assistant message.
         """
         call_id = action.tool_call_id or f"call_{len(messages)}"
         if action.assistant_message:
-            messages.append(dict(action.assistant_message))
-            return call_id
+            assistant_message = dict(action.assistant_message)
+            tool_calls = assistant_message.get("tool_calls")
+            if isinstance(tool_calls, list):
+                selected = next(
+                    (
+                        item
+                        for item in tool_calls
+                        if isinstance(item, dict) and item.get("id") == call_id
+                    ),
+                    None,
+                )
+                if selected is not None:
+                    assistant_message["tool_calls"] = [selected]
+                    messages.append(assistant_message)
+                    return call_id
         messages.append(
             {
                 "role": "assistant",
@@ -557,13 +576,21 @@ class RunCoordinator:
 
     def _append_result_context(
         self, context_items: list[ContextItem], run: RunRecord, name: str, content: object | None
-    ) -> None:
+    ) -> object:
         encoded = json.dumps(content, ensure_ascii=False, default=str).encode()
-        if len(encoded) > self._artifact_threshold_bytes:
+        if (
+            name != ARTIFACT_READ_CAPABILITY
+            and len(encoded) > self._artifact_threshold_bytes
+        ):
             artifact = self._artifact_store.put(encoded, "application/json")
             context_items.append(ContextItem.from_artifact(artifact))
             self._publish(run, "artifact.created", artifact.model_dump())
-            return
+            return {
+                "artifact_ref": artifact.artifact_id,
+                "media_type": artifact.media_type,
+                "bytes": artifact.bytes,
+                "message": "工具结果过大，已保存为 artifact；可使用 read_artifact 读取。",
+            }
         context_items.append(
             ContextItem(
                 key=f"capability:{name}",
@@ -575,6 +602,7 @@ class RunCoordinator:
                 source=f"capability:{name}",
             )
         )
+        return content
 
     async def _prepare_conversation(self, run: RunRecord) -> tuple[list[dict], ContextItem | None]:
         """Bounded recent turns plus one rolling summary of everything older.
@@ -966,7 +994,36 @@ class RunCoordinator:
             return run
         # Carry the Run on so the model can report what the approved write did;
         # stopping here would leave it in running_structured with no final text.
-        return await self._run_controlled(run, snapshot)
+        context_items = self._initial_context(run)
+        messages, summary = await self._prepare_conversation(run)
+        if summary is not None:
+            context_items.append(summary)
+        call_id = f"approved_{step.step_id}"
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": json.dumps(
+                                call.arguments, ensure_ascii=False, default=str
+                            ),
+                        },
+                    }
+                ],
+            }
+        )
+        threaded = self._append_result_context(
+            context_items, run, spec.name, result.content
+        )
+        self._thread_result(messages, call_id, threaded)
+        return await self._run_controlled(
+            run, snapshot, context_items, allowed, skill_allowed, messages
+        )
 
     async def cancel(self, run_id: str) -> RunRecord:
         async with self._run_store.lock_for(run_id):

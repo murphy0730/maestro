@@ -1,8 +1,10 @@
 import pytest
 
+from maestro.foundation.llm import LLMError
 import maestro.runtime as runtime
 import maestro.runtime.models as runtime_models
-from maestro.runtime.model import RuntimeModel
+from maestro.runtime.context import ContextBundle
+from maestro.runtime.model import LLMRuntimeModel, RuntimeModel
 from maestro.runtime.models import ApprovalRecord, RunIntent, RunPath, RunRecord, StepRecord
 
 
@@ -48,3 +50,17 @@ def test_identifier_fields_are_frozen() -> None:
     for model, field_names in identifiers.items():
         for field_name in field_names:
             assert model.model_fields[field_name].frozen is True
+
+
+@pytest.mark.asyncio
+async def test_llm_runtime_model_logs_the_failure_before_degrading(caplog) -> None:
+    class FailingLLM:
+        async def chat_turn(self, *_args, **_kwargs):
+            raise LLMError("invalid_request_error")
+
+    model = LLMRuntimeModel(FailingLLM())  # type: ignore[arg-type]
+
+    action = await model.next_turn(ContextBundle(system_context="system"), [])
+
+    assert action.text == "模型当前不可用。"
+    assert "invalid_request_error" in caplog.text

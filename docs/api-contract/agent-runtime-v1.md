@@ -81,16 +81,18 @@ SSE 上一轮确认完成投影为 `approval.resolved`，紧随其后的 `approv
 
 MCP 工具经 stdio 传输接入（协议版本 `2024-11-05`，实现 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`；未实现 resources、SSE 与 HTTP）。发现到的工具以 `mcp__{server}__{tool}` 注册为 `CapabilityKind.MCP`。
 
-风险姿态在本地决定：Runtime 无法知道任意远端工具会触及什么，因此一律注册为 `writes=true, risk=high`，每次调用都要人工审批。远端描述只提供参数 schema 与说明，不能降低这一判定，也不能顶替同名的 TOOL/SKILL 能力。
+风险姿态在本地决定：Runtime 无法知道任意远端工具会触及什么，因此默认注册为 `writes=true, risk=high, idempotent=false`，每次调用都要人工审批。本地管理员可在服务器配置的 `read_only_tools` 中逐项授予只读信任；只有列出的工具注册为 `writes=false, risk=low, idempotent=true`。远端描述和 annotations 只提供参数 schema 与说明，不能降低这一判定，也不能顶替同名的 TOOL/SKILL 能力。新发现但未列入白名单的工具始终保持高风险。
 
-服务器配置存放在 `<数据根>/settings.json` 的 `mcp_servers` 键下，**不经环境变量**。子进程只继承 `PATH`/`LANG`/`LC_ALL`/`TZ`/`HOME`/`TMPDIR` 与该服务器配置中显式声明的 `env`，宿主的 `LLM_API_KEY` 不会泄漏给 MCP 服务器。
+服务器配置存放在 `<数据根>/settings.json` 的 `mcp_servers` 键下，**不经环境变量**。`read_only_tools` 为可选工具名数组，缺失时按空数组兼容旧配置。子进程只继承 `PATH`/`LANG`/`LC_ALL`/`TZ`/`HOME`/`TMPDIR` 与该服务器配置中显式声明的 `env`，宿主的 `LLM_API_KEY` 不会泄漏给 MCP 服务器。
 
 - `GET /mcp/servers`：只读，列出配置、连接状态与已发布的能力名；
 - `PUT /mcp/servers/{name}`：新增或更新并立即重连；
 - `DELETE /mcp/servers/{name}`：删除配置并注销其能力；
 - `POST /mcp/servers/{name}/reconnect`：按现有配置重连。
 
-后三者与 Skill 包管理同属宿主管理接口，要求 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`，无效或缺失凭证返回 403。响应中的 `env_keys` 只回显键名，不回显值。连接失败通过 `status: "error"` 与 `error` 字段上报，不会让启动或请求失败。
+后三者与 Skill 包管理同属宿主管理接口，要求 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`，无效或缺失凭证返回 403。服务器响应包含 `read_only_tools`；每个已发现工具包含 `read_only`、`writes` 与 `risk`。响应中的 `env_keys` 只回显键名，不回显值。连接失败通过 `status: "error"` 与 `error` 字段上报，不会让启动或请求失败。
+
+`tools/call` 返回 `isError=true` 时，该调用记录为失败并把有界错误文本回填模型，不产生成功事件。存在 `structuredContent` 的成功结果归一化为 `{data, summary, mcp}`；没有时保留原始 MCP result。超过 Runtime artifact 阈值的结果只向模型传递 artifact 引用，完整内容由 `read_artifact` 按需读取。
 
 ## Skills
 

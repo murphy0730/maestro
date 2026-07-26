@@ -13,7 +13,11 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { EmptyState, primaryButton } from '../shared';
 import { errorMessage } from '../errors';
 import { CatalogGrid } from '../catalog/CatalogGrid';
-import { CATALOG_CONNECTORS, catalogEnabled, type CatalogConnector } from '../catalog/staticCatalog';
+import {
+  CATALOG_CONNECTORS,
+  catalogEnabled,
+  type CatalogConnector,
+} from '../catalog/staticCatalog';
 import { ConnectorListRow } from './ConnectorListRow';
 import { ConnectorDetailDrawer } from './ConnectorDetailDrawer';
 import { ConnectorEditorDrawer } from './ConnectorEditorDrawer';
@@ -119,7 +123,7 @@ export function ConnectorsPage() {
                   <EmptyState
                     icon={<Plug size={34} />}
                     title="还没有配置连接器"
-                    description="连接器把 MES / ERP / 排产引擎等外部系统通过 MCP 协议接入 Runtime。远端工具一律按高风险处理，每次调用都需人工确认。"
+                    description="连接器把 MES / ERP / 排产引擎等外部系统通过 MCP 协议接入 Runtime。新增工具默认高风险，本机管理员可显式授予只读信任。"
                     action={
                       <button
                         type="button"
@@ -161,7 +165,8 @@ export function ConnectorsPage() {
             }))}
           />
           <p className="mt-[14px] text-[10.5px] leading-[1.6] text-text-tertiary">
-            这是本地静态模板，只保存命令 / 参数 / 环境变量名，不含任何密钥；选中只会预填表单，不会自动执行。
+            这是本地静态模板，只保存命令 / 参数 /
+            环境变量名，不含任何密钥；选中只会预填表单，不会自动执行。
           </p>
         </>
       )}
@@ -210,7 +215,8 @@ export function ConnectorsPage() {
         }}
       >
         将断开并删除 <span className="font-mono text-text-primary">{pendingDelete?.name}</span>
-        ，它注册的 {pendingDelete?.tools.length ?? 0} 个工具会立即从工具池移除，正在进行的调用会以连接错误失败。此操作不可撤销。
+        ，它注册的 {pendingDelete?.tools.length ?? 0}{' '}
+        个工具会立即从工具池移除，正在进行的调用会以连接错误失败。此操作不可撤销。
       </ConfirmDialog>
     </>
   );

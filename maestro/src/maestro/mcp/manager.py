@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import logging
 
-from maestro.mcp.client import MCPClient
+from maestro.mcp.client import MCPClient, MCPToolError
 from maestro.mcp.types import MCPConnection, MCPConnectionStatus, MCPServerConfig
-from maestro.runtime.capabilities import RiskLevel
+from maestro.runtime.capabilities import CapabilityResult, RiskLevel
 from maestro.runtime.mcp import MCPCapabilityConflict, MCPConnector
 
 logger = logging.getLogger(__name__)
@@ -54,15 +54,16 @@ class MCPManager:
         registered: set[str] = set()
         rejected: list[str] = []
         for tool in connection.tools:
+            is_read_only = tool.name in config.read_only_tools
             try:
                 self._connector.register(
                     config.name,
                     tool.name,
                     description=tool.description,
                     input_schema=tool.input_schema,
-                    writes=True,
-                    risk=RiskLevel.HIGH,
-                    idempotent=False,
+                    writes=not is_read_only,
+                    risk=RiskLevel.LOW if is_read_only else RiskLevel.HIGH,
+                    idempotent=is_read_only,
                     executor=_executor_for(client),
                 )
             except MCPCapabilityConflict as error:
@@ -101,6 +102,9 @@ class MCPManager:
 
 def _executor_for(client: MCPClient):
     async def execute(tool_name: str, arguments: dict) -> object:
-        return await client.call_tool(tool_name, dict(arguments))
+        try:
+            return await client.call_tool(tool_name, dict(arguments))
+        except MCPToolError as error:
+            return CapabilityResult(status="failed", error_message=str(error))
 
     return execute

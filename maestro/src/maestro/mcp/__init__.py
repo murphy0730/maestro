@@ -4,7 +4,7 @@ The Runtime stays transport-agnostic — `runtime/mcp.py` owns the governed
 registration boundary, and this package is what actually talks to a server.
 """
 
-from maestro.mcp.client import DEFAULT_CALL_TIMEOUT, PROTOCOL_VERSION, MCPClient
+from maestro.mcp.client import DEFAULT_CALL_TIMEOUT, PROTOCOL_VERSION, MCPClient, MCPToolError
 from maestro.mcp.manager import MCPManager
 from maestro.mcp.transport import MCPTransportError, StdioMCPTransport
 from maestro.mcp.types import (
@@ -23,6 +23,7 @@ __all__ = [
     "MCPManager",
     "MCPServerConfig",
     "MCPTool",
+    "MCPToolError",
     "MCPTransportError",
     "StdioMCPTransport",
 ]

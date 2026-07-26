@@ -14,7 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from maestro.mcp import MCPClient, MCPManager, MCPServerConfig, MCPTransportError
+from maestro.mcp import (
+    MCPClient,
+    MCPManager,
+    MCPServerConfig,
+    MCPToolError,
+    MCPTransportError,
+)
 from maestro.mcp.types import MCPConnectionStatus
 from maestro.runtime.capabilities import (
     CapabilityCall,
@@ -32,6 +38,28 @@ SERVER = Path(__file__).parent / "servers" / "echo_server.py"
 
 def config(name: str = "echo", **env: str) -> MCPServerConfig:
     return MCPServerConfig(name=name, command=sys.executable, args=(str(SERVER),), env=env)
+
+
+async def test_server_config_round_trips_read_only_tools_and_loads_old_configs() -> None:
+    old = MCPServerConfig.from_dict("echo", {"command": sys.executable})
+    configured = MCPServerConfig.from_dict(
+        "echo",
+        {
+            "command": sys.executable,
+            "read_only_tools": ["echo", "echo", "leak_env"],
+        },
+    )
+
+    assert old.read_only_tools == ()
+    assert configured.read_only_tools == ("echo", "leak_env")
+    assert configured.to_dict()["read_only_tools"] == ["echo", "leak_env"]
+
+
+async def test_server_config_rejects_non_array_read_only_tools() -> None:
+    with pytest.raises(ValueError, match="read_only_tools"):
+        MCPServerConfig.from_dict(
+            "echo", {"command": sys.executable, "read_only_tools": ""}
+        )
 
 
 async def test_handshake_discovers_tools() -> None:
@@ -79,6 +107,71 @@ async def test_manager_publishes_tools_as_governed_capabilities() -> None:
         await manager.shutdown()
 
 
+async def test_remote_read_only_annotation_cannot_lower_local_risk() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    try:
+        await manager.connect(config())
+
+        spec = registry.require("mcp__echo__echo")
+
+        assert spec.writes is True
+        assert spec.risk is RiskLevel.HIGH
+        assert spec.idempotent is False
+    finally:
+        await manager.shutdown()
+
+
+async def test_local_read_only_policy_only_trusts_named_tools() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    trusted = MCPServerConfig(
+        name="echo",
+        command=sys.executable,
+        args=(str(SERVER),),
+        read_only_tools=("echo",),
+    )
+    try:
+        await manager.connect(trusted)
+
+        echo = registry.require("mcp__echo__echo")
+        newly_discovered = registry.require("mcp__echo__leak_env")
+        assert (echo.writes, echo.risk, echo.idempotent) == (
+            False,
+            RiskLevel.LOW,
+            True,
+        )
+        assert (newly_discovered.writes, newly_discovered.risk) == (
+            True,
+            RiskLevel.HIGH,
+        )
+    finally:
+        await manager.shutdown()
+
+
+async def test_reconnect_refreshes_risk_metadata_and_content_hash() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    trusted = MCPServerConfig(
+        name="echo",
+        command=sys.executable,
+        args=(str(SERVER),),
+        read_only_tools=("echo",),
+    )
+    try:
+        await manager.connect(trusted)
+        before = registry.require("mcp__echo__echo")
+
+        await manager.connect(config())
+        after = registry.require("mcp__echo__echo")
+
+        assert before.writes is False
+        assert after.writes is True
+        assert before.content_sha256 != after.content_sha256
+    finally:
+        await manager.shutdown()
+
+
 async def test_disconnect_removes_the_capabilities() -> None:
     registry = CapabilityRegistry()
     manager = MCPManager(MCPConnector(registry))
@@ -109,6 +202,74 @@ async def test_remote_error_becomes_a_failed_result_not_a_success() -> None:
         await manager.shutdown()
 
 
+async def test_mcp_is_error_raises_a_bounded_tool_error() -> None:
+    client = MCPClient(config(ECHO_IS_ERROR="1", ECHO_IS_ERROR_TEXT="x" * 5_000))
+    await client.connect()
+    try:
+        with pytest.raises(MCPToolError) as raised:
+            await client.call_tool("echo", {"text": "x"})
+        assert str(raised.value) == "x" * 2_000
+    finally:
+        await client.disconnect()
+
+
+async def test_mcp_is_error_becomes_a_non_transient_failed_capability() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    try:
+        await manager.connect(config(ECHO_IS_ERROR="1"))
+        spec = registry.require("mcp__echo__echo")
+
+        result = await spec.executor(
+            CapabilityCall(name=spec.name, arguments={"text": "x"}), None
+        )
+
+        assert result.status == "failed"
+        assert result.error_kind is None
+        assert "远端工具拒绝" in (result.error_message or "")
+    finally:
+        await manager.shutdown()
+
+
+async def test_structured_content_is_preferred_with_a_text_summary() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    try:
+        await manager.connect(config(ECHO_STRUCTURED="1"))
+        spec = registry.require("mcp__echo__echo")
+
+        result = await spec.executor(
+            CapabilityCall(name=spec.name, arguments={"text": "value"}), None
+        )
+
+        assert result.status == "succeeded"
+        assert result.content == {
+            "data": {"ok": True, "value": "value"},
+            "summary": "查询到 1 条结果",
+            "mcp": {"server": "echo", "tool": "echo"},
+        }
+    finally:
+        await manager.shutdown()
+
+
+async def test_business_error_structured_content_remains_a_successful_round_trip() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    try:
+        await manager.connect(config(ECHO_BUSINESS_ERROR="1"))
+        spec = registry.require("mcp__echo__echo")
+
+        result = await spec.executor(
+            CapabilityCall(name=spec.name, arguments={"text": "order"}), None
+        )
+
+        assert result.status == "succeeded"
+        assert result.content["data"]["ok"] is False
+        assert result.content["data"]["error"]["code"] == "AMBIGUOUS_ORDER"
+    finally:
+        await manager.shutdown()
+
+
 async def test_a_hanging_tool_call_times_out_instead_of_blocking() -> None:
     client = MCPClient(config(ECHO_HANG_TOOL="1"))
     await client.connect()
@@ -116,6 +277,16 @@ async def test_a_hanging_tool_call_times_out_instead_of_blocking() -> None:
         with pytest.raises(MCPTransportError) as error:
             await client.call_tool("echo", {"text": "x"}, timeout=0.5)
         assert "超时" in str(error.value)
+    finally:
+        await client.disconnect()
+
+
+async def test_process_exit_wakes_a_pending_tool_call() -> None:
+    client = MCPClient(config(ECHO_EXIT_TOOL="1"))
+    await client.connect()
+    try:
+        with pytest.raises(MCPTransportError, match="关闭输出流"):
+            await client.call_tool("echo", {"text": "x"}, timeout=2)
     finally:
         await client.disconnect()
 

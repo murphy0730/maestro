@@ -8,6 +8,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+import re
+
+
+MCP_TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def normalize_read_only_tools(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """Validate local trust entries and remove duplicates without reordering."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or MCP_TOOL_NAME_PATTERN.fullmatch(value) is None:
+            raise ValueError(
+                "MCP 只读工具名必须为 1-64 位字母、数字、下划线或连字符"
+            )
+        if value not in seen:
+            seen.add(value)
+            normalized.append(value)
+    return tuple(normalized)
 
 
 class MCPConnectionStatus(StrEnum):
@@ -27,6 +46,12 @@ class MCPServerConfig:
     # server genuinely needs are named here rather than leaked wholesale.
     env: dict[str, str] = field(default_factory=dict)
     enabled: bool = True
+    read_only_tools: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "read_only_tools", normalize_read_only_tools(self.read_only_tools)
+        )
 
     @classmethod
     def from_dict(cls, name: str, raw: dict) -> "MCPServerConfig":
@@ -41,12 +66,16 @@ class MCPServerConfig:
             isinstance(key, str) and isinstance(value, str) for key, value in env.items()
         ):
             raise ValueError(f"MCP 服务器 {name} 的 env 必须是字符串字典")
+        read_only_tools = raw.get("read_only_tools", [])
+        if not isinstance(read_only_tools, list):
+            raise ValueError(f"MCP 服务器 {name} 的 read_only_tools 必须是字符串数组")
         return cls(
             name=name,
             command=command,
             args=tuple(args),
             env=dict(env),
             enabled=bool(raw.get("enabled", True)),
+            read_only_tools=normalize_read_only_tools(read_only_tools),
         )
 
     def to_dict(self) -> dict:
@@ -55,6 +84,7 @@ class MCPServerConfig:
             "args": list(self.args),
             "env": dict(self.env),
             "enabled": self.enabled,
+            "read_only_tools": list(self.read_only_tools),
         }
 
 

@@ -132,15 +132,22 @@ class _TruncatingSummarizer:
 class ContextProvider:
     """Assemble deterministic, bounded context without trusting external text."""
 
-    def __init__(self, *, max_chars: int, summarizer: Summarizer | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_chars: int,
+        summarizer: Summarizer | None = None,
+        base_system_prompt: str = "",
+    ) -> None:
         if max_chars < 1:
             raise ValueError("max_chars must be positive")
         self._max_chars = max_chars
         self._summarizer = summarizer or _TruncatingSummarizer()
+        self._base_system_prompt = base_system_prompt.strip()
 
     def assemble(self, items: Sequence[ContextItem]) -> ContextBundle:
-        rendered: list[str] = []
-        used = 0
+        rendered = [self._base_system_prompt] if self._base_system_prompt else []
+        used = len(self._base_system_prompt)
         for _, item in sorted(enumerate(items), key=lambda pair: (pair[1].priority, pair[0])):
             if item.priority == Priority.P3:
                 text = f"Reference: artifact:{item.ref.artifact_id}"

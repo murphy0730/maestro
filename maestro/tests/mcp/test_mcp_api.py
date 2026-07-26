@@ -49,22 +49,59 @@ def test_mutations_require_the_privileged_token(client: TestClient) -> None:
 
 
 def test_upsert_connects_and_publishes_capabilities(client: TestClient) -> None:
+    payload = _payload() | {"read_only_tools": ["echo", "echo"]}
     response = client.put(
-        "/mcp/servers/echo", json=_payload(), headers={"Authorization": f"Bearer {TOKEN}"}
+        "/mcp/servers/echo", json=payload, headers={"Authorization": f"Bearer {TOKEN}"}
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "connected"
+    assert body["read_only_tools"] == ["echo"]
     assert {tool["capability"] for tool in body["tools"]} == {
         "mcp__echo__echo",
         "mcp__echo__leak_env",
     }
+    tools = {tool["name"]: tool for tool in body["tools"]}
+    assert tools["echo"]["read_only"] is True
+    assert tools["echo"]["writes"] is False
+    assert tools["echo"]["risk"] == "low"
+    assert tools["leak_env"]["read_only"] is False
+    assert tools["leak_env"]["writes"] is True
+    assert tools["leak_env"]["risk"] == "high"
     capabilities = client.app.state.platform.capabilities
-    assert capabilities.require("mcp__echo__echo") is not None
+    assert capabilities.require("mcp__echo__echo").writes is False
+    assert capabilities.require("mcp__echo__leak_env").writes is True
 
     listed = client.get("/mcp/servers").json()["servers"]
     assert [item["name"] for item in listed] == ["echo"]
+
+
+def test_old_payload_defaults_to_no_read_only_tools(client: TestClient) -> None:
+    body = client.put(
+        "/mcp/servers/echo",
+        json=_payload(),
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    ).json()
+
+    assert body["read_only_tools"] == []
+    assert all(tool["writes"] is True for tool in body["tools"])
+    assert all(tool["risk"] == "high" for tool in body["tools"])
+
+
+@pytest.mark.parametrize("tool_name", ["", "bad name", "bad.tool", "x" * 65])
+def test_read_only_tool_names_follow_function_call_constraints(
+    client: TestClient, tool_name: str
+) -> None:
+    payload = _payload() | {"read_only_tools": [tool_name]}
+
+    response = client.put(
+        "/mcp/servers/echo",
+        json=payload,
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_env_values_are_not_echoed_back(client: TestClient) -> None:

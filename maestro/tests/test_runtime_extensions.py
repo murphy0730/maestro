@@ -5,6 +5,18 @@ from maestro.runtime.intent import IntentRequest
 from maestro.runtime.models import RunStatus
 
 
+def test_default_platform_injects_maestro_identity_prompt(tmp_path) -> None:
+    platform = build_platform(Settings(skills_dir=tmp_path / "skills"))
+
+    system_prompt = platform.runtime._context_provider.assemble([]).system_context
+
+    assert "你是 Maestro" in system_prompt
+    assert "服务于生产计划及调度部门" in system_prompt
+    assert "不得自称 Claude、ChatGPT" in system_prompt
+    assert "Skill、Tool 或 MCP" in system_prompt
+    assert "Policy Gate" in system_prompt
+
+
 async def test_platform_accepts_mcp_registration_after_startup(tmp_path) -> None:
     platform = build_platform(Settings(skills_dir=tmp_path / "skills"))
 

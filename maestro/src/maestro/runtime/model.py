@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field, model_validator
@@ -7,6 +8,9 @@ from pydantic import BaseModel, Field, model_validator
 from maestro.foundation.llm import LLMClient, LLMError
 from maestro.runtime.capabilities import CapabilityCall, CapabilitySpec
 from maestro.runtime.context import ContextBundle
+
+
+logger = logging.getLogger(__name__)
 
 
 class ModelAction(BaseModel):
@@ -70,7 +74,8 @@ class LLMRuntimeModel:
         ]
         try:
             turn = await self._llm.chat_turn(context.system_context, list(messages or []), tools=tools)
-        except LLMError:
+        except LLMError as error:
+            logger.warning("LLM Runtime 调用失败，已降级: %s", error)
             return ModelAction(kind="final", text="模型当前不可用。")
         if turn.tool_calls:
             call = turn.tool_calls[0]

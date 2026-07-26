@@ -18,6 +18,7 @@ from maestro.runtime.capabilities import (
 from maestro.runtime.models import RuntimeErrorKind
 
 MCPExecutor = Callable[[str, dict[str, object]], Awaitable[object]]
+_MAX_MCP_SUMMARY_CHARS = 2_000
 
 
 class MCPCapabilityConflict(ValueError):
@@ -55,7 +56,12 @@ class MCPConnector:
                     error_kind=RuntimeErrorKind.TRANSIENT_INFRASTRUCTURE,
                     error_message=f"{type(error).__name__}: {error}",
                 )
-            return CapabilityResult(status="succeeded", content=content)
+            if isinstance(content, CapabilityResult):
+                return content
+            return CapabilityResult(
+                status="succeeded",
+                content=_normalize_result(server_name, tool_name, content),
+            )
 
         self._capabilities.register(
             CapabilitySpec(
@@ -86,3 +92,30 @@ class MCPConnector:
             raise MCPCapabilityConflict(
                 f"capability {name} is already registered as {existing.kind.value}"
             )
+
+
+def _normalize_result(server_name: str, tool_name: str, result: object) -> object:
+    if (
+        not isinstance(result, dict)
+        or "structuredContent" not in result
+        or result["structuredContent"] is None
+    ):
+        return result
+    return {
+        "data": result["structuredContent"],
+        "summary": _text_summary(result),
+        "mcp": {"server": server_name, "tool": tool_name},
+    }
+
+
+def _text_summary(result: dict) -> str:
+    texts: list[str] = []
+    content = result.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text":
+                continue
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                texts.append(text)
+    return "\n".join(texts).strip()[:_MAX_MCP_SUMMARY_CHARS]

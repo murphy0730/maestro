@@ -47,6 +47,14 @@ export function ConnectorEditorDrawer({
   const [command, setCommand] = useState(server?.command ?? template?.command ?? '');
   const [args, setArgs] = useState((server?.args ?? template?.args ?? []).join('\n'));
   const [env, setEnv] = useState<EnvRow[]>(() => initialEnv(server, template));
+  const policyTools = Array.from(
+    new Set([
+      ...(server?.read_only_tools ?? []),
+      ...(server?.tools.map((tool) => tool.name) ?? []),
+    ]),
+  );
+  const discoveredTools = new Set(server?.tools.map((tool) => tool.name) ?? []);
+  const [readOnlyTools, setReadOnlyTools] = useState<string[]>(server?.read_only_tools ?? []);
 
   const nameValid = NAME_PATTERN.test(name);
   const valid = nameValid && command.trim().length > 0 && !busy;
@@ -65,6 +73,7 @@ export function ConnectorEditorDrawer({
         env.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value]),
       ),
       enabled,
+      read_only_tools: policyTools.filter((tool) => readOnlyTools.includes(tool)),
     });
   };
 
@@ -130,6 +139,46 @@ export function ConnectorEditorDrawer({
         </p>
       </DrawerSection>
 
+      <DrawerSection title="工具权限">
+        {policyTools.length > 0 ? (
+          <div className="overflow-hidden rounded-md border border-border-subtle">
+            {policyTools.map((tool) => (
+              <label
+                key={tool}
+                className="flex cursor-pointer items-center gap-[9px] border-b border-border-subtle px-[10px] py-[8px] last:border-b-0"
+              >
+                <input
+                  type="checkbox"
+                  aria-label={`将 ${tool} 标记为可信只读`}
+                  checked={readOnlyTools.includes(tool)}
+                  onChange={(event) =>
+                    setReadOnlyTools((current) =>
+                      event.target.checked
+                        ? [...current, tool]
+                        : current.filter((name) => name !== tool),
+                    )
+                  }
+                  className="accent-[var(--accent)]"
+                />
+                <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-text-primary">
+                  {tool}
+                </span>
+                {!discoveredTools.has(tool) && (
+                  <span className="text-[10.5px] text-status-warning">当前未发现</span>
+                )}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="m-0 text-[11.5px] leading-[1.6] text-text-tertiary">
+            连接成功并发现工具后，可再次编辑其只读信任策略。
+          </p>
+        )}
+        <p className="mt-[8px] text-[10.5px] leading-[1.6] text-text-tertiary">
+          可信只读由本机管理员授予，不来自远端服务器声明；新增工具默认按高风险处理。
+        </p>
+      </DrawerSection>
+
       <DrawerSection title="进程配置">
         <label className="mb-[12px] block">
           <span className="mb-[5px] block text-[11.5px] text-text-secondary">
@@ -182,7 +231,9 @@ export function ConnectorEditorDrawer({
                 onChange={(event) => patch(index, { value: event.target.value })}
                 placeholder={row.carried ? '需重新填写' : 'value'}
                 className={`w-full border-b border-dashed border-transparent bg-transparent py-[2px] font-mono text-[11.5px] text-text-primary outline-none focus:border-accent ${
-                  row.carried && !row.value ? 'placeholder:text-status-warning' : 'placeholder:text-text-tertiary'
+                  row.carried && !row.value
+                    ? 'placeholder:text-status-warning'
+                    : 'placeholder:text-text-tertiary'
                 }`}
               />
               <label className="flex cursor-pointer select-none items-center gap-[4px] text-[10.5px] text-text-tertiary">
@@ -206,9 +257,7 @@ export function ConnectorEditorDrawer({
             </div>
           ))}
           {env.length === 0 && (
-            <p className="m-0 px-[10px] py-[9px] text-[11px] text-text-tertiary">
-              没有环境变量。
-            </p>
+            <p className="m-0 px-[10px] py-[9px] text-[11px] text-text-tertiary">没有环境变量。</p>
           )}
         </div>
         <button
@@ -226,7 +275,9 @@ export function ConnectorEditorDrawer({
           <p className="mt-[8px] flex items-start gap-[8px] text-[11px] leading-[1.6] text-status-warning">
             <TriangleAlert size={13} className="mt-[2px] flex-none" />
             后端不回显环境变量取值，保存会整体覆盖：
-            <span className="font-mono">{carriedSecrets.map((row) => row.key).join('、')}</span>{' '}
+            <span className="font-mono">
+              {carriedSecrets.map((row) => row.key).join('、')}
+            </span>{' '}
             未重新填写，将被写为空值。
           </p>
         )}

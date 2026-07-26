@@ -8,11 +8,17 @@ a definitive write.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from maestro.runtime.capabilities import CapabilityKind, CapabilitySpec
+from maestro.runtime.capabilities import (
+    CapabilityCall,
+    CapabilityKind,
+    CapabilitySpec,
+)
+from maestro.runtime.model import ModelAction
 from maestro.runtime.models import RunStatus
 from maestro.runtime.store import ARTIFACT_READ_CAPABILITY
 
@@ -24,6 +30,34 @@ pytestmark = pytest.mark.asyncio
 
 def _tool_messages(sent: list[dict]) -> list[dict]:
     return [message for message in sent if message.get("role") == "tool"]
+
+
+class ArtifactReadingModel:
+    """Dereference spilled results until the actual payload reaches the model."""
+
+    def __init__(self) -> None:
+        self.payload: dict[str, object] | None = None
+        self.artifact_refs: list[str] = []
+
+    async def next_turn(self, _context, _capabilities, messages=None) -> ModelAction:
+        tool_messages = _tool_messages(messages or [])
+        if not tool_messages:
+            return ModelAction(
+                kind="call", call=CapabilityCall(name="dump", arguments={})
+            )
+        payload = json.loads(tool_messages[-1]["content"])
+        artifact_ref = payload.get("artifact_ref")
+        if artifact_ref is not None:
+            self.artifact_refs.append(artifact_ref)
+            return ModelAction(
+                kind="call",
+                call=CapabilityCall(
+                    name=ARTIFACT_READ_CAPABILITY,
+                    arguments={"artifact_id": artifact_ref},
+                ),
+            )
+        self.payload = payload
+        return ModelAction(kind="final", text="看到了。")
 
 
 async def test_tool_result_reaches_the_model_as_a_tool_message(
@@ -128,7 +162,32 @@ async def test_repeated_failures_are_bounded_by_the_step_budget(
 async def test_dropped_parallel_calls_are_reported(runtime_harness: RuntimeHarness) -> None:
     """The runtime runs one capability per turn; the rest must not vanish silently."""
     runtime_harness.add_tool("lookup")
-    runtime_harness.model.queue_call("lookup", dropped_calls=("detail", "other"))
+    runtime_harness.model.queue_call(
+        "lookup",
+        assistant_message={
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_lookup",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{}"},
+                },
+                {
+                    "id": "call_detail",
+                    "type": "function",
+                    "function": {"name": "detail", "arguments": "{}"},
+                },
+                {
+                    "id": "call_other",
+                    "type": "function",
+                    "function": {"name": "other", "arguments": "{}"},
+                },
+            ],
+        },
+        tool_call_id="call_lookup",
+        dropped_calls=("detail", "other"),
+    )
     runtime_harness.model.queue_final("完成。")
 
     run = await runtime_harness.coordinator.start("查一下", tool_names=["lookup"])
@@ -140,6 +199,11 @@ async def test_dropped_parallel_calls_are_reported(runtime_harness: RuntimeHarne
         if event.type == "model.calls_dropped"
     ]
     assert dropped and dropped[0].data["names"] == ["detail", "other"]
+    second_turn = runtime_harness.model.messages[1]
+    assistant = next(message for message in second_turn if message["role"] == "assistant")
+    tool_calls = assistant["tool_calls"]
+    assert [call["id"] for call in tool_calls] == ["call_lookup"]
+    assert _tool_messages(second_turn)[0]["tool_call_id"] == "call_lookup"
 
 
 async def test_tool_output_is_fenced_as_untrusted_data(
@@ -230,6 +294,9 @@ async def test_oversized_result_stays_reachable_through_read_artifact(tmp_path: 
     ]
     assert artifacts, "结果应超过内联阈值并被存为产物"
     artifact_id = artifacts[0].data["artifact_id"]
+    tool_message = _tool_messages(harness.model.messages[1])[0]["content"]
+    assert artifact_id in tool_message
+    assert "x" * 200 not in tool_message
 
     # The Run has seen this artifact, so reading it back is allowed.
     spec = harness.registry.require(ARTIFACT_READ_CAPABILITY)
@@ -240,6 +307,33 @@ async def test_oversized_result_stays_reachable_through_read_artifact(tmp_path: 
     )
     assert result.status == "succeeded"
     assert "rows" in result.content["content"]
+
+
+async def test_read_artifact_result_is_not_spilled_into_another_artifact(
+    tmp_path: Path,
+) -> None:
+    from maestro.tools.artifacts import register_artifact_capability
+
+    harness = RuntimeHarness(tmp_path)
+    model = ArtifactReadingModel()
+    harness.coordinator._model = model
+    register_artifact_capability(harness.registry, harness.coordinator._artifact_store)
+    harness.add_tool("dump", executor=CountingExecutor({"rows": ["x" * 200] * 60}))
+
+    run = await harness.coordinator.start(
+        "导出", tool_names=["dump", ARTIFACT_READ_CAPABILITY], max_steps=6
+    )
+
+    assert run.status is RunStatus.COMPLETED
+    assert model.payload is not None
+    assert "rows" in model.payload["content"]
+    assert len(model.artifact_refs) == 1
+    artifacts = [
+        event
+        for event in harness.publisher.history(run.run_id)
+        if event.type == "artifact.created"
+    ]
+    assert len(artifacts) == 1
 
 
 async def test_read_artifact_is_confined_to_artifacts_the_run_has_seen(

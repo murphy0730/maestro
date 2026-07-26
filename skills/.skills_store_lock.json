@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "find-skill-skillhub": {
+      "name": "find skill",
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=find-skill-skillhub",
+      "source": "community",
+      "version": "1.0.2",
+      "installedAt": "2026-07-26T12:16:08Z"
+    }
+  }
+}

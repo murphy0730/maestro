@@ -9,10 +9,14 @@ like the Skill package APIs.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from maestro.api.security import require_privileged
-from maestro.mcp.types import MCPConnectionStatus, MCPServerConfig
+from maestro.mcp.types import (
+    MCPConnectionStatus,
+    MCPServerConfig,
+    normalize_read_only_tools,
+)
 
 router = APIRouter()
 
@@ -23,6 +27,12 @@ class MCPServerPayload(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
+    read_only_tools: list[str] = Field(default_factory=list)
+
+    @field_validator("read_only_tools")
+    @classmethod
+    def validate_read_only_tools(cls, value: list[str]) -> list[str]:
+        return list(normalize_read_only_tools(value))
 
     def to_config(self) -> MCPServerConfig:
         return MCPServerConfig(
@@ -31,6 +41,7 @@ class MCPServerPayload(BaseModel):
             args=tuple(self.args),
             env=dict(self.env),
             enabled=self.enabled,
+            read_only_tools=tuple(self.read_only_tools),
         )
 
 
@@ -48,16 +59,26 @@ def _view(config: MCPServerConfig, platform) -> dict:
         # Values are secrets often enough that echoing them back is not worth it.
         "env_keys": sorted(config.env),
         "enabled": config.enabled,
+        "read_only_tools": list(config.read_only_tools),
         "status": status.value,
         "error": connection.error if connection else "",
         "tools": [
-            {
-                "name": tool.name,
-                "capability": f"mcp__{config.name}__{tool.name}",
-                "description": tool.description,
-            }
+            _tool_view(config, tool, platform)
             for tool in (connection.tools if connection else ())
         ],
+    }
+
+
+def _tool_view(config: MCPServerConfig, tool, platform) -> dict:
+    capability = f"mcp__{config.name}__{tool.name}"
+    spec = platform.capabilities.require(capability)
+    return {
+        "name": tool.name,
+        "capability": capability,
+        "description": tool.description,
+        "read_only": tool.name in config.read_only_tools,
+        "writes": spec.writes,
+        "risk": spec.risk.value,
     }
 
 

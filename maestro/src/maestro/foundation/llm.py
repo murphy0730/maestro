@@ -11,6 +11,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TypeVar
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ValidationError
 
@@ -64,6 +65,7 @@ class LLMClient:
     ):
         self.model = model
         self.embed_model = embed_model
+        self._chat_extra_body = _chat_extra_body(base_url, model)
         self._client = None
         self._embed_client = None
         self._build_clients(base_url, api_key, embed_base_url, embed_api_key, embed_model)
@@ -112,6 +114,7 @@ class LLMClient:
         """
         self.model = model
         self.embed_model = embed_model
+        self._chat_extra_body = _chat_extra_body(base_url, model)
         self._build_clients(base_url, api_key, embed_base_url, embed_api_key, embed_model)
 
     @property
@@ -201,6 +204,8 @@ class LLMClient:
         kwargs: dict = {"model": self.model, "messages": msgs}
         if tools:
             kwargs["tools"] = tools
+        if self._chat_extra_body is not None:
+            kwargs["extra_body"] = self._chat_extra_body
         try:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001 — 网络/服务异常统一转 LLMError
@@ -299,3 +304,20 @@ def _extract_json(text: str) -> dict:
     if start < 0 or end <= start:
         raise ValueError("输出中未找到 JSON 对象")
     return json.loads(text[start : end + 1])
+
+
+def _chat_extra_body(base_url: str, model: str) -> dict | None:
+    """Disable DeepSeek V4 thinking for resumable governed tool calls.
+
+    Thinking-mode tool calls require ``reasoning_content`` on every follow-up.
+    An approval can pause a Run across requests and process restarts, where that
+    provider-specific chain-of-thought is deliberately not persisted.  Use the
+    provider's non-thinking mode for this boundary instead.
+    """
+    hostname = (urlparse(base_url).hostname or "").lower()
+    if hostname == "api.deepseek.com" and model in {
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+    }:
+        return {"thinking": {"type": "disabled"}}
+    return None

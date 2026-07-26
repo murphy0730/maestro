@@ -20,6 +20,11 @@ _CLIENT_INFO = {"name": "maestro", "version": "1"}
 _HANDSHAKE_TIMEOUT = 30.0
 _DISCOVERY_TIMEOUT = 30.0
 DEFAULT_CALL_TIMEOUT = 60.0
+_MAX_TOOL_ERROR_CHARS = 2_000
+
+
+class MCPToolError(MCPTransportError):
+    """The MCP server completed the request but reported tool failure."""
 
 
 class MCPClient:
@@ -123,7 +128,12 @@ class MCPClient:
             timeout=timeout,
         )
         _raise_for_error(response)
-        return response.get("result", {})
+        result = response.get("result", {})
+        if not isinstance(result, dict):
+            raise MCPTransportError("MCP 工具返回了无效结果")
+        if result.get("isError") is True:
+            raise MCPToolError(_extract_tool_error(result))
+        return result
 
 
 def _raise_for_error(response: dict) -> None:
@@ -132,3 +142,17 @@ def _raise_for_error(response: dict) -> None:
         return
     message = error.get("message", "unknown error") if isinstance(error, dict) else str(error)
     raise MCPTransportError(f"MCP 服务器返回错误: {message}")
+
+
+def _extract_tool_error(result: dict) -> str:
+    texts: list[str] = []
+    content = result.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text":
+                continue
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                texts.append(text)
+    detail = "\n".join(texts).strip() or "MCP 工具返回 isError=true"
+    return detail[:_MAX_TOOL_ERROR_CHARS]

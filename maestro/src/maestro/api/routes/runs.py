@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from maestro.foundation.session_title import DEFAULT_SESSION_TITLES, generate_session_title
 from maestro.runtime.events import RunEvent
 from maestro.runtime.models import RunRecord, RunStatus
 
@@ -40,13 +41,24 @@ def _dump_run(run: RunRecord) -> dict:
     return run.model_dump(mode="json")
 
 
+def _persist_terminal_reply(platform, run: RunRecord) -> None:
+    content = run.final_text
+    if not content and run.status is RunStatus.FAILED:
+        content = "运行失败，未能生成最终回复。请查看运行详情后重试。"
+    if content:
+        platform.session_store.append_run_final(run.session_id, run.run_id, content)
+
+
 @router.post("/runs", status_code=202)
 async def create_run(payload: CreateRunRequest, request: Request):
     platform = request.app.state.platform
     try:
-        platform.session_store.ensure(payload.session_id)
+        session = platform.session_store.ensure(payload.session_id)
     except ValueError as error:
         raise _error(422, "invalid_session_id", str(error)) from error
+    should_generate_title = (
+        session.message_count == 0 and session.title in DEFAULT_SESSION_TITLES
+    )
     for artifact_id in payload.artifact_ids:
         try:
             platform.artifact_store.get(artifact_id)
@@ -57,6 +69,9 @@ async def create_run(payload: CreateRunRequest, request: Request):
         session_id=payload.session_id,
         artifact_ids=payload.artifact_ids,
     )
+    if should_generate_title:
+        title = await generate_session_title(platform.llm, payload.message)
+        platform.session_store.update_title(payload.session_id, title)
     platform.session_store.append_message(
         payload.session_id, "user", payload.message,
         artifact_ids=payload.artifact_ids, skill_names=payload.skill_names,
@@ -64,9 +79,8 @@ async def create_run(payload: CreateRunRequest, request: Request):
     )
     platform.session_store.set_active_run(payload.session_id, run.run_id)
     async def execute_and_persist_reply() -> None:
-        completed = await platform.runtime.execute(run.run_id)
-        if completed.final_text:
-            platform.session_store.append_run_final(completed.session_id, completed.run_id, completed.final_text)
+        terminal = await platform.runtime.execute(run.run_id)
+        _persist_terminal_reply(platform, terminal)
 
     task = asyncio.create_task(execute_and_persist_reply())
     request.app.state.run_tasks.add(task)
@@ -166,14 +180,16 @@ async def stream_run(run_id: str, request: Request):
 
 @router.post("/runs/{run_id}/approvals/{approval_id}")
 async def resolve_approval(run_id: str, approval_id: str, payload: ApprovalRequest, request: Request):
+    platform = request.app.state.platform
     try:
-        run = await request.app.state.platform.runtime.approve(
+        run = await platform.runtime.approve(
             run_id, approval_id, payload.approved, payload.principal_id, payload.expected_revision
         )
     except FileNotFoundError:
         raise _error(404, "run_not_found", "run not found", run_id) from None
     except ValueError as error:
         raise _error(409, "stale_approval", str(error), run_id) from error
+    _persist_terminal_reply(platform, run)
     return _dump_run(run)
 
 
