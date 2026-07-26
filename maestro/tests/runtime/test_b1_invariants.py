@@ -40,6 +40,7 @@ GENERIC_PRIMITIVES = {
     "write_file",
     "edit_file",
     "read_artifact",
+    "bash",
     "skill_read_resource",
     "skill_run_script",
 }

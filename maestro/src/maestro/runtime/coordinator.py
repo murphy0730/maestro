@@ -904,14 +904,20 @@ class RunCoordinator:
             )
             token = await self._external_state_token(spec, call)
             # Re-evaluating guards against a policy that tightened, or external
-            # state that moved, while the human was deciding.  REQUIRE_CONFIRMATION
-            # is not such a change: it is the very requirement this approval
-            # satisfies, and treating it as staleness issued a fresh approval
-            # forever, so no high-risk write could ever run.
+            # state that moved, while the human was deciding.  The confirmation
+            # effects are not such a change: they are the very requirement this
+            # approval exists to satisfy, and treating them as staleness issued a
+            # fresh approval forever, so no high-risk write could ever run.
             satisfied = decision.effect in {
                 PolicyEffect.ALLOW,
                 PolicyEffect.REQUIRE_CONFIRMATION,
+                PolicyEffect.REQUIRE_RECONFIRMATION,
             }
+            skill_allowed = (
+                set(approval.skill_allowed_tools)
+                if approval.skill_allowed_tools is not None
+                else None
+            )
             if (
                 approval.expires_at <= datetime.now(UTC)
                 or token != approval.external_state_token
@@ -922,7 +928,30 @@ class RunCoordinator:
                 self._publish(run, "approval.expired", {"approval_id": approval_id})
                 if decision.effect is PolicyEffect.DENY:
                     return self._fail(run, decision.reason)
-                return await self._request_approval(run, call, spec, decision, allowed, set(approval.skill_allowed_tools) if approval.skill_allowed_tools is not None else None, replace=True)
+                return await self._request_approval(run, call, spec, decision, allowed, skill_allowed, replace=True)
+            collected = [*approval.confirmations, principal_id]
+            # `require_reconfirmation` asks for more than one confirmation.  Each
+            # further round rebinds the external state token above, so what the
+            # later confirmation actually proves is that nothing moved in between.
+            required = max(approval.confirmations_required, self._confirmations_required(decision))
+            if len(collected) < required:
+                confirmed = approval.model_copy(
+                    update={"status": "approved", "confirmations": collected}
+                )
+                run = run.model_copy(update={"pending_approvals": [confirmed]})
+                self._publish(
+                    run,
+                    "approval.reconfirmation_required",
+                    {
+                        "approval_id": approval_id,
+                        "confirmations": len(collected),
+                        "confirmations_required": required,
+                    },
+                )
+                return await self._request_approval(
+                    run, call, spec, decision, allowed, skill_allowed,
+                    replace=True, confirmations=collected,
+                )
             run = run.model_copy(update={"pending_approvals": []})
             run = transition_run(run, RunStatus.RUNNING_STRUCTURED, "approval granted")
             if not self._run_store.compare_and_save(run, expected_revision):
@@ -977,7 +1006,12 @@ class RunCoordinator:
         run = run.model_copy(update={"requires_reconciliation": False})
         return self._save_and_publish(run, "write.reconciled", {"step_id": step.step_id})
 
-    async def _request_approval(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, decision: Any, run_allowed: set[str] | None = None, skill_allowed: set[str] | None = None, replace: bool = False) -> RunRecord:
+    @staticmethod
+    def _confirmations_required(decision: Any) -> int:
+        """How many human confirmations this decision asks for before executing."""
+        return 2 if decision.effect is PolicyEffect.REQUIRE_RECONFIRMATION else 1
+
+    async def _request_approval(self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, decision: Any, run_allowed: set[str] | None = None, skill_allowed: set[str] | None = None, replace: bool = False, confirmations: list[str] | None = None) -> RunRecord:
         step_id = str(uuid4())
         token = await self._external_state_token(spec, call)
         step = StepRecord(run_id=run.run_id, step_id=step_id, kind=spec.name, call=call.model_dump(), external_state_token=token)
@@ -986,9 +1020,19 @@ class RunCoordinator:
             run = transition_run(run, RunStatus.WAITING_APPROVAL, "approval required")
         else:
             run = run.model_copy(update={"revision": run.revision + 1, "updated_at": datetime.now(UTC)})
-        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, run_allowed_tools=sorted(run_allowed) if run_allowed is not None else None, skill_allowed_tools=sorted(skill_allowed) if skill_allowed is not None else None, expires_at=datetime.now(UTC) + timedelta(minutes=10))
+        required = self._confirmations_required(decision)
+        collected = list(confirmations or [])
+        approval = ApprovalRecord(run_id=run.run_id, step_id=step_id, call_sha256=self._call_sha256(call), impact_summary=f"write via {spec.name}", policy_reason=decision.reason, external_state_token=token, run_revision=run.revision, run_allowed_tools=sorted(run_allowed) if run_allowed is not None else None, skill_allowed_tools=sorted(skill_allowed) if skill_allowed is not None else None, expires_at=datetime.now(UTC) + timedelta(minutes=10), confirmations_required=required, confirmations=collected)
         run = run.model_copy(update={"pending_approvals": [approval]})
-        return self._save_and_publish(run, "approval.requested", {"approval_id": approval.approval_id})
+        return self._save_and_publish(
+            run,
+            "approval.requested",
+            {
+                "approval_id": approval.approval_id,
+                "confirmations": len(collected),
+                "confirmations_required": required,
+            },
+        )
 
     async def _execute_write(
         self, run: RunRecord, call: CapabilityCall, spec: CapabilitySpec, step_id: str | None = None

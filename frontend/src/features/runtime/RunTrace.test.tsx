@@ -36,6 +36,30 @@ describe('RunTrace', () => {
     expect(screen.getByText('等待确认')).toBeTruthy();
     expect((screen.getByRole('button', { name: '确认' }) as HTMLButtonElement).disabled).toBe(true);
   });
+  it('marks which round a multi-confirmation approval is on', () => {
+    // 双重确认的第二轮与第一轮长得一样，不标出来会让人以为上次没点上。
+    const withRounds = (confirmations: string[]) => ({
+      ...projection,
+      run: {
+        ...projection.run,
+        pending_approvals: [
+          { ...projection.run.pending_approvals[0], confirmations, confirmations_required: 2 },
+        ],
+      },
+    });
+
+    const { unmount } = render(<RunTrace projection={withRounds([])} onApprove={vi.fn()} />);
+    expect(screen.getByText('第 1/2 次确认')).toBeTruthy();
+    unmount();
+
+    render(<RunTrace projection={withRounds(['alice'])} onApprove={vi.fn()} />);
+    expect(screen.getByText('第 2/2 次确认')).toBeTruthy();
+    expect(screen.getByText(/外部状态在两次之间未发生变化/)).toBeTruthy();
+  });
+  it('does not clutter an ordinary single-confirmation approval', () => {
+    render(<RunTrace projection={projection} onApprove={vi.fn()} />);
+    expect(screen.queryByText(/次确认/)).toBeNull();
+  });
   it('sends an approval choice', () => {
     const onApprove = vi.fn();
     render(<RunTrace projection={projection} onApprove={onApprove} />);

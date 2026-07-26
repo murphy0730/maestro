@@ -61,10 +61,21 @@ data: {"final_text":"..."}
 | `write_file` | `Write` | `path`, `content` | 是 / high |
 | `edit_file` | `Edit` | `path`, `old`, `new`（`old` 必须唯一） | 是 / high |
 | `read_artifact` | — | `artifact_id` | 否 / low |
+| `bash` | `Bash` | `command` | 是 / high |
 
 `write_file` 与 `edit_file` 是 `writes=true, risk=high`，因此**必然**经 Policy Gate 产生审批记录。`read_artifact` 用于取回超过内联阈值而被存为产物的能力结果，且只能读取当前 Run 见过或作为输入传入的产物，否则 Run 以 `artifact_not_visible` 失败。
 
-`Bash`、`PowerShell`、`WebFetch`、`TodoWrite` **没有**对应实现：宿主若需要，须自行注册能力并登记别名。声明了未注册能力的 Skill 会作为坏包出现在 `GET /skills` 的 `errors` 中。
+`bash` 是**任意命令执行**，因此声明为 `writes=true, risk=high`，每次调用都必经 Policy Gate 产生审批记录——审批是真正的闸门。它以工作区为 cwd，`tools/sandbox.py` 提供纵深防御（不继承 API Key、macOS seatbelt 下禁网并把写入限定在工作区、超时与输出上限），但与文件系统能力不同，shell 无法被证明不越出工作区；`isolation` 字段如实回报实际生效的隔离级别。
+
+`PowerShell`、`WebFetch`、`TodoWrite` **没有**对应实现：宿主若需要，须自行注册能力并登记别名。声明了未注册能力的 Skill 会作为坏包出现在 `GET /skills` 的 `errors` 中。
+
+## 审批与多次确认
+
+`ApprovalRecord` 带 `confirmations_required` 与 `confirmations`。Policy Gate 返回 `require_reconfirmation` 时要求 **2 次**人工确认，其余情况为 1 次。
+
+每一轮确认都会重新计算 `external_state_token` 并重新评估策略，因此后一次确认真正证明的是「两次之间外部状态没有变化」。中途状态漂移或审批过期会作废已累计的确认并重开一轮——它们担保的是已经改变了的状态。
+
+SSE 上一轮确认完成投影为 `approval.resolved`，紧随其后的 `approval.requested` 携带下一轮；公开事件词汇表不变。
 
 ## MCP
 

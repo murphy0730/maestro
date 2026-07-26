@@ -74,6 +74,11 @@ class ApprovalRecord(BaseModel):
     skill_allowed_tools: list[str] | None = None
     status: Literal["pending", "approved", "rejected", "expired"] = "pending"
     expires_at: datetime
+    # `require_reconfirmation` asks for more than one human confirmation of the
+    # same call.  Each round rebinds `external_state_token`, so the later
+    # confirmations are what prove the external world did not move in between.
+    confirmations_required: int = 1
+    confirmations: list[str] = Field(default_factory=list)
 
 
 class StepRecord(BaseModel):

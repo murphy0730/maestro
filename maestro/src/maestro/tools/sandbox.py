@@ -1,17 +1,18 @@
-"""Containment for skill scripts.
+"""Containment for skill scripts (`run_script`) and shell commands (`run_command`).
 
-This is defence in depth, **not** a security boundary.  The real gates are the
-Policy Gate approval a human clicks and the content hash the trust record binds
-to; this module only limits the blast radius of a script the user already
-approved.  `SandboxResult.isolation` reports what actually took effect, so
-nothing downstream has to guess.
+This is defence in depth, **not** a security boundary.  The real gate is the
+Policy Gate approval a human clicks — plus, for skill scripts, the content hash
+the trust record binds to; this module only limits the blast radius of something
+the user already approved.  `SandboxResult.isolation` reports what actually took
+effect, so nothing downstream has to guess.
 
 What always applies, on every platform:
 
-- the process is spawned with `create_subprocess_exec` — never through a shell
-- it runs in a throwaway directory that is deleted afterwards
+- the process is spawned with `create_subprocess_exec`, so we never build a
+  shell string ourselves (`run_command` hands the shell one opaque argument)
 - the environment is rebuilt from an allowlist, so API keys are not inherited
 - wall-clock and output-size limits are enforced
+- `HOME`/`TMPDIR` point at a throwaway directory that is deleted afterwards
 
 On macOS an additional `sandbox-exec` profile denies network access and
 confines writes.  Windows has no equivalent, so only the baseline applies.
@@ -47,14 +48,23 @@ class SandboxResult:
     artifacts: list[tuple[str, bytes]] = field(default_factory=list)
 
 
-def _profile(run_root: Path) -> str:
-    """A deny-by-default seatbelt profile allowing reads and scoped writes."""
+def _profile(run_root: Path, *extra_writable: Path) -> str:
+    """A deny-by-default seatbelt profile allowing reads and scoped writes.
+
+    Known gap: the whole `/private/var/folders` tree stays writable, because
+    that is where macOS puts per-user temp state a sandboxed process still
+    needs.  Writes elsewhere outside the named roots — `$HOME`, `/private/tmp`,
+    the repository — are denied.  Reads are *not* restricted at all.
+    """
+    writable = "".join(
+        f'(allow file-write* (subpath "{path}"))' for path in (run_root, *extra_writable)
+    )
     return (
         "(version 1)"
         "(allow default)"
         "(deny network*)"
         f'(deny file-write* (subpath "/"))'
-        f'(allow file-write* (subpath "{run_root}"))'
+        f"{writable}"
         '(allow file-write* (subpath "/dev"))'
         '(allow file-write* (subpath "/private/var/folders"))'
     )
@@ -100,6 +110,87 @@ def _collect(work: Path) -> list[tuple[str, bytes]]:
         except OSError:
             continue
     return produced
+
+
+def _shell_argv(command: str) -> list[str]:
+    """The interpreter that will read `command`.
+
+    A shell is the whole point here, so unlike `run_script` the command string
+    *is* interpreted.  What we still refuse to do is build that string ourselves
+    from model input: the caller passes one opaque command and we hand it to the
+    shell as a single argv element.
+    """
+    if sys.platform == "win32":
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/c", command]
+    return ["/bin/sh", "-c", command]
+
+
+async def run_command(
+    command: str, workdir: Path, timeout_seconds: float = 60.0
+) -> SandboxResult:
+    """Run one shell command with `workdir` as both cwd and the writable scope.
+
+    Weaker than `run_script`: the command sees the real workspace rather than a
+    throwaway copy, because operating on the workspace is the entire use.  It is
+    also weaker than the filesystem capabilities, which can prove every path
+    stays inside the workspace — a shell cannot offer that.  The real gate is the
+    human approval the Policy Gate demands before each call; on macOS the
+    seatbelt profile additionally denies network and confines writes to the
+    workspace and the scratch root.
+    """
+    run_root = Path(tempfile.mkdtemp(prefix="maestro-shell-"))
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+        for name in _HOME_DIRECTORIES:
+            (run_root / name).mkdir(exist_ok=True)
+
+        environment = {name: os.environ[name] for name in _ENV_ALLOWLIST if name in os.environ}
+        environment["HOME"] = str(run_root)
+        environment["TMPDIR"] = str(run_root)
+
+        argv = _shell_argv(command)
+        isolation = "baseline"
+        if await _seatbelt_available(run_root):
+            argv = [
+                str(_SANDBOX_EXEC),
+                "-p",
+                _profile(run_root, workdir.resolve()),
+                *argv,
+            ]
+            isolation = "seatbelt"
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=str(workdir),
+                env=environment,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except (OSError, ValueError) as error:
+            return SandboxResult(
+                exit_code=None, stdout="", stderr=f"无法执行命令: {error}",
+                timed_out=False, isolation=isolation,
+            )
+
+        timed_out = False
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout_seconds)
+        except asyncio.TimeoutError:
+            timed_out = True
+            process.kill()
+            stdout, stderr = await process.communicate()
+
+        return SandboxResult(
+            exit_code=process.returncode,
+            stdout=_clip(stdout or b""),
+            stderr=_clip(stderr or b""),
+            timed_out=timed_out,
+            isolation=isolation,
+        )
+    finally:
+        shutil.rmtree(run_root, ignore_errors=True)
 
 
 async def run_script(

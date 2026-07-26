@@ -280,6 +280,9 @@ function ApprovalSection({
       <h3 className="hud-label mb-[10px] text-text-tertiary">待审批</h3>
       {pending.map((approval) => {
         const busy = approvingId === approval.approval_id;
+        const required = approval.confirmations_required ?? 1;
+        // 双重确认下第二轮长得和第一轮一样，不标出来会让人以为上次没点上。
+        const round = required > 1 ? (approval.confirmations?.length ?? 0) + 1 : 0;
         return (
           <div
             key={approval.approval_id}
@@ -288,6 +291,11 @@ function ApprovalSection({
             <div className="hud-label mb-[8px] flex items-center gap-[8px] text-auth-confirm">
               <ShieldAlert size={12} />
               操作审批 · 第 {approval.run_revision} 版
+              {round > 0 && (
+                <span className="ml-auto font-mono text-[10px]">
+                  第 {round}/{required} 次确认
+                </span>
+              )}
             </div>
             <p className="mb-[4px] text-[13.5px] font-medium text-text-primary">
               {approval.impact_summary}
@@ -295,6 +303,11 @@ function ApprovalSection({
             <p className="m-0 font-mono text-[11px] leading-relaxed text-text-tertiary">
               {approval.policy_reason}
             </p>
+            {round > 1 && (
+              <p className="mt-[6px] m-0 text-[11px] leading-relaxed text-text-tertiary">
+                此操作要求多次确认；本次确认同时校验外部状态在两次之间未发生变化。
+              </p>
+            )}
             {approval.expires_at && (
               <p className="mt-[8px] flex items-center gap-[4px] font-mono text-[10.5px] text-text-tertiary">
                 <Clock3 size={11} />

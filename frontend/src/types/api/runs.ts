@@ -24,7 +24,9 @@ export type StepStatus =
   | 'skipped';
 
 export interface RunStep { step_id: string; kind: string; status: StepStatus; output_ref?: string | null; error_message?: string | null }
-export interface ApprovalView { approval_id: string; step_id: string; impact_summary: string; policy_reason: string; run_revision: number; status: 'pending' | 'approved' | 'rejected' | 'expired'; expires_at?: string }
+export interface ApprovalView { approval_id: string; step_id: string; impact_summary: string; policy_reason: string; run_revision: number; status: 'pending' | 'approved' | 'rejected' | 'expired'; expires_at?: string;
+  /** `require_reconfirmation` 要求多次确认；已收集次数与所需次数。 */
+  confirmations?: string[]; confirmations_required?: number }
 export interface RunSnapshot {
   run_id: string; session_id: string; objective: string; path: RunPath; status: RunStatus;
   steps: Record<string, RunStep>; pending_approvals: ApprovalView[]; final_text?: string | null;

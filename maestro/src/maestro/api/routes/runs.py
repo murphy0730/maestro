@@ -88,6 +88,9 @@ _EVENT_PROJECTION = {
     "capability.completed": "step.succeeded",
     "write.unknown": "run.reconciling",
     "approval.approved": "approval.resolved",
+    # One round of a multi-confirmation approval did resolve; the
+    # `approval.requested` published immediately after it carries the next round.
+    "approval.reconfirmation_required": "approval.resolved",
     "approval.requested": "approval.requested",
 }
 
