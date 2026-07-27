@@ -14,7 +14,7 @@ vi.mock('@/components/layout/Layout', () => ({ Layout: ({ sidebar, topBar, conve
 vi.mock('@/components/layout/SessionSidebar', () => ({ SessionSidebar: (props: { sessions: Array<{ session_id: string; title: string }>; onSelect: (id: string) => void; onCreate: () => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onOpenSkills: () => void }) => <nav><button onClick={props.onCreate}>测试新建</button><button onClick={props.onOpenSkills}>测试扩展中心</button>{props.sessions.map((session) => <span key={session.session_id}><button onClick={() => props.onSelect(session.session_id)}>{session.title}</button><button onClick={() => props.onRename(session.session_id, `${session.title}-改`)}>改名-{session.title}</button><button onClick={() => props.onDelete(session.session_id)}>删除-{session.title}</button></span>)}</nav> }));
 vi.mock('@/components/layout/TopBar', () => ({ TopBar: ({ session }: { session: string }) => <h1>{session}</h1> }));
 vi.mock('@/features/orchestrator/ConversationPanel', () => ({ ConversationPanel: ({ messages, error, onRetry }: { messages: Array<{ content: string }>; error?: string; onRetry: () => void }) => <section>{messages.map((message) => <p key={message.content}>{message.content}</p>)}{error && <><p role="alert">{error}</p><button onClick={onRetry}>重试会话</button></>}</section> }));
-vi.mock('@/features/orchestrator/Composer', () => ({ Composer: () => <div>composer</div> }));
+vi.mock('@/features/orchestrator/Composer', () => ({ Composer: ({ onSend }: { onSend: (message: string, files: File[]) => Promise<void> }) => <button onClick={() => void onSend('立即显示的消息', [])}>测试发送</button> }));
 vi.mock('@/features/runtime/RunTrace', () => ({ RunTrace: () => null }));
 vi.mock('@/features/orchestrator/skills/SkillImportModal', () => ({ SkillImportModal: () => null }));
 vi.mock('@/features/orchestrator/skills/SkillManagerModal', () => ({ SkillManagerModal: () => null }));
@@ -104,5 +104,19 @@ describe('Workspace session orchestration', () => {
     mocks.listSessions.mockResolvedValue([created, sessions[1]]);
     fireEvent.click(screen.getByRole('button', { name: '测试新建' }));
     expect(await screen.findByRole('button', { name: '新任务' })).toBeTruthy();
+  });
+
+  it('shows the user message before run creation finishes', async () => {
+    let finishStart!: (run: Record<string, unknown>) => void;
+    mocks.getSessionMessages.mockResolvedValue([]);
+    mocks.start.mockReturnValue(new Promise((resolve) => { finishStart = resolve; }));
+    render();
+    await screen.findByRole('button', { name: '会话一' });
+
+    fireEvent.click(screen.getByRole('button', { name: '测试发送' }));
+
+    expect(await screen.findByText('立即显示的消息')).toBeTruthy();
+    finishStart({ run_id: 'run-new', input_artifact_ids: [] });
+    await vi.waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
   });
 });

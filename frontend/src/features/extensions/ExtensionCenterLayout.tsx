@@ -38,7 +38,7 @@ export function ExtensionCenterLayout() {
   const setSidebarCollapsed = useUiPreferencesStore((state) => state.setSidebarCollapsed);
   const setActiveSessionId = useSessionStore((state) => state.setActiveSessionId);
   const operatorName = usePersonalizationStore(
-    (state) => state.data.howToAddress.trim() || '本地操作员',
+    (state) => state.data.howToAddress.trim() || '周文涛',
   );
   const workspace = useWorkspaceSessions();
   const skillsQuery = useSkills();

@@ -59,6 +59,11 @@ async def create_run(payload: CreateRunRequest, request: Request):
     should_generate_title = (
         session.message_count == 0 and session.title in DEFAULT_SESSION_TITLES
     )
+    automatic_titles = {session.title}
+    if session.title == "新对话":
+        automatic_titles.add(
+            payload.message[:20] + ("…" if len(payload.message) > 20 else "")
+        )
     for artifact_id in payload.artifact_ids:
         try:
             platform.artifact_store.get(artifact_id)
@@ -69,15 +74,23 @@ async def create_run(payload: CreateRunRequest, request: Request):
         session_id=payload.session_id,
         artifact_ids=payload.artifact_ids,
     )
-    if should_generate_title:
-        title = await generate_session_title(platform.llm, payload.message)
-        platform.session_store.update_title(payload.session_id, title)
     platform.session_store.append_message(
         payload.session_id, "user", payload.message,
         artifact_ids=payload.artifact_ids, skill_names=payload.skill_names,
         run_id=run.run_id,
     )
     platform.session_store.set_active_run(payload.session_id, run.run_id)
+    if should_generate_title:
+        async def generate_and_persist_title() -> None:
+            title = await generate_session_title(platform.llm, payload.message)
+            platform.session_store.update_title_if_current(
+                payload.session_id, title, automatic_titles
+            )
+
+        title_task = asyncio.create_task(generate_and_persist_title())
+        request.app.state.run_tasks.add(title_task)
+        title_task.add_done_callback(request.app.state.run_tasks.discard)
+
     async def execute_and_persist_reply() -> None:
         terminal = await platform.runtime.execute(run.run_id)
         _persist_terminal_reply(platform, terminal)

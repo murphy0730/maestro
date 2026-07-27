@@ -74,7 +74,7 @@ export function SessionSidebar(props: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<string>();
   const [title, setTitle] = useState('');
-  const operatorName = props.operatorName ?? '本地操作员';
+  const operatorName = props.operatorName ?? '周文涛';
   const filtered = useMemo(
     () =>
       props.sessions.filter((session) =>

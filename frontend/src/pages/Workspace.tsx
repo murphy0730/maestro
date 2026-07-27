@@ -40,7 +40,7 @@ export function Workspace() {
   const setSidebarCollapsed = useUiPreferencesStore((state) => state.setSidebarCollapsed);
   const setActiveSessionId = useSessionStore((state) => state.setActiveSessionId);
   const operatorName = usePersonalizationStore(
-    (state) => state.data.howToAddress.trim() || '本地操作员',
+    (state) => state.data.howToAddress.trim() || '周文涛',
   );
   const skillsQuery = useSkills();
   const {
@@ -139,26 +139,35 @@ export function Workspace() {
 
   const send = async (message: string, files: File[]) => {
     setWorkspaceError(undefined);
+    const baseSkillNames = selectedSkills.map((skill) => skill.name);
+    const skillNames =
+      mode === 'scheduling'
+        ? Array.from(new Set([...baseSkillNames, 'scheduling-query']))
+        : baseSkillNames;
+    const optimisticMessage: SessionMessage = {
+      role: 'user',
+      content: message,
+      ts: new Date().toISOString(),
+      artifact_ids: [],
+      skill_names: skillNames,
+    };
+    setMessages((current) => [...current, optimisticMessage]);
     try {
-      const baseSkillNames = selectedSkills.map((skill) => skill.name);
-      const skillNames =
-        mode === 'scheduling'
-          ? Array.from(new Set([...baseSkillNames, 'scheduling-query']))
-          : baseSkillNames;
       const run = await start(message, files, skillNames);
-      setMessages((current) => [
-        ...current,
-        {
-          role: 'user',
-          content: message,
-          ts: new Date().toISOString(),
-          artifact_ids: run.input_artifact_ids ?? [],
-          skill_names: skillNames,
-          run_id: run.run_id,
-        },
-      ]);
+      setMessages((current) =>
+        current.map((item) =>
+          item === optimisticMessage
+            ? {
+                ...item,
+                artifact_ids: run.input_artifact_ids ?? [],
+                run_id: run.run_id,
+              }
+            : item,
+        ),
+      );
       void refreshSessions().catch(() => undefined);
     } catch (cause) {
+      setMessages((current) => current.filter((item) => item !== optimisticMessage));
       if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
         setWorkspaceError(`${messageOf(cause, '任务发送失败')}；草稿与附件已保留，可重新发送`);
         throw cause;

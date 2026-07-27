@@ -1,5 +1,10 @@
-from fastapi.testclient import TestClient
+import asyncio
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+
+from fastapi.testclient import TestClient
 
 from maestro.api.app import create_app
 from maestro.foundation.llm import LLMError
@@ -21,6 +26,19 @@ def _client(tmp_path, monkeypatch) -> TestClient:
 
 
 _ADMIN = {"Authorization": "Bearer test-admin"}
+
+
+def _wait_for_session_title(client: TestClient, session_id: str, expected: str) -> dict:
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        saved = next(
+            item for item in client.get("/sessions").json()
+            if item["session_id"] == session_id
+        )
+        if saved["title"] == expected:
+            return saved
+        time.sleep(0.01)
+    return saved
 
 
 def test_create_run_returns_identity(tmp_path, monkeypatch) -> None:
@@ -48,14 +66,88 @@ def test_first_question_uses_the_model_to_title_a_new_session(tmp_path, monkeypa
             "/runs",
             json={"session_id": session["session_id"], "message": "为什么本周 A 产线订单延期？"},
         )
-        saved = next(
-            item for item in client.get("/sessions").json()
-            if item["session_id"] == session["session_id"]
+        saved = _wait_for_session_title(
+            client, session["session_id"], generated[:15]
         )
 
     assert response.status_code == 202
     assert saved["title"] == generated[:15]
     assert len(saved["title"]) <= 15
+
+
+def test_create_run_does_not_wait_for_title_generation(tmp_path, monkeypatch) -> None:
+    class InstantAnswer:
+        async def next_turn(self, *_args, **_kwargs):
+            return ModelAction(kind="final", text="ok")
+
+    started = threading.Event()
+    release = threading.Event()
+
+    with _client(tmp_path, monkeypatch) as client:
+        session = client.post("/sessions", json={"title": "新任务"}).json()
+        client.app.state.platform.runtime._model = InstantAnswer()
+
+        async def delayed_title(*_args, **_kwargs):
+            started.set()
+            await asyncio.to_thread(release.wait)
+            return "后台生成标题"
+
+        client.app.state.platform.llm.complete = delayed_title
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            response_future = pool.submit(
+                client.post,
+                "/runs",
+                json={"session_id": session["session_id"], "message": "第一条消息"},
+            )
+            assert started.wait(timeout=1)
+            try:
+                response = response_future.result(timeout=0.5)
+            finally:
+                release.set()
+
+        saved = _wait_for_session_title(client, session["session_id"], "后台生成标题")
+
+    assert response.status_code == 202
+    assert saved["title"] == "后台生成标题"
+
+
+def test_background_title_does_not_overwrite_a_manual_rename(tmp_path, monkeypatch) -> None:
+    class InstantAnswer:
+        async def next_turn(self, *_args, **_kwargs):
+            return ModelAction(kind="final", text="ok")
+
+    started = threading.Event()
+    release = threading.Event()
+
+    with _client(tmp_path, monkeypatch) as client:
+        session = client.post("/sessions", json={"title": "新任务"}).json()
+        client.app.state.platform.runtime._model = InstantAnswer()
+
+        async def delayed_title(*_args, **_kwargs):
+            started.set()
+            await asyncio.to_thread(release.wait)
+            return "迟到的自动标题"
+
+        client.app.state.platform.llm.complete = delayed_title
+        response = client.post(
+            "/runs",
+            json={"session_id": session["session_id"], "message": "第一条消息"},
+        )
+        assert response.status_code == 202
+        assert started.wait(timeout=1)
+        client.patch(
+            f"/sessions/{session['session_id']}", json={"title": "人工命名"}
+        )
+        release.set()
+        deadline = time.monotonic() + 1
+        while client.app.state.run_tasks and time.monotonic() < deadline:
+            time.sleep(0.01)
+        saved = next(
+            item for item in client.get("/sessions").json()
+            if item["session_id"] == session["session_id"]
+        )
+
+    assert saved["title"] == "人工命名"
 
 
 def test_session_title_falls_back_to_the_first_question_when_the_model_fails(
@@ -73,10 +165,7 @@ def test_session_title_falls_back_to_the_first_question_when_the_model_fails(
         response = client.post(
             "/runs", json={"session_id": session["session_id"], "message": question}
         )
-        saved = next(
-            item for item in client.get("/sessions").json()
-            if item["session_id"] == session["session_id"]
-        )
+        saved = _wait_for_session_title(client, session["session_id"], question[:15])
 
     assert response.status_code == 202
     assert saved["title"] == question[:15]

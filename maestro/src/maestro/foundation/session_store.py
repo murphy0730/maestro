@@ -101,6 +101,16 @@ class SessionStore:
                 meta.title, meta.updated_at = title, self._now()
                 self._save_index()
 
+    def update_title_if_current(
+        self, session_id: str, title: str, expected_titles: set[str]
+    ) -> None:
+        """Update an automatically assigned title without overwriting a later rename."""
+        with self._lock:
+            meta = self._sessions.get(session_id)
+            if meta is not None and meta.title in expected_titles:
+                meta.title, meta.updated_at = title, self._now()
+                self._save_index()
+
     def set_active_run(self, session_id: str, run_id: str | None) -> None:
         with self._lock:
             meta = self._sessions.get(session_id)

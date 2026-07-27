@@ -36,7 +36,7 @@ export function ConversationPanel({
   projection,
   loading,
   streaming,
-  operatorName = '本地操作员',
+  operatorName = '周文涛',
   error,
   onRetry,
   onSuggestion,
