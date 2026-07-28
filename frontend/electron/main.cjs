@@ -17,6 +17,9 @@ const { waitForBackend } = require('./backend-health.cjs');
 const isMac = process.platform === 'darwin';
 const isSidecar = app.isPackaged || process.env.MAESTRO_SIDECAR === '1';
 const isDevServer = !app.isPackaged && !isSidecar;
+// 打包后图标由 electron-builder 从 build/icon.icns|png 写进产物，build/ 本身不进包，
+// 所以这个路径只在未打包（dev / preview）时有效，也只在那时需要。
+const DEV_ICON = app.isPackaged ? null : path.join(__dirname, '..', 'build', 'icon.png');
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:5173';
 
 let backend = null; // { child, port }
@@ -123,6 +126,7 @@ function createWindow(port) {
     width: 1440, height: 900, minWidth: 1024, minHeight: 680,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#04060D' : '#E7ECF5',
     title: 'Maestro', autoHideMenuBar: true,
+    ...(DEV_ICON && { icon: DEV_ICON }),
     ...(isMac && { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 16 } }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -175,6 +179,8 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // macOS 的 Dock 图标来自 .app bundle，未打包时拿不到，只能手动设一次
+    if (isMac && DEV_ICON) app.dock?.setIcon(DEV_ICON);
     if (isSidecar) {
       createSplash();
       try {

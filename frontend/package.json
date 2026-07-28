@@ -89,6 +89,7 @@
         }
       ],
       "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
@@ -97,6 +98,7 @@
       "target": [
         "nsis"
       ],
+      "icon": "build/icon.png",
       "signingHashAlgorithms": [
         "sha256"
       ]
@@ -110,6 +112,7 @@
     },
     "linux": {
       "target": "AppImage",
+      "icon": "build/icon.png",
       "category": "Utility"
     }
   }

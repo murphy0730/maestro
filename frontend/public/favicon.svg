@@ -1,6 +1,9 @@
+<!-- 与 BrandMark.tsx / splash.cjs / site 官网同一套几何。改这里请三处同步。 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="8" fill="#080b12"/>
-  <path d="M16 4.8 26 10.6v10.8L16 27.2 6 21.4V10.6L16 4.8Z" stroke="#26f2c3" stroke-width="2" stroke-linejoin="round"/>
-  <path d="m10.4 20 4-4.6 3.5 2 4.1-5.9" stroke="#eef6f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="22" cy="11.5" r="2.1" fill="#26f2c3"/>
+  <rect width="32" height="32" rx="7" fill="#04060d"/>
+  <g transform="translate(2.2 2.2) scale(1.15)">
+    <polygon points="12,2.8 20,7.4 20,16.6 12,21.2 4,16.6 4,7.4" stroke="#29d8ff" stroke-width="1.7" stroke-linejoin="round"/>
+    <polyline points="7.6,15.4 10.8,11.8 13.6,13.4 16.6,8.8" stroke="#e9effa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".86"/>
+    <circle cx="16.6" cy="8.8" r="1.7" fill="#29d8ff"/>
+  </g>
 </svg>
