@@ -49,7 +49,7 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /R /C:":%PORT% .*LISTENING"')
   if not "%%p"=="0" (
     set "FOUND=1"
     echo 停止 %NAME% (端口 %PORT%, pid: %%p)
-    taskkill /F /PID %%p >nul 2>&1
+    taskkill /T /F /PID %%p >nul 2>&1
   )
 )
 if not defined FOUND echo %NAME% 未在运行 (端口 %PORT%)
@@ -58,7 +58,9 @@ exit /b 0
 :start_backend
 call :kill_port %BACKEND_PORT% 后端
 echo 启动后端 -^> http://localhost:%BACKEND_PORT% (日志: logs\backend.log)
-start "maestro-backend" /D "%ROOT%\maestro" cmd /c ".venv\Scripts\uvicorn.exe maestro.main:app --reload --port %BACKEND_PORT% > "%LOG_DIR%\backend.log" 2>&1"
+REM 注意: .venv\Scripts\uvicorn.exe 是把 python.exe 绝对路径写死的 shim, venv 被移动或
+REM 从已删除的 worktree 建出来时直接用会起不来。改用 python.exe -m uvicorn 绕开 (同 restart.sh)。
+start "maestro-backend" /D "%ROOT%\maestro" cmd /c ".venv\Scripts\python.exe -m uvicorn maestro.main:app --reload --port %BACKEND_PORT% > "%LOG_DIR%\backend.log" 2>&1"
 exit /b 0
 
 :start_frontend

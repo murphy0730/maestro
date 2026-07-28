@@ -26,6 +26,8 @@ echo ==^> [2/4] 确保 PyInstaller 已安装
 "%VENV_PY%" -c "import PyInstaller" >nul 2>&1
 if errorlevel 1 (
   echo PyInstaller 缺失，安装 maestro[packaging] ...
+  REM uv venv 建出的环境不带 pip，先补上，否则这里会是 "No module named pip"。
+  "%VENV_PY%" -m ensurepip --upgrade >nul 2>&1
   "%VENV_PY%" -m pip install -e "%ROOT%\maestro[packaging]"
   if errorlevel 1 exit /b 1
 )

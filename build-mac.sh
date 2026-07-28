@@ -22,6 +22,8 @@ fi
 echo "==> [2/4] 确保 PyInstaller 已安装"
 if ! "$VENV_PY" -c "import PyInstaller" >/dev/null 2>&1; then
   echo "PyInstaller 缺失，安装 maestro[packaging] ..."
+  # uv venv 建出的环境不带 pip，先补上，否则这里会是 "No module named pip"。
+  "$VENV_PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
   "$VENV_PY" -m pip install -e "$ROOT/maestro[packaging]"
 fi
 
