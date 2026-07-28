@@ -1,0 +1,91 @@
+/* 设计令牌 —— 取自 frontend/src/index.css 的「深空指挥舱」体系，保持官网与产品同源。 */
+
+/* conic-gradient 的角度必须注册成自定义属性才能参与动画，
+   次按钮的边框流光靠它转圈。不支持的浏览器降级为静态渐变边框。 */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('../assets/fonts/space-grotesk.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('../assets/fonts/jetbrains-mono.woff2') format('woff2');
+}
+
+:root {
+  color-scheme: dark;
+
+  /* 底色与表面 */
+  --bg-base: #04060d;
+  --surface-1: #0a0e19;
+  --surface-2: rgba(13, 20, 35, 0.62);
+  --surface-3: #131b2d;
+  --glass-fill: rgba(13, 20, 35, 0.62);
+  --glass-blur: 18px;
+
+  /* 描边 */
+  --border-subtle: rgba(148, 163, 184, 0.13);
+  --border-default: rgba(148, 163, 184, 0.2);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --border-accent: rgba(41, 216, 255, 0.35);
+
+  /* 文字 */
+  --text-primary: #e9effa;
+  --text-secondary: #96a2ba;
+  --text-tertiary: #5d6a85;
+  --text-on-color: #03242e;
+
+  /* 主色与辅色 */
+  --accent: #29d8ff;
+  --accent-strong: #63e5ff;
+  --accent-bg: rgba(41, 216, 255, 0.12);
+  --accent-glow: rgba(41, 216, 255, 0.22);
+  --violet: #a78bfa;
+  --violet-bg: rgba(167, 139, 250, 0.13);
+  --blue: #5ea2ff;
+  --green: #3ce59b;
+  --amber: #ffc53d;
+
+  /* 光效与阴影 */
+  --aurora:
+    radial-gradient(720px 480px at 12% -8%, rgba(41, 216, 255, 0.1), transparent 60%),
+    radial-gradient(820px 560px at 88% -4%, rgba(167, 139, 250, 0.1), transparent 62%),
+    radial-gradient(640px 480px at 52% 112%, rgba(94, 162, 255, 0.08), transparent 60%);
+  --grid-line: rgba(148, 163, 184, 0.055);
+  --shadow-elev-2: 0 8px 24px rgba(0, 0, 0, 0.34);
+  --shadow-elev-3: 0 16px 40px rgba(0, 0, 0, 0.5);
+  --glow-accent: 0 0 24px rgba(41, 216, 255, 0.22), 0 0 3px rgba(41, 216, 255, 0.45);
+
+  /* 字体 */
+  --font-display: 'Space Grotesk Variable', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'Space Grotesk Variable', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SF Mono', ui-monospace, monospace;
+
+  /* 布局 */
+  --page-max: 1180px;
+  --page-pad: 32px;
+  --nav-h: 68px;
+
+  /* 缓动 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@media (max-width: 768px) {
+  :root {
+    --page-pad: 20px;
+    --nav-h: 60px;
+  }
+}

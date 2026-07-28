@@ -1,0 +1,389 @@
+/* 重置、排版、通用容器、按钮、滚动揭示基类 */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* 锚点跳转时给固定顶栏留出空间 */
+  scroll-padding-top: var(--nav-h);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+video,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ── 布局 ───────────────────────────────────────── */
+
+.shell {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding-inline: var(--page-pad);
+}
+
+.section {
+  position: relative;
+  padding-block: 104px;
+}
+
+.section--tight {
+  padding-block: 84px;
+}
+
+/* 明暗交替，给长页面一点节奏；两端渐隐，不出现硬边 */
+.section--alt {
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(10, 14, 25, 0.72) 14%,
+    rgba(10, 14, 25, 0.72) 86%,
+    transparent 100%
+  );
+}
+
+/* 各主区块共享的极光 + 网格底纹 */
+.section__bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px) 0 0 / 64px 64px,
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px) 0 0 / 64px 64px;
+  mask-image: radial-gradient(circle at 50% 40%, #000 0%, transparent 78%);
+  -webkit-mask-image: radial-gradient(circle at 50% 40%, #000 0%, transparent 78%);
+}
+
+/* ── 区块标题 ────────────────────────────────────── */
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.eyebrow::before {
+  content: '';
+  width: 22px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--accent));
+}
+
+.section__title {
+  margin-top: 18px;
+  font-size: clamp(30px, 4.2vw, 46px);
+}
+
+.section__lead {
+  margin-top: 18px;
+  max-width: 58ch;
+  font-size: clamp(16px, 1.6vw, 18px);
+  color: var(--text-secondary);
+  /* 让各行长度尽量均衡，避免末行只剩一两个字 */
+  text-wrap: balance;
+}
+
+/* ── 按钮 ───────────────────────────────────────── */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 22px;
+  height: 46px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.22s var(--ease-out),
+    border-color 0.22s var(--ease-out),
+    box-shadow 0.22s var(--ease-out),
+    transform 0.22s var(--ease-out),
+    color 0.22s var(--ease-out);
+}
+
+/* 主按钮：hover 时一道斜向高光扫过表面，按钮本身不移动 */
+.btn--primary {
+  background: var(--accent);
+  color: var(--text-on-color);
+  box-shadow: 0 0 0 rgba(41, 216, 255, 0);
+  overflow: hidden;
+}
+
+.btn--primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 底色本身就是亮青，高光要够白够窄才看得出扫过 */
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.85) 50%,
+    transparent 60%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.6s var(--ease-out);
+}
+
+.btn--primary:hover {
+  background: var(--accent-strong);
+  box-shadow: var(--glow-accent);
+  transform: translateY(-2px);
+}
+
+.btn--primary:hover::after {
+  transform: translateX(120%);
+}
+
+/* 次按钮：hover 时一圈青紫渐变光沿边框转一周。
+   不能加 overflow: hidden —— 光环是 inset: -1px，会被裁掉。 */
+.btn--ghost {
+  background: rgba(148, 163, 184, 0.06);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+.btn--ghost::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--angle),
+    transparent 55%,
+    var(--accent) 78%,
+    var(--violet) 90%,
+    transparent 100%
+  );
+  /* 只保留 1px 的边：外框减去内容框 */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out);
+}
+
+.btn--ghost:hover {
+  border-color: var(--border-accent);
+  background: var(--accent-bg);
+  color: var(--accent-strong);
+  transform: translateY(-2px);
+}
+
+.btn--ghost:hover::before {
+  opacity: 1;
+  animation: border-run 1.4s linear infinite;
+}
+
+@keyframes border-run {
+  to {
+    --angle: 360deg;
+  }
+}
+
+.btn--lg {
+  height: 54px;
+  padding: 0 30px;
+  font-size: 16px;
+}
+
+/* ── 卡片 ───────────────────────────────────────── */
+
+.card {
+  position: relative;
+  padding: 26px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-2);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  overflow: hidden;
+  transition:
+    border-color 0.3s var(--ease-out),
+    transform 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out);
+}
+
+/* hover 时顶部亮起一道主色线 */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out);
+}
+
+.card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-elev-3);
+}
+
+.card:hover::after {
+  opacity: 1;
+}
+
+.card__title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.card__body {
+  margin-top: 10px;
+  font-size: 14.5px;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+  /* 中文标点不该落在行首/行尾 */
+  line-break: strict;
+}
+
+.card__icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border-accent);
+  border-radius: 11px;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.card__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── 滚动揭示 ───────────────────────────────────── */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.75s var(--ease-out),
+    transform 0.75s var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── 无障碍 ─────────────────────────────────────── */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 用户要求减弱动态效果时，一律直接呈现终态 */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
