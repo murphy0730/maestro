@@ -6,6 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Composer } from '@/features/orchestrator/Composer';
 import { ConversationPanel } from '@/features/orchestrator/ConversationPanel';
 import { RunTrace, type TraceView } from '@/features/runtime/RunTrace';
+import { useCapabilityDirectory } from '@/features/runtime/capabilityLabel';
 import { SettingsModal } from '@/features/settings/SettingsModal';
 import { getSessionMessages, listSessions, trustSkill, useSkills, type SessionMessage } from '@/api';
 import { useRunStream } from '@/api/useRunStream';
@@ -43,6 +44,8 @@ export function Workspace() {
     (state) => state.data.howToAddress.trim() || '周文涛',
   );
   const skillsQuery = useSkills();
+  // 能力目录只在这里取一次，运行轨迹与对话流共用同一份翻译。
+  const describeCapability = useCapabilityDirectory();
   const {
     sessions,
     setSessions,
@@ -223,6 +226,7 @@ export function Workspace() {
               <ConversationPanel
                 messages={messages}
                 projection={projection}
+                describe={describeCapability}
                 loading={historyLoading}
                 streaming={transport === 'connecting' || transport === 'streaming'}
                 operatorName={operatorName}
@@ -274,6 +278,7 @@ export function Workspace() {
             </section>
             <RunTrace
               projection={projection}
+              describe={describeCapability}
               view={traceView}
               onViewChange={setTraceView}
               approvingId={approvingId}

@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RunTrace } from './RunTrace';
+import { describeCapability } from './capabilityLabel';
 const projection = {
   tokens: '',
   diagnostics: [],
@@ -104,11 +105,128 @@ describe('RunTrace', () => {
     };
     const { container } = render(<RunTrace projection={withSteps} onApprove={vi.fn()} />);
     expect(screen.getByText('步骤 · 1/2')).toBeTruthy();
-    expect(screen.getByText('拉取工单')).toBeTruthy();
+    // 认不出的能力名原样透出，不因为翻译不了就藏起来。s1 同时是待审批的目标，
+    // 所以它在步骤行和审批卡片各出现一次。
+    expect(screen.getAllByText('拉取工单')).toHaveLength(2);
+    expect(screen.getByText('生成方案')).toBeTruthy();
     // 状态同时用文字表达，不只靠颜色。
     expect(screen.getByText('成功')).toBeTruthy();
     expect(screen.getByText('运行中')).toBeTruthy();
     expect(container.querySelectorAll('.step-timeline > li')).toHaveLength(2);
+  });
+
+  it('names a capability instead of its registry id, keeping the raw name one click away', () => {
+    const withSteps = {
+      ...projection,
+      run: {
+        ...projection.run,
+        pending_approvals: [],
+        steps: {
+          s2: {
+            step_id: 's2',
+            kind: 'mcp__jira__create_issue',
+            status: 'succeeded' as const,
+            call: { name: 'mcp__jira__create_issue', arguments: { summary: '缺料' } },
+          },
+        },
+      },
+    };
+    const describe = (name: string) =>
+      describeCapability(name, {
+        servers: [
+          {
+            name: 'jira',
+            command: 'jira-mcp',
+            args: [],
+            env_keys: [],
+            enabled: true,
+            read_only_tools: [],
+            status: 'connected' as const,
+            error: '',
+            tools: [
+              {
+                name: 'create_issue',
+                capability: 'mcp__jira__create_issue',
+                description: '创建议题。会写入 Jira。',
+                read_only: false,
+                writes: true,
+                risk: 'high' as const,
+              },
+            ],
+          },
+        ],
+      });
+
+    render(<RunTrace projection={withSteps} onApprove={vi.fn()} describe={describe} />);
+    expect(screen.getByText('创建议题')).toBeTruthy();
+    expect(screen.getByText('jira · 连接器')).toBeTruthy();
+    expect(screen.getByText('MCP')).toBeTruthy();
+    // 写操作要有文字，不能只靠颜色。
+    expect(screen.getByText('写操作')).toBeTruthy();
+    // 原始注册名与参数默认收起 —— 翻译是为了可读，不是为了藏。
+    expect(screen.queryByText('mcp__jira__create_issue')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开创建议题的调用详情' }));
+    expect(screen.getByText('mcp__jira__create_issue')).toBeTruthy();
+    expect(screen.getByText(/"summary": "缺料"/)).toBeTruthy();
+  });
+
+  it('translates the built-in host primitives without any directory', () => {
+    const withSteps = {
+      ...projection,
+      run: {
+        ...projection.run,
+        pending_approvals: [],
+        steps: { s2: { step_id: 's2', kind: 'read_file', status: 'succeeded' as const } },
+      },
+    };
+    render(<RunTrace projection={withSteps} onApprove={vi.fn()} />);
+    expect(screen.getByText('读取文件')).toBeTruthy();
+    expect(screen.getByText('本机工具')).toBeTruthy();
+  });
+
+  it('spells out the error kind beside the message', () => {
+    const withSteps = {
+      ...projection,
+      run: {
+        ...projection.run,
+        pending_approvals: [],
+        steps: {
+          s2: {
+            step_id: 's2',
+            kind: 'write_file',
+            status: 'failed' as const,
+            error_kind: 'schema_input',
+            error_message: 'path 超出工作区',
+          },
+        },
+      },
+    };
+    render(<RunTrace projection={withSteps} onApprove={vi.fn()} />);
+    expect(screen.getByText(/参数不合法 · path 超出工作区/)).toBeTruthy();
+  });
+
+  it('says which capability an approval is actually for', () => {
+    const withStep = {
+      ...projection,
+      run: {
+        ...projection.run,
+        steps: {
+          s1: {
+            step_id: 's1',
+            kind: 'bash',
+            status: 'waiting_approval' as const,
+            call: { name: 'bash', arguments: { command: 'rm -rf build' } },
+          },
+        },
+      },
+    };
+    const { container } = render(<RunTrace projection={withStep} onApprove={vi.fn()} />);
+    // 卡片原本只有一句 impact_summary，看不出在批哪个能力。
+    const card = within(container.querySelector('.approval-card') as HTMLElement);
+    expect(card.getByText('执行命令')).toBeTruthy();
+    expect(card.getByText('写入 MES')).toBeTruthy();
+    fireEvent.click(card.getByRole('button', { name: '展开调用参数' }));
+    expect(card.getByText(/"command": "rm -rf build"/)).toBeTruthy();
   });
 
   it('lays the fullscreen view out as steps beside the pending approval', () => {
