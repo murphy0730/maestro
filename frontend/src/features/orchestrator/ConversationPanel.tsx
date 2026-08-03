@@ -6,6 +6,11 @@ import type { RunProjection } from '@/stores/runStore';
 import { BrandMark } from '@/components/ui/BrandMark';
 import { Avatar } from '@/components/ui/Avatar';
 import { Markdown } from '@/components/ui/Markdown';
+import {
+  describeWithoutDirectory,
+  stepLabels,
+  type CapabilityDescribe,
+} from '@/features/runtime/capabilityLabel';
 import { ThinkingProcess } from './ThinkingProcess';
 
 interface Props {
@@ -17,6 +22,8 @@ interface Props {
   error?: string;
   onRetry?: () => void;
   onSuggestion: (text: string) => void;
+  /** 与右侧运行轨迹共用的能力名翻译；缺省只认内置原语。 */
+  describe?: CapabilityDescribe;
 }
 
 /** 设计稿 .m-sys .av：等宽 AI 字标，替代通用机器人图标。 */
@@ -40,6 +47,7 @@ export function ConversationPanel({
   error,
   onRetry,
   onSuggestion,
+  describe = describeWithoutDirectory,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -77,7 +85,7 @@ export function ConversationPanel({
           <EmptyState onSuggestion={onSuggestion} />
         )}
         {projection.run && !runCommitted && (
-          <CurrentRun projection={projection} streaming={streaming} />
+          <CurrentRun projection={projection} streaming={streaming} describe={describe} />
         )}
         {error && (
           <div
@@ -126,9 +134,20 @@ function Message({ message, operatorName }: { message: SessionMessage; operatorN
   );
 }
 
-function CurrentRun({ projection, streaming }: { projection: RunProjection; streaming: boolean }) {
+function CurrentRun({
+  projection,
+  streaming,
+  describe,
+}: {
+  projection: RunProjection;
+  streaming: boolean;
+  describe: CapabilityDescribe;
+}) {
   const run = projection.run!;
-  const progress = Object.values(run.steps).map((step) => `${step.kind} · ${step.status}`);
+  // 与右侧运行轨迹共用同一套翻译，免得同一次调用在两处叫两个名字。
+  const progress = Object.values(run.steps).map(
+    (step) => `${describe(step.kind).title} · ${stepLabels[step.status]}`,
+  );
   return (
     <article className="flex items-start gap-[10px]">
       <AgentMark />

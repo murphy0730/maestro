@@ -15,6 +15,25 @@ const terminal = new Set<RunStatus>(['completed', 'failed', 'cancelled']);
 const statusFor = (type: string): RunStatus | undefined => ({ 'run.controlled_started': 'running_structured', 'run.completed': 'completed', 'run.failed': 'failed', 'run.cancelling': 'cancelling', 'run.cancelled': 'cancelled', 'run.waiting_approval': 'waiting_approval', 'run.waiting_external': 'waiting_external', 'run.reconciling': 'reconciling' })[type] as RunStatus | undefined;
 const stepStatus = (type: string): RunStep['status'] | undefined => ({ 'step.started': 'running', 'step.succeeded': 'succeeded', 'step.failed': 'failed' })[type] as RunStep['status'] | undefined;
 
+/** `write.started` 只带 step_id，能力名要等完成事件才知道。 */
+export const PENDING_CAPABILITY_KIND = 'capability';
+
+/** `Array.prototype.findLast` 要 ES2023，这里的 lib 是 ES2020。 */
+function lastMatching(steps: RunStep[], kind: string): RunStep | undefined {
+  for (let index = steps.length - 1; index >= 0; index -= 1) if (steps[index].kind === kind) return steps[index];
+  return undefined;
+}
+
+/**
+ * `capability.completed` 只带 {name, status}，得自己找回它说的是哪一步。完成事件
+ * 讲的总是当下在跑的那一步，所以先在运行中的步骤里认名字，再退到「只有一步在跑」，
+ * 最后才按名字兜底 —— 否则同一个能力被连调两次时，第二次的成功会回头改写第一条。
+ */
+function resolveNamedStep(steps: RunStep[], running: RunStep[], name: unknown): RunStep | undefined {
+  if (typeof name !== 'string') return undefined;
+  return lastMatching(running, name) ?? (running.length === 1 ? running[0] : lastMatching(steps, name));
+}
+
 function reduceRunEventCore(state: RunProjection, event: RunEvent): RunProjection {
   const data: Record<string, unknown> = event.data;
   if (event.type === 'run.created') {
@@ -31,11 +50,9 @@ function reduceRunEventCore(state: RunProjection, event: RunEvent): RunProjectio
   if (newStepStatus) {
     const existingSteps = Object.values(state.run.steps);
     const runningSteps = existingSteps.filter((step) => step.status === 'running');
-    const namedStep = typeof data.name === 'string'
-      ? existingSteps.find((step) => step.kind === data.name) ?? (runningSteps.length === 1 ? runningSteps[0] : undefined)
-      : undefined;
+    const namedStep = resolveNamedStep(existingSteps, runningSteps, data.name);
     const stepId = String(data.step_id ?? data.capability_id ?? namedStep?.step_id ?? data.name ?? 'runtime');
-    const previous = state.run.steps[stepId] ?? { step_id: stepId, kind: String(data.kind ?? 'capability'), status: 'pending' as const };
+    const previous = state.run.steps[stepId] ?? { step_id: stepId, kind: String(data.kind ?? PENDING_CAPABILITY_KIND), status: 'pending' as const };
     return { ...state, run: { ...state.run, steps: { ...state.run.steps, [stepId]: { ...previous, kind: String(data.kind ?? data.name ?? previous.kind), status: newStepStatus, error_message: data.error_message as string | undefined } } } };
   }
   if (event.type === 'approval.requested') {
@@ -67,10 +84,21 @@ export function reduceRunEvent(state: RunProjection, event: RunEvent): RunProjec
 }
 export function reduceRunEvents(state: RunProjection, events: RunEvent[]) { return events.reduce(reduceRunEvent, state); }
 
+/**
+ * 事件流按能力名建 key，快照按 step_id 建 key，同一次调用于是可能在列表里出现两条。
+ * 快照才是权威的那份，所以合并前先丢掉「快照没有这个 key、但已有同名 kind 的步骤」——
+ * 那是事件推导出来的影子。快照独占的只读调用没有 StepRecord，不会被误伤。
+ */
+function withoutShadowSteps(current: Record<string, RunStep>, snapshot: Record<string, RunStep>): Record<string, RunStep> {
+  const snapshotKinds = new Set(Object.values(snapshot).map((step) => step.kind));
+  return Object.fromEntries(Object.entries(current).filter(([stepId, step]) => stepId in snapshot || !snapshotKinds.has(step.kind)));
+}
+
 function mergeSnapshot(state: RunProjection, snapshot: RunSnapshot | null): RunProjection {
   if (!snapshot) return { ...INITIAL_RUN_STATE, run: null };
   const current = state.run;
-  return { ...state, run: { ...snapshot, steps: { ...(current?.steps ?? {}), ...(snapshot.steps ?? {}) } }, recovered: state.recovered || snapshot.intent?.source === 'resume' };
+  const snapshotSteps = snapshot.steps ?? {};
+  return { ...state, run: { ...snapshot, steps: { ...withoutShadowSteps(current?.steps ?? {}, snapshotSteps), ...snapshotSteps } }, recovered: state.recovered || snapshot.intent?.source === 'resume' };
 }
 interface RunStore extends RunProjection { apply: (event: RunEvent) => void; diagnose: (message: string) => void; setRun: (run: RunSnapshot | null) => void; mergeRun: (run: RunSnapshot) => void; markRecovered: () => void; reset: () => void; }
 export const useRunStore = create<RunStore>((set) => ({ ...INITIAL_RUN_STATE, apply: (event) => set((state) => reduceRunEvent(state, event)), diagnose: (message) => set((state) => ({ diagnostics: [...state.diagnostics, message] })), setRun: (run) => set({ ...INITIAL_RUN_STATE, run, recovered: run?.intent?.source === 'resume' }), mergeRun: (run) => set((state) => mergeSnapshot(state, run)), markRecovered: () => set({ recovered: true }), reset: () => set(INITIAL_RUN_STATE) }));

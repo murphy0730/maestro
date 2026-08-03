@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_RUN_STATE, reduceRunEvents } from './runStore';
+import { INITIAL_RUN_STATE, reduceRunEvents, useRunStore } from './runStore';
+import type { RunSnapshot } from '@/types/api/runs';
 
 describe('run event reducer', () => {
   it('projects a fast run that upgrades without losing prior steps', () => {
@@ -64,5 +65,49 @@ describe('run event reducer', () => {
 
     expect(state.run?.steps.s1).toMatchObject({ kind: 'dispatch_order', status: 'succeeded' });
     expect(Object.keys(state.run?.steps ?? {})).toEqual(['s1']);
+  });
+
+  it('does not let a second call to the same capability rewrite the first', () => {
+    // 完成事件不带 step_id，只带能力名；按名字取第一条会把第二次写的结果记到第一次头上。
+    const state = reduceRunEvents(INITIAL_RUN_STATE, [
+      { type: 'run.created', data: { run_id: 'r1', session_id: 's1', objective: 'x', path: 'structured', status: 'running_structured', steps: {}, pending_approvals: [], revision: 1 } },
+      { type: 'step.started', data: { step_id: 'u1' } },
+      { type: 'step.succeeded', data: { name: 'write_file', status: 'succeeded' } },
+      { type: 'step.started', data: { step_id: 'u2' } },
+      { type: 'step.failed', data: { name: 'write_file', status: 'failed', error_message: '磁盘写满' } },
+    ]);
+
+    expect(Object.keys(state.run?.steps ?? {})).toEqual(['u1', 'u2']);
+    expect(state.run?.steps.u1).toMatchObject({ kind: 'write_file', status: 'succeeded' });
+    expect(state.run?.steps.u2).toMatchObject({ kind: 'write_file', status: 'failed' });
+  });
+});
+
+describe('snapshot merge', () => {
+  const snapshot = (steps: RunSnapshot['steps']): RunSnapshot => ({
+    run_id: 'r1', session_id: 's1', objective: 'x', path: 'structured', status: 'running_structured', steps, pending_approvals: [], revision: 2,
+  });
+
+  it('drops the event-derived shadow of a step the snapshot already owns', () => {
+    // 事件按能力名建 key，快照按 step_id 建 key —— 同一次调用会在列表里出现两条。
+    const store = useRunStore.getState();
+    store.reset();
+    store.setRun(snapshot({}));
+    store.apply({ type: 'step.succeeded', data: { name: 'write_file', status: 'succeeded' } });
+    expect(Object.keys(useRunStore.getState().run?.steps ?? {})).toEqual(['write_file']);
+
+    store.mergeRun(snapshot({ u1: { step_id: 'u1', kind: 'write_file', status: 'succeeded' } }));
+    expect(Object.keys(useRunStore.getState().run?.steps ?? {})).toEqual(['u1']);
+  });
+
+  it('keeps a read-only step the snapshot never records', () => {
+    // 只读能力不建 StepRecord，它只存在于事件流里；去重不能把它一起抹掉。
+    const store = useRunStore.getState();
+    store.reset();
+    store.setRun(snapshot({}));
+    store.apply({ type: 'step.succeeded', data: { name: 'read_file', status: 'succeeded' } });
+    store.mergeRun(snapshot({ u1: { step_id: 'u1', kind: 'write_file', status: 'succeeded' } }));
+
+    expect(Object.keys(useRunStore.getState().run?.steps ?? {}).sort()).toEqual(['read_file', 'u1']);
   });
 });

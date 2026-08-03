@@ -25,10 +25,18 @@ export type StepStatus =
 
 export interface RunStep {
   step_id: string;
+  /** 能力注册名（`StepRecord.kind` = `CapabilitySpec.name`），交给 `describeCapability` 翻译。 */
   kind: string;
   status: StepStatus;
   output_ref?: string | null;
   error_message?: string | null;
+  /**
+   * 以下字段 `GET /runs/{id}` 的快照里就有，SSE 事件里没有 —— 只读能力不建
+   * `StepRecord`，所以事件推导出来的步骤只有上面那几项。
+   */
+  call?: { name?: string; arguments?: Record<string, unknown> } | null;
+  error_kind?: string | null;
+  attempt?: number;
 }
 export interface ApprovalView {
   approval_id: string;

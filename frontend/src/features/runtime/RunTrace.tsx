@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import {
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Expand,
   Minimize2,
@@ -13,6 +16,14 @@ import { API_BASE } from '@/api/client';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import type { ApprovalView, RunStep } from '@/types/api/runs';
 import type { RunProjection } from '@/stores/runStore';
+import { CapabilityIdentity } from './CapabilityIdentity';
+import {
+  describeWithoutDirectory,
+  errorKindLabel,
+  formatArguments,
+  stepLabels,
+  type CapabilityDescribe,
+} from './capabilityLabel';
 
 export type TraceView = 'docked' | 'hidden' | 'fullscreen';
 
@@ -23,6 +34,8 @@ interface RunTraceProps {
   approvalError?: string;
   view?: TraceView;
   onViewChange?: (view: TraceView) => void;
+  /** 能力名 → 人读文案。Workspace 传入 `useCapabilityDirectory()`；缺省只认内置原语。 */
+  describe?: CapabilityDescribe;
 }
 
 const terminalLabels = { completed: '已完成', failed: '执行失败', cancelled: '已取消' } as const;
@@ -30,18 +43,6 @@ const terminalTones: Record<keyof typeof terminalLabels, BadgeTone> = {
   completed: 'success',
   failed: 'danger',
   cancelled: 'neutral',
-};
-const stepLabels: Record<RunStep['status'], string> = {
-  pending: '等待',
-  ready: '就绪',
-  waiting_approval: '待审批',
-  running: '运行中',
-  waiting_external: '等待外部',
-  reconciling: '对账中',
-  succeeded: '成功',
-  failed: '失败',
-  cancelled: '已取消',
-  skipped: '已跳过',
 };
 
 const traceButton =
@@ -58,6 +59,7 @@ export function RunTrace({
   approvalError,
   view = 'docked',
   onViewChange = () => undefined,
+  describe: resolve = describeWithoutDirectory,
 }: RunTraceProps) {
   const run = projection.run;
   if (!run || view === 'hidden') return null;
@@ -67,10 +69,12 @@ export function RunTrace({
   const pending = run.pending_approvals.filter((approval) => approval.status === 'pending');
 
   const overview = <OverviewSection projection={projection} />;
-  const steps = <StepsSection projection={projection} />;
+  const steps = <StepsSection projection={projection} describe={resolve} />;
   const approvals = (
     <ApprovalSection
       pending={pending}
+      steps={run.steps}
+      describe={resolve}
       approvingId={approvingId}
       approvalError={approvalError}
       onApprove={onApprove}
@@ -185,7 +189,13 @@ function OverviewSection({ projection }: { projection: RunProjection }) {
   );
 }
 
-function StepsSection({ projection }: { projection: RunProjection }) {
+function StepsSection({
+  projection,
+  describe,
+}: {
+  projection: RunProjection;
+  describe: CapabilityDescribe;
+}) {
   const steps = Object.values(projection.run!.steps);
   const done = steps.filter((step) => step.status === 'succeeded').length;
   return (
@@ -195,26 +205,7 @@ function StepsSection({ projection }: { projection: RunProjection }) {
       </h3>
       <ol className="step-timeline m-0 list-none p-0">
         {steps.map((step) => (
-          <li key={step.step_id}>
-            <StepMarker status={step.status} />
-            <div
-              className={`text-body-sm ${step.status === 'pending' ? 'text-text-tertiary' : 'text-text-primary'}`}
-            >
-              {step.kind}
-            </div>
-            <div className="font-mono text-[10.5px] text-text-tertiary">
-              {stepLabels[step.status]}
-              {step.error_message ? ` · ${step.error_message}` : ''}
-            </div>
-            {step.output_ref && (
-              <a
-                href={`${API_BASE}/artifacts/${encodeURIComponent(step.output_ref)}`}
-                className="mt-[4px] block truncate font-mono text-[10px] text-accent hover:underline"
-              >
-                产物 {step.output_ref}
-              </a>
-            )}
-          </li>
+          <StepRow key={step.step_id} step={step} describe={describe} />
         ))}
         {steps.length === 0 && (
           <li className="pl-0 text-caption text-text-tertiary">等待运行步骤…</li>
@@ -222,6 +213,79 @@ function StepsSection({ projection }: { projection: RunProjection }) {
       </ol>
       <RunStateLine projection={projection} />
     </section>
+  );
+}
+
+/**
+ * 一次能力调用。默认只给人读的那一层——标题、来源、状态；原始注册名与调用参数
+ * 收在展开区里，需要审计的人点开就有，不需要的人不用被机器命名挡着。
+ */
+function StepRow({ step, describe }: { step: RunStep; describe: CapabilityDescribe }) {
+  const [expanded, setExpanded] = useState(false);
+  const label = describe(step.kind);
+  const args = formatArguments(step);
+  // 标题就是原始名时（未知能力），展开区里再抄一遍没有意义。
+  const canExpand = Boolean(args) || label.raw !== label.title;
+  const kindLabel = errorKindLabel(step.error_kind);
+
+  return (
+    <li>
+      <StepMarker status={step.status} />
+      <CapabilityIdentity label={label} className={step.status === 'pending' ? 'opacity-70' : ''} />
+      <div className="mt-[3px] flex items-center gap-[8px] pl-[18px]">
+        <span className="font-mono text-[10.5px] text-text-tertiary">
+          {stepLabels[step.status]}
+        </span>
+        {canExpand && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? '收起' : '展开'}${label.title}的调用详情`}
+            className="ml-auto flex flex-none items-center gap-[3px] rounded-sm px-[4px] font-mono text-[10px] text-text-tertiary transition-colors duration-fast hover:text-accent"
+          >
+            {expanded ? '收起' : '详情'}
+            {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+        )}
+      </div>
+      {step.error_message && (
+        <p className="m-0 mt-[4px] break-words pl-[18px] text-[11px] leading-relaxed text-status-error">
+          {kindLabel ? `${kindLabel} · ` : ''}
+          {step.error_message}
+        </p>
+      )}
+      {expanded && (
+        <div className="pl-[18px]">
+          <p className="m-0 mt-[6px] break-all font-mono text-[10px] text-text-tertiary">
+            {label.raw}
+          </p>
+          {label.description && (
+            <p className="m-0 mt-[4px] text-[11px] leading-relaxed text-text-secondary">
+              {label.description}
+            </p>
+          )}
+          {args && <ArgumentsBlock json={args} />}
+        </div>
+      )}
+      {step.output_ref && (
+        <a
+          href={`${API_BASE}/artifacts/${encodeURIComponent(step.output_ref)}`}
+          className="mt-[4px] block truncate pl-[18px] font-mono text-[10px] text-accent hover:underline"
+        >
+          产物 {step.output_ref}
+        </a>
+      )}
+    </li>
+  );
+}
+
+/** 调用参数 —— 沿用 Markdown 代码块的观感，再加一个高度上限免得撑爆 308px 的栏。 */
+function ArgumentsBlock({ json }: { json: string }) {
+  return (
+    <pre className="my-[6px] max-h-[200px] overflow-auto rounded-md border border-border-subtle bg-surface-inset p-[10px] text-mono-sm leading-relaxed text-text-secondary">
+      {json}
+    </pre>
   );
 }
 
@@ -265,11 +329,15 @@ function RunStateLine({ projection }: { projection: RunProjection }) {
 
 function ApprovalSection({
   pending,
+  steps,
+  describe,
   approvingId,
   approvalError,
   onApprove,
 }: {
   pending: ApprovalView[];
+  steps: Record<string, RunStep>;
+  describe: CapabilityDescribe;
   approvingId?: string | null;
   approvalError?: string;
   onApprove: RunTraceProps['onApprove'];
@@ -297,6 +365,7 @@ function ApprovalSection({
                 </span>
               )}
             </div>
+            <ApprovalTarget step={steps[approval.step_id]} describe={describe} />
             <p className="mb-[4px] text-[13.5px] font-medium text-text-primary">
               {approval.impact_summary}
             </p>
@@ -347,6 +416,37 @@ function ApprovalSection({
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * 「我到底在批什么」—— 卡片原本只有一句 impact_summary，看不出是哪个能力、传了什么。
+ * 事件先到、快照后到时这一步可能还不在手上，那就整块不渲染，卡片退回原样。
+ */
+function ApprovalTarget({ step, describe }: { step?: RunStep; describe: CapabilityDescribe }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!step) return null;
+  const label = describe(step.kind);
+  const args = formatArguments(step);
+  return (
+    <div className="mb-[10px] rounded-md border border-border-subtle bg-surface-2 p-[10px]">
+      <CapabilityIdentity label={label} emphasis />
+      {args && (
+        <>
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? '收起' : '展开'}调用参数`}
+            className="mt-[6px] flex items-center gap-[3px] rounded-sm font-mono text-[10px] text-text-tertiary transition-colors duration-fast hover:text-accent"
+          >
+            调用参数
+            {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+          {expanded && <ArgumentsBlock json={args} />}
+        </>
+      )}
+    </div>
   );
 }
 
