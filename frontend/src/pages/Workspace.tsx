@@ -7,15 +7,25 @@ import { Composer } from '@/features/orchestrator/Composer';
 import { ConversationPanel } from '@/features/orchestrator/ConversationPanel';
 import { RunTrace, type TraceView } from '@/features/runtime/RunTrace';
 import { SettingsModal } from '@/features/settings/SettingsModal';
-import { getSessionMessages, listSessions, trustSkill, useSkills, type SessionMessage } from '@/api';
+import {
+  deleteSessionMessage,
+  getSessionMessages,
+  listSessions,
+  trustSkill,
+  useSkills,
+  type SessionMessage,
+} from '@/api';
 import { useRunStream } from '@/api/useRunStream';
 import { useWorkspaceSessions, messageOf } from '@/hooks/useWorkspaceSessions';
-import { useRunStore } from '@/stores/runStore';
+import { TERMINAL_RUN_STATUSES, useRunStore } from '@/stores/runStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useUiPreferencesStore, type RunMode } from '@/stores/uiPreferencesStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePersonalizationStore } from '@/stores/personalizationStore';
 import type { SkillMeta } from '@/types';
+
+const WHATIF_REQUEST =
+  /(如果|假如|假设|推演|what[- ]?if|改成|调整|增加|减少|新增|删除|停机|不上班|只上|加班|扩产)/i;
 
 export function Workspace() {
   const navigate = useNavigate();
@@ -23,7 +33,6 @@ export function Workspace() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [messages, setMessages] = useState<SessionMessage[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<SkillMeta[]>([]);
-  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<RunMode>(() => useUiPreferencesStore.getState().defaultMode);
@@ -31,7 +40,9 @@ export function Workspace() {
     () => useUiPreferencesStore.getState().traceDefault,
   );
   const [historyReloadKey, setHistoryReloadKey] = useState(0);
+  const activeSessionIdRef = useRef('');
   const sessionLoadGeneration = useRef(0);
+  const messageDeletionPending = useRef(false);
   const terminalRefreshRef = useRef<string>();
 
   const theme = useThemeStore((state) => state.theme);
@@ -56,6 +67,7 @@ export function Workspace() {
     rename,
     remove,
   } = useWorkspaceSessions();
+  activeSessionIdRef.current = sessionId;
   const projection = useRunStore((state) => ({
     run: state.run,
     tokens: state.tokens,
@@ -63,7 +75,9 @@ export function Workspace() {
     diagnostics: state.diagnostics,
     events: state.events,
     recovered: state.recovered,
+    resuming: state.resuming,
   }));
+  const resetRun = useRunStore((state) => state.reset);
   const {
     start,
     approve,
@@ -104,7 +118,8 @@ export function Workspace() {
     const status = projection.run?.status;
     if (
       !projection.run ||
-      !['completed', 'failed', 'cancelled'].includes(status ?? '') ||
+      !status ||
+      !TERMINAL_RUN_STATUSES.has(status) ||
       terminalRefreshRef.current === projection.run.run_id
     )
       return;
@@ -140,10 +155,15 @@ export function Workspace() {
   const send = async (message: string, files: File[]) => {
     setWorkspaceError(undefined);
     const baseSkillNames = selectedSkills.map((skill) => skill.name);
+    const automaticSkill = WHATIF_REQUEST.test(message)
+      ? 'whatif-planning'
+      : mode === 'scheduling'
+        ? 'scheduling-query'
+        : undefined;
     const skillNames =
-      mode === 'scheduling'
-        ? Array.from(new Set([...baseSkillNames, 'scheduling-query']))
-        : baseSkillNames;
+      automaticSkill === undefined
+        ? baseSkillNames
+        : Array.from(new Set([...baseSkillNames, automaticSkill]));
     const optimisticMessage: SessionMessage = {
       role: 'user',
       content: message,
@@ -172,6 +192,54 @@ export function Workspace() {
         setWorkspaceError(`${messageOf(cause, '任务发送失败')}；草稿与附件已保留，可重新发送`);
         throw cause;
       }
+    }
+  };
+
+  const deleteMessage = async (messageId: string, cascade: boolean) => {
+    if (messageDeletionPending.current) return;
+    // 菜单打开后 Run 状态还会变，所以这里再拦一道：删掉一个还在跑的回合的提问，
+    // 后端不会因此停下，最后落回来的就是一条没有问题的回答。
+    const target = messages.find((item) => item.id === messageId);
+    const activeRun = projection.run;
+    if (
+      activeRun &&
+      !TERMINAL_RUN_STATUSES.has(activeRun.status) &&
+      target?.run_id === activeRun.run_id
+    ) {
+      setWorkspaceError('运行进行中，请先停止再删除该消息');
+      return;
+    }
+    const deletingSessionId = sessionId;
+    const generation = sessionLoadGeneration.current;
+    messageDeletionPending.current = true;
+    setWorkspaceError(undefined);
+    try {
+      // 以服务端回报的 deleted_ids 为准：级联时被删的不止点中的那一条。
+      const { deleted_ids: deletedIds } = await deleteSessionMessage(sessionId, messageId, cascade);
+      const removed = new Set(deletedIds);
+      if (
+        deletingSessionId === activeSessionIdRef.current &&
+        generation === sessionLoadGeneration.current
+      ) {
+        const droppedActiveRun = messages.some(
+          (item) => item.id && removed.has(item.id) && item.run_id === projection.run?.run_id,
+        );
+        setMessages((current) => current.filter((item) => !(item.id && removed.has(item.id))));
+        if (droppedActiveRun) resetRun();
+      }
+      void refreshSessions().catch(() => undefined);
+    } catch (cause) {
+      if (
+        deletingSessionId === activeSessionIdRef.current &&
+        generation === sessionLoadGeneration.current
+      ) {
+        void getSessionMessages(sessionId)
+          .then(setMessages)
+          .catch(() => undefined);
+        setWorkspaceError(messageOf(cause, '消息删除失败'));
+      }
+    } finally {
+      messageDeletionPending.current = false;
     }
   };
 
@@ -238,6 +306,9 @@ export function Workspace() {
                       ? () => setHistoryReloadKey((key) => key + 1)
                       : undefined
                 }
+                onDeleteMessage={(messageId, cascade) => {
+                  void deleteMessage(messageId, cascade);
+                }}
                 onSuggestion={(text) => {
                   if (mode === 'auto' || mode === 'scheduling') void send(text, []);
                   else setWorkspaceError('当前后端暂不支持该模式；请切回“自动”或“调度”后发送。');
@@ -245,7 +316,9 @@ export function Workspace() {
               />
               <Composer
                 onSend={send}
-                disabled={!sessionId || historyLoading || transport === 'uploading'}
+                disabled={
+                  !sessionId || historyLoading || transport === 'uploading' || !!projection.resuming
+                }
                 isStreaming={transport === 'connecting' || transport === 'streaming'}
                 onStop={() => {
                   void cancel().catch((cause) =>
@@ -276,16 +349,13 @@ export function Workspace() {
               projection={projection}
               view={traceView}
               onViewChange={setTraceView}
-              approvingId={approvingId}
               approvalError={approvalError}
               onApprove={(approvalView, approved) => {
-                setApprovingId(approvalView.approval_id);
                 setApprovalError(undefined);
-                void approve(approvalView.approval_id, approved, approvalView.run_revision)
-                  .catch((cause) =>
+                void approve(approvalView.approval_id, approved, approvalView.run_revision).catch(
+                  (cause) =>
                     setApprovalError(messageOf(cause, '审批提交失败；可能已过期或 revision 冲突')),
-                  )
-                  .finally(() => setApprovingId(null));
+                );
               }}
             />
           </div>

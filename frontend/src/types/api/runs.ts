@@ -33,6 +33,7 @@ export interface RunStep {
 export interface ApprovalView {
   approval_id: string;
   step_id: string;
+  tool_id?: string;
   impact_summary: string;
   policy_reason: string;
   run_revision: number;
@@ -50,6 +51,8 @@ export interface RunSnapshot {
   status: RunStatus;
   steps: Record<string, RunStep>;
   pending_approvals: ApprovalView[];
+  pending_approval_id?: string | null;
+  requested_skills?: string[];
   final_text?: string | null;
   revision: number;
   intent?: { requested_skills?: string[]; source?: 'chat' | 'expert' | 'event' | 'resume' } | null;
@@ -61,7 +64,7 @@ export interface CreateRunRequest {
   session_id: string;
   message: string;
   source?: 'chat' | 'expert' | 'event' | 'resume';
-  skill_names?: string[];
+  requested_skills?: string[];
   artifact_ids?: string[];
 }
 export interface ArtifactUpload {
@@ -94,6 +97,9 @@ type Event<T extends PublicRunEventName, D extends Record<string, unknown>> = {
   event_id?: string;
   type: T;
   data: D;
+  event_type?: AgentEventType | string;
+  payload?: Record<string, unknown>;
+  references?: Record<string, unknown>;
 };
 export type RunEvent =
   | Event<'run.created', Partial<RunSnapshot>>
@@ -134,4 +140,45 @@ export interface UnknownRunEvent {
   type: string;
   data: Record<string, unknown>;
   unknown: true;
+}
+
+export type AgentEventType =
+  | 'USER_MESSAGE'
+  | 'ASSISTANT_MESSAGE'
+  | 'MESSAGE_REDACTED'
+  | 'RUN_CREATED'
+  | 'RUN_STATUS_CHANGED'
+  | 'MODEL_TURN'
+  | 'TOOL_SEARCH'
+  | 'TOOL_CALL'
+  | 'TOOL_RESULT'
+  | 'SKILL_ACTIVATED'
+  | 'PLAN_CREATED'
+  | 'PLAN_STEP_UPDATED'
+  | 'CONSTRAINT_ADDED'
+  | 'CONSTRAINT_REMOVED'
+  | 'DECISION_UPDATED'
+  | 'EVIDENCE_RECALLED'
+  | 'EVIDENCE_USED'
+  | 'APPROVAL_REQUESTED'
+  | 'APPROVAL_RESOLVED'
+  | 'CHECKPOINT_CREATED'
+  | 'CONTEXT_BUILT'
+  | 'ARTIFACT_CREATED'
+  | 'ERROR';
+
+/** Durable v2 event. Optional legacy fields keep old persisted mock traces readable. */
+export interface AgentEvent {
+  event_id?: string;
+  session_id?: string;
+  run_id?: string | null;
+  sequence?: number;
+  event_type?: AgentEventType | string;
+  payload?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  references?: Record<string, unknown>;
+  created_at?: string;
+  type?: string;
+  data?: Record<string, unknown>;
+  unknown?: boolean;
 }

@@ -40,8 +40,8 @@ class IntentRequest(BaseModel):
     requested_skills: list[str] = Field(default_factory=list)
     allow_background: bool = False
     external_wait: bool = False
-    max_steps: int = Field(default=12, ge=1, le=100)
-    max_seconds: int = Field(default=300, ge=1, le=86400)
+    max_steps: int = Field(default=24, ge=1, le=100)
+    max_seconds: int = Field(default=600, ge=1, le=86400)
 
 
 class IntentClassifier:

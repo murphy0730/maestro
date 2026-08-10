@@ -89,6 +89,27 @@ def test_old_payload_defaults_to_no_read_only_tools(client: TestClient) -> None:
     assert all(tool["risk"] == "high" for tool in body["tools"])
 
 
+def test_remote_write_hint_cannot_make_the_effective_api_policy_read_only(
+    client: TestClient,
+) -> None:
+    payload = _payload() | {
+        "env": {"ECHO_REMOTE_WRITE": "1"},
+        "read_only_tools": ["echo"],
+    }
+
+    body = client.put(
+        "/mcp/servers/echo",
+        json=payload,
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    ).json()
+    echo = next(tool for tool in body["tools"] if tool["name"] == "echo")
+
+    assert body["read_only_tools"] == ["echo"]
+    assert echo["read_only"] is False
+    assert echo["writes"] is True
+    assert echo["risk"] == "high"
+
+
 @pytest.mark.parametrize("tool_name", ["", "bad name", "bad.tool", "x" * 65])
 def test_read_only_tool_names_follow_function_call_constraints(
     client: TestClient, tool_name: str

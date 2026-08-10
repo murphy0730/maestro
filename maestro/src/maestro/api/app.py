@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from maestro.api.routes import artifacts, mcp, runs, sessions, skills
+from maestro.api.routes import artifacts, mcp, models, runs, sessions, skills, v2
 from maestro.bootstrap import build_platform
 from maestro.config import Settings
 
@@ -24,6 +24,10 @@ async def lifespan(app: FastAPI):
         await platform.mcp_manager.connect_all(platform.mcp_config.load())
     except Exception:  # noqa: BLE001 — startup must survive any server defect
         logger.exception("[mcp] 启动时连接服务器失败")
+    # Skills may name MCP capabilities in allowed-tools.  Their first discovery
+    # happens while build_platform() is still synchronous, before those tools
+    # exist, so refresh once more after MCP startup has published them.
+    platform.refresh_skills()
     try:
         yield
     finally:
@@ -40,7 +44,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(artifacts.router)
     app.include_router(mcp.router)
+    app.include_router(models.router)
     app.include_router(runs.router)
     app.include_router(sessions.router)
     app.include_router(skills.router)
+    app.include_router(v2.router)
     return app

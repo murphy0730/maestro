@@ -163,7 +163,7 @@ export function Composer({
         )}
         {modeUnsupported && (
           <p role="alert" className="mt-[6px] text-caption text-status-warning">
-            当前仅支持“自动”与“调度”模式直达；其余模式暂未接通，请切换后发送。
+            后端暂不支持该模式；当前仅支持“自动”与“调度”，请切换后发送。
           </p>
         )}
       </div>

@@ -18,14 +18,15 @@ import {
   type TraceDefault,
 } from '@/stores/uiPreferencesStore';
 import { usePersonalizationStore } from '@/stores/personalizationStore';
+import { ModelSettings } from './ModelSettings';
 
-type SectionKey = 'general' | 'personalization';
+type SectionKey = 'general' | 'models' | 'personalization';
 
 /** 只有真实存在的设置才可保存；其余栏目明确标注暂不可用。 */
 const MENU = [
   { key: 'general' as const, icon: Settings2, label: '通用', available: true },
+  { key: 'models' as const, icon: Sliders, label: '模型与引擎', available: true },
   { key: 'personalization' as const, icon: CircleUserRound, label: '个性化', available: true },
-  { key: null, icon: Sliders, label: '模型与引擎', available: false },
   { key: null, icon: ShieldCheck, label: '授权与审批', available: false },
   { key: null, icon: Bell, label: '通知', available: false },
   { key: null, icon: Database, label: '数据与存储', available: false },
@@ -43,7 +44,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
   const preferences = useUiPreferencesStore();
   const personalization = usePersonalizationStore((state) => state.data);
   const updatePersonalization = usePersonalizationStore((state) => state.update);
-  const activeLabel = section === 'general' ? '通用' : '个性化';
+  const activeLabel = MENU.find((item) => item.key === section)?.label ?? '通用';
 
   return (
     <Modal
@@ -167,6 +168,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
                   </SettingRow>
                 </SettingGroup>
               </>
+            ) : section === 'models' ? (
+              <ModelSettings />
             ) : (
               <SettingGroup title="个性化">
                 <SettingRow title="称呼" description="保存在本机，用于现有个性化能力">

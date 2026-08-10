@@ -55,8 +55,16 @@ TOOLS = [
     },
     {
         "name": "compare_planning_solutions",
-        "description": "比较候选排产方案的总延误和完工跨度。",
-        "inputSchema": {"type": "object", "properties": {}},
+        "description": (
+            "比较候选排产方案的全局 KPI 和逐机负荷排行榜。"
+            "machine_utilization_ranking 不是瓶颈归因。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "machine_limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+        },
     },
     {
         "name": "search_planning_entities",
@@ -66,8 +74,33 @@ TOOLS = [
             "properties": {
                 "entity_type": {"type": "string"},
                 "query": {"type": "string"},
+                "scenario_id": {"type": "string"},
             },
-            "required": ["entity_type", "query"],
+            "required": ["entity_type"],
+        },
+    },
+    {
+        "name": "diagnose_bottleneck",
+        "description": "按卡住延误订单的等待时长定位真实瓶颈机器。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "solution_id": {"type": "string"},
+                "machine_limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "required": ["solution_id"],
+        },
+    },
+    {
+        "name": "explain_order_delay",
+        "description": "解释指定订单在指定方案中的延误成因。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string"},
+                "solution_id": {"type": "string"},
+            },
+            "required": ["order_id", "solution_id"],
         },
     },
     {
@@ -146,11 +179,54 @@ def result_for(tool_name: str, arguments: dict) -> tuple[str, dict]:
         ),
         "compare_planning_solutions": (
             "已比较 2 个候选方案",
-            {"ok": True, "solutions": [{"solution_id": "S-1"}, {"solution_id": "S-2"}]},
+            {
+                "ok": True,
+                "metric_scope": "solution_global",
+                "ranking_scope": "per_machine",
+                "solutions": [
+                    {
+                        "solution_id": "S-1",
+                        "machine_utilization_ranking": [
+                            {
+                                "machine_id": "M-1",
+                                "full_horizon_utilization": 0.8,
+                                "utilization_scope": "full_horizon",
+                            }
+                        ],
+                    },
+                    {"solution_id": "S-2", "machine_utilization_ranking": []},
+                ],
+            },
         ),
         "search_planning_entities": (
             "找到 1 个匹配工序",
             {"ok": True, "items": [{"operation_id": "OP-1", "name": "Turning"}]},
+        ),
+        "diagnose_bottleneck": (
+            "方案一等待主因是产能不足，M-1 是首要瓶颈",
+            {
+                "ok": True,
+                "solution_id": "S-1",
+                "wait_breakdown": {
+                    "capacity_bound": 8.0,
+                    "dispatch_bound": 1.0,
+                    "off_shift": 2.0,
+                    "downtime": 0.0,
+                    "idle": 0.0,
+                },
+                "machines": [{"machine_id": "M-1", "capacity_wait_hours": 8.0}],
+            },
+        ),
+        "explain_order_delay": (
+            "订单 ORD-0004 延误 3 小时，主要是班次外等待",
+            {
+                "ok": True,
+                "order_id": "ORD-0004",
+                "planned": True,
+                "tardiness_hours": 3.0,
+                "inevitable_tardiness_hours": 0.0,
+                "attribution": {"off_shift": 2.5},
+            },
         ),
         "get_order_planning": (
             "已查询订单 ORD-0004",

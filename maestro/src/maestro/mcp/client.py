@@ -50,7 +50,7 @@ class MCPClient:
         """Start the server and complete the handshake, reporting failure as data."""
         try:
             await self._transport.connect()
-            await self._initialize()
+            initialization = await self._initialize()
             await self._transport.notify(
                 {"jsonrpc": "2.0", "method": "notifications/initialized"}
             )
@@ -65,15 +65,22 @@ class MCPClient:
                 error=f"{error}" + (f"\n{detail[-2000:]}" if detail else ""),
             )
         self._connected = True
+        server_info = initialization.get("serverInfo")
+        instructions = initialization.get("instructions")
         return MCPConnection(
-            name=self._config.name, status=MCPConnectionStatus.CONNECTED, tools=tools
+            name=self._config.name,
+            status=MCPConnectionStatus.CONNECTED,
+            tools=tools,
+            protocol_version=initialization["protocolVersion"],
+            server_info=dict(server_info) if isinstance(server_info, dict) else {},
+            instructions=instructions if isinstance(instructions, str) else "",
         )
 
     async def disconnect(self) -> None:
         self._connected = False
         await self._transport.disconnect()
 
-    async def _initialize(self) -> None:
+    async def _initialize(self) -> dict:
         response = await self._transport.request(
             self._next_id(),
             {
@@ -82,13 +89,28 @@ class MCPClient:
                 "method": "initialize",
                 "params": {
                     "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {"tools": {}},
+                    "capabilities": {},
                     "clientInfo": _CLIENT_INFO,
                 },
             },
             timeout=_HANDSHAKE_TIMEOUT,
         )
-        _raise_for_error(response)
+        result = _result_object(response, "initialize")
+        negotiated = result.get("protocolVersion")
+        if negotiated != PROTOCOL_VERSION:
+            raise MCPTransportError(
+                f"MCP 服务器协商了不支持的协议版本: {negotiated!r}"
+            )
+        return result
+
+    async def ping(self, timeout: float = _HANDSHAKE_TIMEOUT) -> None:
+        """Check that a connected server can still answer JSON-RPC requests."""
+        response = await self._transport.request(
+            self._next_id(),
+            {"jsonrpc": "2.0", "id": self._request_id, "method": "ping"},
+            timeout=timeout,
+        )
+        _result_object(response, "ping")
 
     async def list_tools(self) -> tuple[MCPTool, ...]:
         response = await self._transport.request(
@@ -96,20 +118,27 @@ class MCPClient:
             {"jsonrpc": "2.0", "id": self._request_id, "method": "tools/list"},
             timeout=_DISCOVERY_TIMEOUT,
         )
-        _raise_for_error(response)
-        definitions = response.get("result", {}).get("tools", [])
+        result = _result_object(response, "tools/list")
+        definitions = result.get("tools", [])
+        if not isinstance(definitions, list):
+            raise MCPTransportError("MCP tools/list 返回了无效工具列表")
         tools = []
         for definition in definitions:
+            if not isinstance(definition, dict):
+                continue
             name = definition.get("name")
             if not isinstance(name, str) or not name:
                 continue
             schema = definition.get("inputSchema")
+            description = definition.get("description")
+            annotations = definition.get("annotations")
             tools.append(
                 MCPTool(
                     name=name,
-                    description=definition.get("description", "") or "",
+                    description=description if isinstance(description, str) else "",
                     input_schema=schema if isinstance(schema, dict) else {"type": "object"},
                     server_name=self._config.name,
+                    annotations=dict(annotations) if isinstance(annotations, dict) else {},
                 )
             )
         return tuple(tools)
@@ -127,10 +156,7 @@ class MCPClient:
             },
             timeout=timeout,
         )
-        _raise_for_error(response)
-        result = response.get("result", {})
-        if not isinstance(result, dict):
-            raise MCPTransportError("MCP 工具返回了无效结果")
+        result = _result_object(response, "tools/call")
         if result.get("isError") is True:
             raise MCPToolError(_extract_tool_error(result))
         return result
@@ -142,6 +168,14 @@ def _raise_for_error(response: dict) -> None:
         return
     message = error.get("message", "unknown error") if isinstance(error, dict) else str(error)
     raise MCPTransportError(f"MCP 服务器返回错误: {message}")
+
+
+def _result_object(response: dict, method: str) -> dict:
+    _raise_for_error(response)
+    result = response.get("result")
+    if not isinstance(result, dict):
+        raise MCPTransportError(f"MCP {method} 返回了无效结果")
+    return result
 
 
 def _extract_tool_error(result: dict) -> str:

@@ -1,11 +1,12 @@
-import { useEffect, useRef } from 'react';
-import { AlertCircle, Download, FileText, RotateCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, Check, Copy, Download, FileText, RotateCw, Trash2 } from 'lucide-react';
 import { API_BASE } from '@/api/client';
 import type { SessionMessage } from '@/api/sessions';
-import type { RunProjection } from '@/stores/runStore';
+import { TERMINAL_RUN_STATUSES, type RunProjection } from '@/stores/runStore';
 import { BrandMark } from '@/components/ui/BrandMark';
 import { Avatar } from '@/components/ui/Avatar';
 import { Markdown } from '@/components/ui/Markdown';
+import { StatusDot } from '@/components/ui/StatusDot';
 import { ThinkingProcess } from './ThinkingProcess';
 
 interface Props {
@@ -16,7 +17,22 @@ interface Props {
   operatorName?: string;
   error?: string;
   onRetry?: () => void;
+  onDeleteMessage?: (messageId: string, cascade: boolean) => void;
   onSuggestion: (text: string) => void;
+}
+
+/** 右键菜单锚定的是消息 id，不是渲染下标——下标会被并发写入错位。 */
+interface MessageMenu {
+  label: string;
+  role: 'user' | 'assistant';
+  content: string;
+  /** 尚未落盘的消息（乐观发送、流式回答）没有 id，因此不可删除。 */
+  messageId?: string;
+  /** 消息所属的 Run；它还没停下来时不能删，否则后端会继续写一个没有提问的回合。 */
+  runId?: string;
+  cascade: boolean;
+  x: number;
+  y: number;
 }
 
 /** 设计稿 .m-sys .av：等宽 AI 字标，替代通用机器人图标。 */
@@ -39,10 +55,25 @@ export function ConversationPanel({
   operatorName = '周文涛',
   error,
   onRetry,
+  onDeleteMessage,
   onSuggestion,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
+  const [contextMenu, setContextMenu] = useState<MessageMenu>();
+  const [copied, setCopied] = useState(false);
+  const openMenu = (event: React.MouseEvent, menu: Omit<MessageMenu, 'x' | 'y'>) => {
+    event.preventDefault();
+    setCopied(false);
+    setContextMenu({ ...menu, x: event.clientX, y: event.clientY });
+  };
+  // 运行还没停下就删掉它的提问，后端照跑不误，事后还会落一条无主的回答。
+  const runStillLive = Boolean(
+    projection.run &&
+    !TERMINAL_RUN_STATUSES.has(projection.run.status) &&
+    contextMenu?.runId === projection.run.run_id,
+  );
+  const canDelete = Boolean(onDeleteMessage && contextMenu?.messageId) && !runStillLive;
   const runCommitted = Boolean(
     projection.run &&
     messages.some(
@@ -54,10 +85,24 @@ export function ConversationPanel({
     if (element && pinnedRef.current && typeof element.scrollTo === 'function')
       element.scrollTo({ top: element.scrollHeight, behavior: streaming ? 'auto' : 'smooth' });
   }, [messages, projection.tokens, projection.run?.final_text, streaming]);
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(undefined);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
   return (
     <div
       ref={scrollRef}
       onScroll={(event) => {
+        setContextMenu(undefined);
         const element = event.currentTarget;
         pinnedRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
       }}
@@ -71,13 +116,41 @@ export function ConversationPanel({
         )}
         {!loading &&
           messages.map((message, index) => (
-            <Message key={`${message.ts}-${index}`} message={message} operatorName={operatorName} />
+            <Message
+              key={`${message.ts}-${index}`}
+              message={message}
+              operatorName={operatorName}
+              onContextMenu={
+                message.role === 'user' || message.role === 'assistant'
+                  ? (event) =>
+                      openMenu(event, {
+                        label: `MSG ${String(index + 1).padStart(3, '0')}`,
+                        role: message.role as 'user' | 'assistant',
+                        content: message.content,
+                        messageId: message.id,
+                        runId: message.run_id ?? undefined,
+                        // 删掉提问却留下回答，会让下一轮上下文里出现无主的 AI 发言。
+                        cascade:
+                          message.role === 'user' && messages[index + 1]?.role === 'assistant',
+                      })
+                  : undefined
+              }
+            />
           ))}
         {!loading && messages.length === 0 && !projection.run && (
           <EmptyState onSuggestion={onSuggestion} />
         )}
         {projection.run && !runCommitted && (
-          <CurrentRun projection={projection} streaming={streaming} />
+          <CurrentRun
+            projection={projection}
+            streaming={streaming}
+            onContextMenu={(event) => {
+              // 生成中的回答还没有 id，只能复制；没出字之前连菜单也不必开。
+              const live = projection.run?.final_text || projection.tokens;
+              if (!live) return;
+              openMenu(event, { label: 'LIVE', role: 'assistant', content: live, cascade: false });
+            }}
+          />
         )}
         {error && (
           <div
@@ -99,14 +172,124 @@ export function ConversationPanel({
           </div>
         )}
       </div>
+      {contextMenu && (
+        <div
+          role="menu"
+          aria-label="消息操作"
+          className="material-popover fixed z-50 min-w-[176px] animate-[menu-in_.14s_cubic-bezier(.2,.8,.2,1)] rounded-md border border-border-subtle p-[4px] shadow-[var(--shadow-popover),inset_0_1px_0_var(--inset-hi)]"
+          style={{
+            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 192)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 140)),
+            transformOrigin: `${contextMenu.x > window.innerWidth - 192 ? 'right' : 'left'} ${contextMenu.y > window.innerHeight - 140 ? 'bottom' : 'top'}`,
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            event.preventDefault();
+            const items = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+            );
+            const current = items.indexOf(document.activeElement as HTMLButtonElement);
+            const next =
+              event.key === 'ArrowDown'
+                ? (current + 1) % items.length
+                : (current - 1 + items.length) % items.length;
+            items[next]?.focus();
+          }}
+        >
+          <div className="hud-label flex items-center justify-between px-[8px] pb-[5px] pt-[4px] text-text-tertiary">
+            <span>{contextMenu.label}</span>
+            <span>{contextMenu.role === 'user' ? '操作员' : 'AGENT'}</span>
+          </div>
+          <div className="mx-[4px] mb-[4px] border-t border-border-subtle" />
+          <button
+            type="button"
+            role="menuitem"
+            autoFocus
+            disabled={copied}
+            onClick={() => {
+              void copyText(contextMenu.content);
+              setCopied(true);
+              setTimeout(() => {
+                setContextMenu(undefined);
+                setCopied(false);
+              }, 550);
+            }}
+            className={`flex w-full items-center gap-[8px] rounded-sm px-[8px] py-[6px] text-left text-caption transition-colors duration-fast ease-out ${
+              copied
+                ? 'text-status-success'
+                : 'text-text-primary hover:bg-accent-bg hover:text-accent'
+            }`}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? '已复制' : '复制'}
+          </button>
+          {runStillLive && Boolean(contextMenu.messageId) && (
+            <>
+              <div role="separator" className="mx-[4px] my-[4px] border-t border-border-subtle" />
+              <p className="m-0 px-[8px] py-[6px] text-caption text-text-tertiary">
+                运行进行中，请先停止再删除
+              </p>
+            </>
+          )}
+          {canDelete && (
+            <>
+              <div role="separator" className="mx-[4px] my-[4px] border-t border-border-subtle" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onDeleteMessage?.(contextMenu.messageId!, contextMenu.cascade);
+                  setContextMenu(undefined);
+                }}
+                className="flex w-full items-center gap-[8px] rounded-sm px-[8px] py-[6px] text-left text-caption text-status-error transition-colors duration-fast ease-out hover:bg-status-error-bg"
+              >
+                <Trash2 size={14} />
+                {contextMenu.cascade ? '删除该轮对话' : '删除消息'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function Message({ message, operatorName }: { message: SessionMessage; operatorName: string }) {
+async function copyText(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Fall through for Electron/file pages where Clipboard API permission is unavailable.
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function Message({
+  message,
+  operatorName,
+  onContextMenu,
+}: {
+  message: SessionMessage;
+  operatorName: string;
+  onContextMenu?: React.MouseEventHandler<HTMLElement>;
+}) {
   const user = message.role === 'user';
   return (
-    <article className={`flex items-start gap-[10px] ${user ? 'justify-end' : ''}`}>
+    <article
+      onContextMenu={onContextMenu}
+      className={`flex items-start gap-[10px] ${user ? 'justify-end' : ''}`}
+    >
       {!user && <AgentMark />}
       <div
         className={`min-w-0 ${user ? 'user-bubble max-w-[82%] rounded-[12px_12px_4px_12px] px-[14px] py-[10px]' : 'max-w-[calc(100%-34px)]'} text-body leading-[1.65] text-text-primary`}
@@ -126,14 +309,28 @@ function Message({ message, operatorName }: { message: SessionMessage; operatorN
   );
 }
 
-function CurrentRun({ projection, streaming }: { projection: RunProjection; streaming: boolean }) {
+function CurrentRun({
+  projection,
+  streaming,
+  onContextMenu,
+}: {
+  projection: RunProjection;
+  streaming: boolean;
+  onContextMenu?: React.MouseEventHandler<HTMLElement>;
+}) {
   const run = projection.run!;
   const progress = Object.values(run.steps).map((step) => `${step.kind} · ${step.status}`);
   return (
-    <article className="flex items-start gap-[10px]">
+    <article onContextMenu={onContextMenu} className="flex items-start gap-[10px]">
       <AgentMark />
       <div className="min-w-0 flex-1 text-body leading-[1.65] text-text-primary">
         <ThinkingProcess lines={progress} streaming={streaming} />
+        {projection.resuming && (
+          <p className="mb-[12px] flex items-center gap-[8px] text-body-sm text-text-secondary">
+            <StatusDot tone={projection.resuming.approved ? 'accent' : 'danger'} pulse />
+            {projection.resuming.approved ? '已确认 · 正在执行…' : '已拒绝 · 正在收尾…'}
+          </p>
+        )}
         {projection.upgradeReason && (
           <div className="controlled-path mb-[12px] rounded-r-md border-l-2 border-path-controlled px-[12px] py-[8px] text-caption">
             已因 {projection.upgradeReason} 升级为受控执行，关键动作将请求确认。

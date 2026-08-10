@@ -64,6 +64,9 @@ async def test_simple_answer_stays_fast(runtime_harness: RuntimeHarness) -> None
 
     run = await runtime_harness.coordinator.start("解释 OEE")
 
+    assert run.intent is not None
+    assert run.intent.max_steps == 24
+    assert run.intent.max_seconds == 600
     assert run.path is RunPath.FAST
     assert "goal_spec" not in type(run).model_fields
     assert "typed_plan" not in type(run).model_fields
@@ -258,7 +261,14 @@ async def test_three_tier_loading_reads_each_layer_exactly_once(tmp_path: Path) 
     # Tier 2 names the file; only tier 3 pulls its contents in.
     assert "references/guide.md" in model.contexts[1].system_context
     assert "detailed guide body" not in model.contexts[1].system_context
-    assert "detailed guide body" in model.contexts[2].system_context
+    # Tier 3 content arrives as the tool result and nowhere else; it used to be
+    # copied into the system context as well, billing the same bytes twice.
+    assert "detailed guide body" in "".join(
+        message["content"]
+        for message in model.messages[2]
+        if message.get("role") == "tool"
+    )
+    assert "detailed guide body" not in model.contexts[2].system_context
 
 
 async def test_skill_without_allowed_tools_can_still_read_its_own_resources(

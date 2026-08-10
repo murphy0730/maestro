@@ -55,8 +55,8 @@ class RunIntent(BaseModel):
     candidate_capabilities: list[str] = Field(default_factory=list)
     risk_signals: list[str] = Field(default_factory=list)
     complexity_signals: list[str] = Field(default_factory=list)
-    max_steps: int = Field(default=12, ge=1, le=100)
-    max_seconds: int = Field(default=300, ge=1, le=86400)
+    max_steps: int = Field(default=24, ge=1, le=100)
+    max_seconds: int = Field(default=600, ge=1, le=86400)
     allow_background: bool = False
     path: RunPath = RunPath.UNSELECTED
 

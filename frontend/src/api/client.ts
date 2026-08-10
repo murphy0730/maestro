@@ -19,6 +19,8 @@ function resolveApiBase(): string {
   return import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 }
 export const API_BASE = resolveApiBase();
+/** v2 Agent routes live beside the host-admin routes on the same backend. */
+export const AGENT_API_PREFIX = '/api/v2';
 
 function privilegedToken(): string | undefined {
   if (typeof window !== 'undefined') {

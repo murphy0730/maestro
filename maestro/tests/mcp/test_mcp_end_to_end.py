@@ -70,8 +70,34 @@ async def test_handshake_discovers_tools() -> None:
         assert {tool.name for tool in connection.tools} == {"echo", "leak_env"}
         echo = next(tool for tool in connection.tools if tool.name == "echo")
         assert echo.input_schema["required"] == ["text"]
+        assert echo.annotations == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "idempotentHint": True,
+        }
+        assert connection.protocol_version == "2024-11-05"
+        assert connection.server_info == {"name": "echo", "version": "1"}
+        assert connection.instructions == "先选择最匹配的 echo 工具。"
     finally:
         await client.disconnect()
+
+
+async def test_ping_round_trips() -> None:
+    client = MCPClient(config())
+    await client.connect()
+    try:
+        await client.ping()
+    finally:
+        await client.disconnect()
+
+
+async def test_connect_rejects_an_unsupported_negotiated_protocol() -> None:
+    client = MCPClient(config(ECHO_PROTOCOL_VERSION="2099-01-01"))
+
+    connection = await client.connect()
+
+    assert connection.status is MCPConnectionStatus.ERROR
+    assert "2099-01-01" in connection.error
 
 
 async def test_tool_call_round_trips() -> None:
@@ -118,6 +144,31 @@ async def test_remote_read_only_annotation_cannot_lower_local_risk() -> None:
         assert spec.writes is True
         assert spec.risk is RiskLevel.HIGH
         assert spec.idempotent is False
+    finally:
+        await manager.shutdown()
+
+
+async def test_remote_write_annotation_prevents_a_local_risk_downgrade() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    trusted = MCPServerConfig(
+        name="echo",
+        command=sys.executable,
+        args=(str(SERVER),),
+        env={"ECHO_REMOTE_WRITE": "1"},
+        read_only_tools=("echo",),
+    )
+    try:
+        connection = await manager.connect(trusted)
+        echo_tool = next(tool for tool in connection.tools if tool.name == "echo")
+        spec = registry.require("mcp__echo__echo")
+
+        assert echo_tool.annotations["readOnlyHint"] is False
+        assert (spec.writes, spec.risk, spec.idempotent) == (
+            True,
+            RiskLevel.HIGH,
+            False,
+        )
     finally:
         await manager.shutdown()
 

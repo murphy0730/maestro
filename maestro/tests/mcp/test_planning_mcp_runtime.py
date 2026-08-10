@@ -23,6 +23,8 @@ PLANNING_READ_ONLY_TOOLS = (
     "get_planning_overview",
     "compare_planning_solutions",
     "search_planning_entities",
+    "diagnose_bottleneck",
+    "explain_order_delay",
     "get_order_planning",
     "get_operation_planning",
 )
@@ -42,6 +44,16 @@ QUESTIONS = [
         "名称包含 Turning 的工序有哪些？",
         "search_planning_entities",
         {"entity_type": "operation", "query": "Turning"},
+    ),
+    (
+        "方案一真正卡住延误订单的瓶颈设备是什么？",
+        "diagnose_bottleneck",
+        {"solution_id": "S-1"},
+    ),
+    (
+        "方案一中 ORD-0004 为什么延误？",
+        "explain_order_delay",
+        {"order_id": "ORD-0004", "solution_id": "S-1"},
     ),
 ]
 
@@ -100,12 +112,50 @@ def run_via_api(
         completed = client.get(f"/runs/{run_id}").json()
         if approve:
             approval = completed["pending_approvals"][0]
-            completed = client.post(
+            client.post(
                 f"/runs/{run_id}/approvals/{approval['approval_id']}",
                 json={"approved": True, "expected_revision": completed["revision"]},
-            ).json()
+            )
+            # 审批端点一决定就返回，剩下的在后台跑完；这条流结束时它才结束。
             stream = client.get(f"/runs/{run_id}/stream")
+            completed = client.get(f"/runs/{run_id}").json()
     return completed, stream.text, model
+
+
+def test_pending_mcp_approval_survives_an_app_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP-dependent Skills must be restored before a persisted approval is checked."""
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    config = local_config()
+
+    first = build_platform(Settings(summary_enabled=False))
+    first.mcp_config.upsert(config)
+    first.runtime._model = PlanningModel("run_rule_planning", {"rule_name": "ATC"})
+    monkeypatch.setattr(app_module, "build_platform", lambda: first)
+    with TestClient(create_app()) as client:
+        created = client.post("/runs", json={"message": "使用 ATC 跑一遍排产"}).json()
+        client.get(f"/runs/{created['run_id']}/stream")
+        waiting = client.get(f"/runs/{created['run_id']}").json()
+
+    assert waiting["status"] == "waiting_approval"
+    assert "scheduling-query" in waiting["capability_versions"]
+
+    second = build_platform(Settings(summary_enabled=False))
+    second.runtime._model = PlanningModel("run_rule_planning", {"rule_name": "ATC"})
+    monkeypatch.setattr(app_module, "build_platform", lambda: second)
+    approval = waiting["pending_approvals"][0]
+    with TestClient(create_app()) as client:
+        approved = client.post(
+            f"/runs/{waiting['run_id']}/approvals/{approval['approval_id']}",
+            json={"approved": True, "expected_revision": waiting["revision"]},
+        )
+        client.get(f"/runs/{waiting['run_id']}/stream")
+        completed = client.get(f"/runs/{waiting['run_id']}").json()
+
+    assert approved.status_code == 202
+    assert completed["status"] == "completed"
+    assert completed["pending_approvals"] == []
 
 
 @pytest.mark.parametrize(("question", "tool_name", "arguments"), QUESTIONS)

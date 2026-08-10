@@ -1,7 +1,7 @@
 ---
 name: whatif-planning
-description: 排产的「如果……会怎样」推演——在内存里改车间原始数据（加/删机器、改班次、改工时、改交期、加停机），跑一条或多条派工规则，横向对比 KPI。用户问「加一台车床能不能赶上交期」「这批机器只上白班影响多大」「M3 停机 4 小时会怎样」「订单量涨 20% 扛不扛得住」这类假设性问题时使用。
-allowed-tools: [mcp__planning__search_planning_entities, mcp__planning__list_planning_rules, mcp__planning__create_whatif_scenario, mcp__planning__apply_whatif_patch, mcp__planning__describe_whatif_scenario, mcp__planning__revert_whatif_patch, mcp__planning__run_whatif_planning, mcp__planning__get_whatif_run, mcp__planning__compare_whatif_runs, read_artifact]
+description: 在不修改正式数据库的内存沙箱中做排产 What-if 假设推演。用户询问“如果……会怎样 / 能否赶上交期 / 影响多大 / 哪个方案或规则更好”时使用：新建、列出、复述、校验或撤销场景；模拟增减机器、调整班次、工序工时或可用机器、订单交期/优先级/数量、停机窗口、工装、人员/技能、机器类型关键性或计划基准时刻；用单条或多条派工规则试排，轮询长任务，对比改动与现状、跨场景/跨规则 KPI，并分析瓶颈及瓶颈转移。只覆盖内存沙箱推演，不用于普通现状查询、正式重排或将改动写入正式库。
+allowed-tools: [mcp__planning__get_planning_overview, mcp__planning__diagnose_bottleneck, mcp__planning__search_planning_entities, mcp__planning__list_planning_rules, mcp__planning__create_whatif_scenario, mcp__planning__apply_whatif_patch, mcp__planning__describe_whatif_scenario, mcp__planning__revert_whatif_patch, mcp__planning__run_whatif_planning, mcp__planning__get_whatif_run, mcp__planning__compare_whatif_runs, read_artifact]
 ---
 
 # 排产 What-if 场景推演
@@ -12,7 +12,7 @@ allowed-tools: [mcp__planning__search_planning_entities, mcp__planning__list_pla
 ## 最短路径（先看这个，务必照做）
 
 **一次对话的工具调用次数是硬性受限的（约 5 次），超了整个推演会直接失败、一个字都答不出来。**
-所以每一次调用都必须算数。标准推演正好 4 步：
+所以每一次调用都必须算数。目标机器明确时，标准推演正好 4 步：
 
 1. **一次** `search_planning_entities`：`entity_type="machine"` + `query=<用户提到的工艺类型或机器名>`。
    返回里已经同时包含 `type_id` 和可直接抄用的 `shift_pattern`——**不需要**再单独查一次
@@ -27,6 +27,16 @@ allowed-tools: [mcp__planning__search_planning_entities, mcp__planning__list_pla
 `compare_whatif_runs`**——只有需要精确的方向判定（`better` 字段）或跨多次推演比较时才调它。
 
 `describe_whatif_scenario` / `revert_whatif_patch` 只在出问题时用，正常流程里不要调。
+
+用户说的是“关键设备”或“瓶颈设备”而不是明确机器名时，先区分概念：
+
+- **关键类型**是机器类型的静态标记，可从资源查询的 `is_critical` 看；
+- **负荷最高**来自 `machine_utilization_ranking`，只是全周期利用率排名，不能当瓶颈；
+- **真正瓶颈**必须调用 `diagnose_bottleneck`，只把确实卡住延误订单的等待作为依据。
+
+`diagnose_bottleneck` 必须使用真实 `solution_id`。优先复用会话中已经出现的 ID；没有时只调用一次
+`get_planning_overview`，绝不猜 `sol_1`。根据用户要解决的问题选择目标：扩机器看
+`capacity_wait_hours`，加班次看 `off_shift_wait_hours`；`dispatch_bound` 高时应改派工而不是扩产。
 
 本 skill 刻意**不包含落库能力**。推演只做探索；要把改动写进正式数据是一次独立的管理动作，
 需要在本流程之外单独执行。用户要求落库时，如实说明这一点，不要假装做不到或声称已经做了。
@@ -69,12 +79,22 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 时间类字段一律是**相对计划基准时刻的偏移小时数**（不是日期）。
 `shifts` 是 `"day/start_hour/hours;..."`，例 `"0/8/10;0/20/8"` = 白班 10h + 夜班 8h。
 
+`day` 是从计划基准日开始的**相对日序号**，不是星期编号。只有 day 0 的模式会每天重复；
+提供 day 0..5 会形成六天循环，并不表示“周日休息”。表达每周固定休息日时必须给完整七天模板，
+休息日也要用零工时占位来保留该日。例如计划基准日是周一、周一至周六维持白夜班、周日休息：
+
+`"0/8/10;0/20/8;1/8/10;1/20/8;2/8/10;2/20/8;3/8/10;3/20/8;4/8/10;4/20/8;5/8/10;5/20/8;6/0/0"`
+
+计划基准日不是周一时，先从现状中的 `plan_start_at` 计算周日对应的相对日序号，再旋转七天模板；
+不能把“周一=0、周日=6”当作永远成立。
+
 | 想干什么 | 怎么写 |
 |---|---|
 | 加一台机器 | `{op:"add", entity:"machine", values:{machine_id, machine_name, type_id, shifts}}` |
 | 删一台机器 | `{op:"remove", entity:"machine", id:"M07"}` |
 | 某台机器改班次 | `{op:"update", entity:"machine", id:"M07", values:{shifts:"0/8/10"}}` |
 | 某类机器全改只上白班 | `{op:"update", entity:"machine", where:{type_id:"turning"}, values:{shifts:"0/8/10"}}` |
+| 每周日休息（基准日为周一） | `{op:"update", entity:"machine", where:{type_id:"turning"}, values:{shifts:"0/8/10;1/8/10;2/8/10;3/8/10;4/8/10;5/8/10;6/0/0"}}` |
 | 改工序工时 | `{op:"update", entity:"operation", id:"OP123", values:{processing_time:4.5}}` |
 | 改订单交期 | `{op:"update", entity:"order", id:"ORD01", values:{due_date:120}}` |
 | 整批订单延期 | `{op:"update", entity:"order", ids:["O1","O2"], values:{due_date:150}}` |
@@ -96,6 +116,10 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 **`validation.errors` 非空就停下来报告，不要硬跑。** 常见于删掉了某工序唯一能上的机器——
 这种情况下仿真会输出一堆排不出的工序，KPI 毫无意义。`warnings` 提一句即可。
 
+多条 patch 叠加、使用 `where` 批量更新，或目标机器是否命中存在疑问时，不能只看 changes 回放：
+调用 `search_planning_entities` 并带上 `scenario_id`，查询场景物化后的最终资源状态。若这会耗尽
+本轮工具预算，就在核对后向用户报告并把“运行规则”留到下一轮，不要冒险发起第 6 次工具调用。
+
 ### 5. 跑规则
 
 `mcp__planning__run_whatif_planning`，`rule_names` 可传多条（如 `["ATC","EDD"]`）——
@@ -103,6 +127,9 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 
 `include_baseline` 默认为 true：`results` 里会同时含改动后（`variant="scenario"`）和现状
 （`variant="baseline"`）两组，直接就能对比。
+
+结果中的 `machine_utilization_ranking` 是逐机全周期负荷榜，不是瓶颈判定。需要解释“为什么晚”
+时使用运行前的 `diagnose_bottleneck` 归因，不要把负荷排名改名成瓶颈。
 
 - `status == "done"` → `results` 里就是结果
 - `status == "running"` → 大实例还在跑，用返回的 `run_id` 调 `mcp__planning__get_whatif_run`

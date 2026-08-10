@@ -15,6 +15,12 @@ def test_default_platform_injects_maestro_identity_prompt(tmp_path) -> None:
     assert "不得自称 Claude、ChatGPT" in system_prompt
     assert "Skill、Tool 或 MCP" in system_prompt
     assert "Policy Gate" in system_prompt
+    assert "职责" in system_prompt
+    assert "工作规则" in system_prompt
+    assert "Tool 使用规则" in system_prompt
+    assert "输出规范" in system_prompt
+    assert "分析/模拟/建议" in system_prompt
+    assert "写入/发布/下达" in system_prompt
 
 
 async def test_platform_accepts_mcp_registration_after_startup(tmp_path) -> None:

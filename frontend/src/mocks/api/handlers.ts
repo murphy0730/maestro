@@ -1,50 +1,596 @@
 import { http, HttpResponse } from 'msw';
-import { API_BASE } from '@/api/client';
+import { AGENT_API_PREFIX, API_BASE } from '@/api/client';
 import type { RunSnapshot } from '@/types/api/runs';
 import type { SessionMessage, SessionSummary } from '@/api/sessions';
-import type { McpServer, SkillMeta } from '@/types';
+import type { McpServer, ModelsConfig, SkillMeta } from '@/types';
 import { sseResponse } from './sse';
 
-const url = (path: string) => API_BASE.startsWith('http') ? `${API_BASE}${path}` : `*${API_BASE}${path}`;
+const url = (path: string) =>
+  API_BASE.startsWith('http') ? `${API_BASE}${path}` : `*${API_BASE}${path}`;
+const agentUrl = (path: string) => url(`${AGENT_API_PREFIX}${path}`);
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-let sessions: SessionSummary[] = [{ session_id: 'mock-default', title: '离线演示会话', updated_at: now(), message_count: 0, active_run_id: null }];
+let sessions: SessionSummary[] = [
+  {
+    session_id: 'mock-default',
+    title: '离线演示会话',
+    updated_at: now(),
+    message_count: 0,
+    active_run_id: null,
+  },
+];
 const messages = new Map<string, SessionMessage[]>([['mock-default', []]]);
 const runs = new Map<string, RunSnapshot>();
+// 模型配置 —— 镜像后端语义：密钥只留在这一侧，读取时脱敏为空串 + api_key_set。
+const modelKeys = new Map<string, string>();
+let modelsConfig: ModelsConfig = {
+  llm: { providers: [], active_id: null },
+  embedding: { providers: [], active_id: null },
+};
+
+function redactModels(): ModelsConfig {
+  const section = (key: 'llm' | 'embedding') => ({
+    providers: modelsConfig[key].providers.map((provider) => ({
+      ...provider,
+      api_key: '',
+      api_key_set: Boolean(provider.id && modelKeys.get(provider.id)),
+    })),
+    active_id: modelsConfig[key].active_id,
+  });
+  return { llm: section('llm'), embedding: section('embedding') };
+}
+
 let mcpServers: McpServer[] = [
-  { name: 'maestro-mes', command: 'python', args: ['/opt/maestro/mes_mcp.py'], env_keys: ['MES_API_KEY', 'MES_BASE_URL'], enabled: true, read_only_tools: ['query_inventory'], status: 'connected', error: '', tools: [{ name: 'query_inventory', capability: 'mcp__maestro-mes__query_inventory', description: '按物料 / 库位查询实时库存', read_only: true, writes: false, risk: 'low' }, { name: 'query_work_order', capability: 'mcp__maestro-mes__query_work_order', description: '工单状态与报工进度', read_only: false, writes: true, risk: 'high' }] },
-  { name: 'llm4drd-scheduler', command: 'python', args: ['/opt/llm4drd/mcp_server.py'], env_keys: ['LLM4DRD_BASE_URL'], enabled: true, read_only_tools: [], status: 'error', error: '进程已启动但 10s 内未完成 MCP 握手（handshake_timeout）。', tools: [] },
+  {
+    name: 'maestro-mes',
+    command: 'python',
+    args: ['/opt/maestro/mes_mcp.py'],
+    env_keys: ['MES_API_KEY', 'MES_BASE_URL'],
+    enabled: true,
+    read_only_tools: ['query_inventory'],
+    status: 'connected',
+    error: '',
+    tools: [
+      {
+        name: 'query_inventory',
+        capability: 'mcp__maestro-mes__query_inventory',
+        description: '按物料 / 库位查询实时库存',
+        read_only: true,
+        writes: false,
+        risk: 'low',
+      },
+      {
+        name: 'query_work_order',
+        capability: 'mcp__maestro-mes__query_work_order',
+        description: '工单状态与报工进度',
+        read_only: false,
+        writes: true,
+        risk: 'high',
+      },
+    ],
+  },
+  {
+    name: 'llm4drd-scheduler',
+    command: 'python',
+    args: ['/opt/llm4drd/mcp_server.py'],
+    env_keys: ['LLM4DRD_BASE_URL'],
+    enabled: true,
+    read_only_tools: [],
+    status: 'error',
+    error: '进程已启动但 10s 内未完成 MCP 握手（handshake_timeout）。',
+    tools: [],
+  },
 ];
 let skills: SkillMeta[] = [
-  { name: 'offline-manufacturing', display_name: '离线制造助手', description: 'MSW 离线模式下用于验证技能选择与 run 提交。', user_invocable: true, file_count: 1, bytes: 512, added_at: now(), package_sha256: 'mock-sha256', compatibility_status: 'ready' },
-  { name: 'scheduling-query', display_name: '排产查询', description: '订单 / 工序 / 设备三维排程问答，含查询脚本。', when_to_use: ['用户询问某订单的排程明细', '需要追溯工序的紧前 / 紧后关系'], allowed_tools: ['read_file', 'skill_run_script'], scripts: ['scripts/query.py'], user_invocable: true, version: 'v1.3.0', file_count: 3, bytes: 18_432, added_at: now(), package_sha256: 'mock-scheduling-sha', compatibility_status: 'ready', trust: { level: 'user_trusted', valid: true, package_sha256: 'mock-scheduling-sha' } },
-  { name: 'kitting-check', display_name: '齐套性检查', description: '按 BOM 逐级核物料齐套状态，输出缺料清单。脚本尚未信任。', scripts: ['scripts/check.py', 'scripts/report.sh'], user_invocable: true, version: 'v0.9.2', file_count: 5, bytes: 1_258_291, added_at: now(), package_sha256: 'mock-kitting-sha', compatibility_status: 'degraded', warnings: ['声明的工具 WebFetch 在当前平台未注册，将以降级模式运行'], trust: { level: 'untrusted', valid: false, package_sha256: 'mock-kitting-sha' } },
+  {
+    name: 'offline-manufacturing',
+    display_name: '离线制造助手',
+    description: 'MSW 离线模式下用于验证技能选择与 run 提交。',
+    user_invocable: true,
+    file_count: 1,
+    bytes: 512,
+    added_at: now(),
+    package_sha256: 'mock-sha256',
+    compatibility_status: 'ready',
+  },
+  {
+    name: 'scheduling-query',
+    display_name: '排产查询',
+    description: '订单 / 工序 / 设备三维排程问答，含查询脚本。',
+    when_to_use: ['用户询问某订单的排程明细', '需要追溯工序的紧前 / 紧后关系'],
+    allowed_tools: ['read_file', 'skill_run_script'],
+    scripts: ['scripts/query.py'],
+    user_invocable: true,
+    version: 'v1.3.0',
+    file_count: 3,
+    bytes: 18_432,
+    added_at: now(),
+    package_sha256: 'mock-scheduling-sha',
+    compatibility_status: 'ready',
+    trust: { level: 'user_trusted', valid: true, package_sha256: 'mock-scheduling-sha' },
+  },
+  {
+    name: 'kitting-check',
+    display_name: '齐套性检查',
+    description: '按 BOM 逐级核物料齐套状态，输出缺料清单。脚本尚未信任。',
+    scripts: ['scripts/check.py', 'scripts/report.sh'],
+    user_invocable: true,
+    version: 'v0.9.2',
+    file_count: 5,
+    bytes: 1_258_291,
+    added_at: now(),
+    package_sha256: 'mock-kitting-sha',
+    compatibility_status: 'degraded',
+    warnings: ['声明的工具 WebFetch 在当前平台未注册，将以降级模式运行'],
+    trust: { level: 'untrusted', valid: false, package_sha256: 'mock-kitting-sha' },
+  },
 ];
 const artifacts = new Map<string, File>();
 
 export const handlers = [
+  // Canonical v2 Agent surface. Host administration handlers stay unversioned below.
+  http.get(agentUrl('/sessions'), () => HttpResponse.json(sessions)),
+  http.post(agentUrl('/sessions'), async ({ request }) => {
+    const body = (await request.json()) as { title?: string };
+    const session: SessionSummary = {
+      session_id: id('mock-session'),
+      title: body.title ?? '新任务',
+      updated_at: now(),
+      message_count: 0,
+      active_run_id: null,
+    };
+    sessions = [session, ...sessions];
+    messages.set(session.session_id, []);
+    return HttpResponse.json(session, { status: 201 });
+  }),
+  http.patch(agentUrl('/sessions/:sessionId'), async ({ params, request }) => {
+    const body = (await request.json()) as { title: string };
+    const session = sessions.find((item) => item.session_id === params.sessionId);
+    if (!session) return HttpResponse.json({ detail: 'session not found' }, { status: 404 });
+    Object.assign(session, { title: body.title, updated_at: now() });
+    return HttpResponse.json(session);
+  }),
+  http.delete(agentUrl('/sessions/:sessionId'), ({ params }) => {
+    const sessionId = String(params.sessionId);
+    if (!sessions.some((item) => item.session_id === sessionId))
+      return HttpResponse.json({ detail: 'session not found' }, { status: 404 });
+    sessions = sessions.filter((item) => item.session_id !== sessionId);
+    messages.delete(sessionId);
+    return HttpResponse.json({ deleted: true, session_id: sessionId });
+  }),
+  http.get(agentUrl('/sessions/:sessionId/messages'), ({ params }) =>
+    HttpResponse.json(
+      (messages.get(String(params.sessionId)) ?? []).map((message) => ({
+        event_id: message.id,
+        event_type: message.role === 'user' ? 'USER_MESSAGE' : 'ASSISTANT_MESSAGE',
+        payload: {
+          content: message.content,
+          artifact_ids: message.artifact_ids ?? [],
+          skill_ids: message.skill_names ?? [],
+        },
+        created_at: message.ts,
+        run_id: message.run_id,
+      })),
+    ),
+  ),
+  http.delete(
+    agentUrl('/sessions/:sessionId/messages/:messageId'),
+    ({ params, request }) => {
+      const sessionId = String(params.sessionId);
+      const messageId = String(params.messageId);
+      const history = messages.get(sessionId);
+      const index = history?.findIndex((item) => item.id === messageId) ?? -1;
+      if (!history || index < 0)
+        return HttpResponse.json({ detail: 'message not found' }, { status: 404 });
+      let end = index + 1;
+      if (
+        new URL(request.url).searchParams.get('cascade') === 'true' &&
+        history[index].role === 'user'
+      ) {
+        while (end < history.length && history[end].role === 'assistant') end += 1;
+      }
+      const removed = history.splice(index, end - index).map((item) => item.id!);
+      const session = sessions.find((item) => item.session_id === sessionId);
+      if (session) Object.assign(session, { message_count: history.length, updated_at: now() });
+      return HttpResponse.json({ redacted: true, event_ids: removed });
+    },
+  ),
+  http.post(agentUrl('/sessions/:sessionId/runs'), async ({ params, request }) => {
+    const body = (await request.json()) as {
+      message: string;
+      source?: 'chat' | 'expert' | 'event' | 'resume';
+      requested_skills?: string[];
+      artifact_ids?: string[];
+    };
+    const sessionId = String(params.sessionId);
+    const run: RunSnapshot = {
+      run_id: id('mock-run'),
+      session_id: sessionId,
+      objective: body.message,
+      path: 'fast',
+      status: 'running_fast',
+      steps: {},
+      pending_approvals: [],
+      requested_skills: body.requested_skills ?? [],
+      revision: 0,
+      input_artifact_ids: body.artifact_ids ?? [],
+      intent: { requested_skills: body.requested_skills ?? [], source: body.source ?? 'chat' },
+    };
+    runs.set(run.run_id, run);
+    const history = messages.get(sessionId) ?? [];
+    history.push({
+      id: id('mock-msg'),
+      role: 'user',
+      content: body.message,
+      ts: now(),
+      skill_names: body.requested_skills,
+      artifact_ids: body.artifact_ids,
+      run_id: run.run_id,
+    });
+    messages.set(sessionId, history);
+    const session = sessions.find((item) => item.session_id === sessionId);
+    if (session)
+      Object.assign(session, {
+        active_run_id: run.run_id,
+        message_count: history.length,
+        updated_at: now(),
+      });
+    return HttpResponse.json(run, { status: 202 });
+  }),
+  http.get(agentUrl('/runs/:runId'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    return run
+      ? HttpResponse.json(run)
+      : HttpResponse.json(
+          { detail: { code: 'run_not_found', message: 'run not found' } },
+          { status: 404 },
+        );
+  }),
+  http.get(agentUrl('/runs/:runId/stream'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    if (!run) return new HttpResponse(null, { status: 404 });
+    run.status = 'completed';
+    run.final_text = '正在处理制造任务。';
+    run.revision += 1;
+    const history = messages.get(run.session_id) ?? [];
+    if (!history.some((message) => message.role === 'assistant' && message.run_id === run.run_id))
+      history.push({
+        id: id('mock-msg'),
+        role: 'assistant',
+        content: run.final_text,
+        ts: now(),
+        run_id: run.run_id,
+      });
+    messages.set(run.session_id, history);
+    const session = sessions.find((item) => item.session_id === run.session_id);
+    if (session)
+      Object.assign(session, { active_run_id: null, message_count: history.length, updated_at: now() });
+    const event = (eventId: string, eventType: string, payload: Record<string, unknown>) => ({
+      id: eventId,
+      event: eventType,
+      data: {
+        event_id: eventId,
+        session_id: run.session_id,
+        run_id: run.run_id,
+        sequence: Number(eventId),
+        event_type: eventType,
+        payload,
+        metadata: {},
+        references: {},
+        created_at: now(),
+      },
+    });
+    return sseResponse([
+      event('1', 'RUN_STATUS_CHANGED', { from: 'created', to: 'running_fast' }),
+      { ...event('2', 'ASSISTANT_MESSAGE', { content: run.final_text }), delay: 80 },
+      { ...event('3', 'RUN_STATUS_CHANGED', { from: 'running_fast', to: 'completed' }), delay: 80 },
+    ]);
+  }),
+  http.post(agentUrl('/runs/:runId/cancel'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    if (!run) return new HttpResponse(null, { status: 404 });
+    run.status = 'cancelled';
+    run.revision += 2;
+    return HttpResponse.json(run);
+  }),
+  http.post(agentUrl('/runs/:runId/approvals/:approvalId'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    if (!run) return new HttpResponse(null, { status: 404 });
+    run.status = 'running_structured';
+    run.pending_approvals = [];
+    run.pending_approval_id = null;
+    run.revision += 1;
+    return HttpResponse.json(
+      { accepted: true, run_id: run.run_id, approval_id: params.approvalId },
+      { status: 202 },
+    );
+  }),
+  http.get(agentUrl('/runs/:runId/debug'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    return run
+      ? HttpResponse.json({ run, events: [], plan: null, approvals: [], context_manifests: [], checkpoint: null })
+      : new HttpResponse(null, { status: 404 });
+  }),
+  http.get(agentUrl('/sessions/:sessionId/replay'), () =>
+    HttpResponse.json({ valid: true, errors: [], event_count: 0, last_sequence: 0, checkpoint_id: null, prefix_hash: 'mock', context_hashes: [] }),
+  ),
+
   http.get(url('/sessions'), () => HttpResponse.json(sessions)),
-  http.post(url('/sessions'), async ({ request }) => { const body = await request.json() as { title?: string }; const session: SessionSummary = { session_id: id('mock-session'), title: body.title ?? '新任务', updated_at: now(), message_count: 0, active_run_id: null }; sessions = [session, ...sessions]; messages.set(session.session_id, []); return HttpResponse.json(session); }),
-  http.patch(url('/sessions/:sessionId'), async ({ params, request }) => { const body = await request.json() as { title: string }; const session = sessions.find((item) => item.session_id === params.sessionId); if (!session) return HttpResponse.json({ detail: 'session not found' }, { status: 404 }); Object.assign(session, { title: body.title, updated_at: now() }); return HttpResponse.json(session); }),
-  http.delete(url('/sessions/:sessionId'), ({ params }) => { const sessionId = String(params.sessionId); const exists = sessions.some((item) => item.session_id === sessionId); if (!exists) return HttpResponse.json({ detail: 'session not found' }, { status: 404 }); sessions = sessions.filter((item) => item.session_id !== sessionId); messages.delete(sessionId); return HttpResponse.json({ deleted: true, session_id: sessionId }); }),
-  http.get(url('/sessions/:sessionId/messages'), ({ params }) => HttpResponse.json(messages.get(String(params.sessionId)) ?? [])),
+  http.post(url('/sessions'), async ({ request }) => {
+    const body = (await request.json()) as { title?: string };
+    const session: SessionSummary = {
+      session_id: id('mock-session'),
+      title: body.title ?? '新任务',
+      updated_at: now(),
+      message_count: 0,
+      active_run_id: null,
+    };
+    sessions = [session, ...sessions];
+    messages.set(session.session_id, []);
+    return HttpResponse.json(session);
+  }),
+  http.patch(url('/sessions/:sessionId'), async ({ params, request }) => {
+    const body = (await request.json()) as { title: string };
+    const session = sessions.find((item) => item.session_id === params.sessionId);
+    if (!session) return HttpResponse.json({ detail: 'session not found' }, { status: 404 });
+    Object.assign(session, { title: body.title, updated_at: now() });
+    return HttpResponse.json(session);
+  }),
+  http.delete(url('/sessions/:sessionId'), ({ params }) => {
+    const sessionId = String(params.sessionId);
+    const exists = sessions.some((item) => item.session_id === sessionId);
+    if (!exists) return HttpResponse.json({ detail: 'session not found' }, { status: 404 });
+    sessions = sessions.filter((item) => item.session_id !== sessionId);
+    messages.delete(sessionId);
+    return HttpResponse.json({ deleted: true, session_id: sessionId });
+  }),
+  http.get(url('/sessions/:sessionId/messages'), ({ params }) =>
+    HttpResponse.json(messages.get(String(params.sessionId)) ?? []),
+  ),
+  http.delete(url('/sessions/:sessionId/messages/:messageId'), ({ params, request }) => {
+    const sessionId = String(params.sessionId);
+    const messageId = String(params.messageId);
+    const history = messages.get(sessionId);
+    const index = history?.findIndex((item) => item.id === messageId) ?? -1;
+    if (!history || index < 0)
+      return HttpResponse.json({ detail: 'message not found' }, { status: 404 });
+    let end = index + 1;
+    if (
+      new URL(request.url).searchParams.get('cascade') === 'true' &&
+      history[index].role === 'user'
+    ) {
+      while (end < history.length && history[end].role === 'assistant') end += 1;
+    }
+    const removed = history.splice(index, end - index).map((item) => item.id!);
+    const session = sessions.find((item) => item.session_id === sessionId);
+    if (session) Object.assign(session, { message_count: history.length, updated_at: now() });
+    return HttpResponse.json({ deleted: true, session_id: sessionId, deleted_ids: removed });
+  }),
   http.get(url('/skills'), () => HttpResponse.json({ skills })),
-  http.post(url('/skills/validate'), async ({ request }) => { const file = (await request.formData()).get('file') as File; const compatible = /\.(md|zip)$/i.test(file.name); return HttpResponse.json({ compatible, normalized_name: compatible ? file.name.replace(/\.(md|zip)$/i, '') : undefined, compatibility_status: compatible ? 'ready' : 'not_ready', capabilities: { prompt: true, attachments: false, scripts: false }, tool_mapping: {}, normalized_frontmatter: {}, warnings: [], errors: compatible ? [] : ['仅支持 .md 或 .zip'] }); }),
-  http.post(url('/skills/import'), async ({ request }) => { const file = (await request.formData()).get('file') as File; const skill: SkillMeta = { name: file.name.replace(/\.(md|zip)$/i, ''), description: 'MSW 导入的隔离技能', user_invocable: true, file_count: 1, bytes: file.size, added_at: now(), package_sha256: `mock-${file.size}`, compatibility_status: 'ready' }; skills = [skill, ...skills.filter((item) => item.name !== skill.name)]; return HttpResponse.json(skill); }),
-  http.post(url('/skills/:name/trust'), ({ params }) => HttpResponse.json({ level: 'user_trusted', valid: true, package_sha256: `mock-${String(params.name)}` })),
-  http.delete(url('/skills/:name/trust'), ({ params }) => HttpResponse.json({ level: 'untrusted', valid: true, package_sha256: `mock-${String(params.name)}` })),
-  http.delete(url('/skills/:name'), ({ params }) => { skills = skills.filter((item) => item.name !== params.name); return new HttpResponse(null, { status: 204 }); }),
+  http.post(url('/skills/validate'), async ({ request }) => {
+    const file = (await request.formData()).get('file') as File;
+    const compatible = /\.(md|zip)$/i.test(file.name);
+    return HttpResponse.json({
+      compatible,
+      normalized_name: compatible ? file.name.replace(/\.(md|zip)$/i, '') : undefined,
+      compatibility_status: compatible ? 'ready' : 'not_ready',
+      capabilities: { prompt: true, attachments: false, scripts: false },
+      tool_mapping: {},
+      normalized_frontmatter: {},
+      warnings: [],
+      errors: compatible ? [] : ['仅支持 .md 或 .zip'],
+    });
+  }),
+  http.post(url('/skills/import'), async ({ request }) => {
+    const file = (await request.formData()).get('file') as File;
+    const skill: SkillMeta = {
+      name: file.name.replace(/\.(md|zip)$/i, ''),
+      description: 'MSW 导入的隔离技能',
+      user_invocable: true,
+      file_count: 1,
+      bytes: file.size,
+      added_at: now(),
+      package_sha256: `mock-${file.size}`,
+      compatibility_status: 'ready',
+    };
+    skills = [skill, ...skills.filter((item) => item.name !== skill.name)];
+    return HttpResponse.json(skill);
+  }),
+  http.post(url('/skills/:name/trust'), ({ params }) =>
+    HttpResponse.json({
+      level: 'user_trusted',
+      valid: true,
+      package_sha256: `mock-${String(params.name)}`,
+    }),
+  ),
+  http.delete(url('/skills/:name/trust'), ({ params }) =>
+    HttpResponse.json({
+      level: 'untrusted',
+      valid: true,
+      package_sha256: `mock-${String(params.name)}`,
+    }),
+  ),
+  http.delete(url('/skills/:name'), ({ params }) => {
+    skills = skills.filter((item) => item.name !== params.name);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // 模型供应商 —— 读脱敏，写保留空密钥对应的存量值。
+  http.get(url('/models'), () => HttpResponse.json(redactModels())),
+  http.put(url('/models'), async ({ request }) => {
+    const body = (await request.json()) as ModelsConfig;
+    for (const section of ['llm', 'embedding'] as const) {
+      for (const provider of body[section].providers) {
+        if (!provider.id) continue;
+        if (provider.api_key) modelKeys.set(provider.id, provider.api_key);
+        provider.api_key = '';
+      }
+    }
+    modelsConfig = body;
+    return HttpResponse.json({ ...redactModels(), available: true });
+  }),
+  http.post(url('/models/test'), async ({ request }) => {
+    const body = (await request.json()) as { model?: string };
+    return HttpResponse.json(
+      body.model
+        ? { ok: true, error: '', latency_ms: 42 }
+        : { ok: false, error: '未填写 model', latency_ms: 0 },
+    );
+  }),
 
   // MCP servers — 离线演示下的 stdio 连接器目录。
   http.get(url('/mcp/servers'), () => HttpResponse.json({ servers: mcpServers })),
-  http.put(url('/mcp/servers/:name'), async ({ request }) => { const body = await request.json() as { name: string; command: string; args: string[]; env: Record<string, string>; enabled: boolean; read_only_tools: string[] }; const readOnlyTools = body.read_only_tools ?? []; const readOnly = readOnlyTools.includes('echo'); const server: McpServer = { name: body.name, command: body.command, args: body.args ?? [], env_keys: Object.keys(body.env ?? {}).sort(), enabled: body.enabled ?? true, read_only_tools: readOnlyTools, status: 'connected', error: '', tools: [{ name: 'echo', capability: `mcp__${body.name}__echo`, description: 'MSW 离线模式下的示例工具', read_only: readOnly, writes: !readOnly, risk: readOnly ? 'low' : 'high' }] }; mcpServers = [server, ...mcpServers.filter((item) => item.name !== server.name)]; return HttpResponse.json(server); }),
-  http.delete(url('/mcp/servers/:name'), ({ params }) => { const before = mcpServers.length; mcpServers = mcpServers.filter((item) => item.name !== params.name); return before === mcpServers.length ? new HttpResponse(null, { status: 404 }) : new HttpResponse(null, { status: 204 }); }),
-  http.post(url('/mcp/servers/:name/reconnect'), ({ params }) => { const server = mcpServers.find((item) => item.name === params.name); return server ? HttpResponse.json(server) : new HttpResponse(null, { status: 404 }); }),
-  http.post(url('/artifacts'), async ({ request }) => { const form = await request.formData(); const file = form.get('file') as File; const artifactId = id('mock-artifact'); artifacts.set(artifactId, file); return HttpResponse.json({ artifact_id: artifactId, sha256: artifactId, media_type: file.type || 'application/octet-stream', bytes: file.size }); }),
-  http.get(url('/artifacts/:artifactId'), ({ params }) => { const file = artifacts.get(String(params.artifactId)); return file ? new HttpResponse(file, { headers: { 'Content-Type': file.type || 'application/octet-stream' } }) : HttpResponse.json({ detail: { code: 'artifact_not_found', message: 'artifact not found' } }, { status: 404 }); }),
-  http.post(url('/runs'), async ({ request }) => { const body = await request.json() as { message: string; session_id: string; source?: 'chat' | 'expert' | 'event' | 'resume'; skill_names?: string[]; artifact_ids?: string[] }; const run: RunSnapshot = { run_id: id('mock-run'), session_id: body.session_id, objective: body.message, path: 'fast', status: 'running_fast', steps: {}, pending_approvals: [], revision: 1, input_artifact_ids: body.artifact_ids ?? [], intent: { requested_skills: body.skill_names ?? [], source: body.source ?? 'chat' } }; runs.set(run.run_id, run); const history = messages.get(body.session_id) ?? []; history.push({ role: 'user', content: body.message, ts: now(), skill_names: body.skill_names, artifact_ids: body.artifact_ids, run_id: run.run_id }); messages.set(body.session_id, history); const session = sessions.find((item) => item.session_id === body.session_id); if (session) Object.assign(session, { active_run_id: run.run_id, message_count: history.length, updated_at: now() }); return HttpResponse.json(run, { status: 202 }); }),
-  http.get(url('/runs/:runId'), ({ params }) => { const run = runs.get(String(params.runId)); return run ? HttpResponse.json(run) : HttpResponse.json({ detail: { code: 'run_not_found', message: 'run not found' } }, { status: 404 }); }),
-  http.get(url('/runs/:runId/stream'), ({ params }) => { const run = runs.get(String(params.runId)); if (run) { run.status = 'completed'; run.final_text = '正在处理制造任务。'; } return sseResponse([{ id: '1', event: 'run.path_selected', data: { path: 'fast' } }, { id: '2', event: 'token.delta', data: { delta: '正在处理制造任务。' }, delay: 80 }, { id: '3', event: 'run.completed', data: { final_text: '正在处理制造任务。' }, delay: 80 }]); }),
-  http.post(url('/runs/:runId/cancel'), ({ params }) => { const run = runs.get(String(params.runId)); if (!run) return HttpResponse.json({ detail: { code: 'run_not_found', message: 'run not found' } }, { status: 404 }); run.status = 'cancelled'; return HttpResponse.json(run); }),
-  http.post(url('/runs/:runId/approvals/:approvalId'), ({ params }) => { const run = runs.get(String(params.runId)); if (!run) return HttpResponse.json({ detail: { code: 'run_not_found', message: 'run not found' } }, { status: 404 }); run.status = 'running_structured'; run.pending_approvals = []; return HttpResponse.json(run); }),
+  http.put(url('/mcp/servers/:name'), async ({ request }) => {
+    const body = (await request.json()) as {
+      name: string;
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+      enabled: boolean;
+      read_only_tools: string[];
+    };
+    const readOnlyTools = body.read_only_tools ?? [];
+    const readOnly = readOnlyTools.includes('echo');
+    const server: McpServer = {
+      name: body.name,
+      command: body.command,
+      args: body.args ?? [],
+      env_keys: Object.keys(body.env ?? {}).sort(),
+      enabled: body.enabled ?? true,
+      read_only_tools: readOnlyTools,
+      status: 'connected',
+      error: '',
+      tools: [
+        {
+          name: 'echo',
+          capability: `mcp__${body.name}__echo`,
+          description: 'MSW 离线模式下的示例工具',
+          read_only: readOnly,
+          writes: !readOnly,
+          risk: readOnly ? 'low' : 'high',
+        },
+      ],
+    };
+    mcpServers = [server, ...mcpServers.filter((item) => item.name !== server.name)];
+    return HttpResponse.json(server);
+  }),
+  http.delete(url('/mcp/servers/:name'), ({ params }) => {
+    const before = mcpServers.length;
+    mcpServers = mcpServers.filter((item) => item.name !== params.name);
+    return before === mcpServers.length
+      ? new HttpResponse(null, { status: 404 })
+      : new HttpResponse(null, { status: 204 });
+  }),
+  http.post(url('/mcp/servers/:name/reconnect'), ({ params }) => {
+    const server = mcpServers.find((item) => item.name === params.name);
+    return server ? HttpResponse.json(server) : new HttpResponse(null, { status: 404 });
+  }),
+  http.post(url('/artifacts'), async ({ request }) => {
+    const form = await request.formData();
+    const file = form.get('file') as File;
+    const artifactId = id('mock-artifact');
+    artifacts.set(artifactId, file);
+    return HttpResponse.json({
+      artifact_id: artifactId,
+      sha256: artifactId,
+      media_type: file.type || 'application/octet-stream',
+      bytes: file.size,
+    });
+  }),
+  http.get(url('/artifacts/:artifactId'), ({ params }) => {
+    const file = artifacts.get(String(params.artifactId));
+    return file
+      ? new HttpResponse(file, {
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        })
+      : HttpResponse.json(
+          { detail: { code: 'artifact_not_found', message: 'artifact not found' } },
+          { status: 404 },
+        );
+  }),
+  http.post(url('/runs'), async ({ request }) => {
+    const body = (await request.json()) as {
+      message: string;
+      session_id: string;
+      source?: 'chat' | 'expert' | 'event' | 'resume';
+      skill_names?: string[];
+      artifact_ids?: string[];
+    };
+    const run: RunSnapshot = {
+      run_id: id('mock-run'),
+      session_id: body.session_id,
+      objective: body.message,
+      path: 'fast',
+      status: 'running_fast',
+      steps: {},
+      pending_approvals: [],
+      revision: 1,
+      input_artifact_ids: body.artifact_ids ?? [],
+      intent: { requested_skills: body.skill_names ?? [], source: body.source ?? 'chat' },
+    };
+    runs.set(run.run_id, run);
+    const history = messages.get(body.session_id) ?? [];
+    history.push({
+      id: id('mock-msg'),
+      role: 'user',
+      content: body.message,
+      ts: now(),
+      skill_names: body.skill_names,
+      artifact_ids: body.artifact_ids,
+      run_id: run.run_id,
+    });
+    messages.set(body.session_id, history);
+    const session = sessions.find((item) => item.session_id === body.session_id);
+    if (session)
+      Object.assign(session, {
+        active_run_id: run.run_id,
+        message_count: history.length,
+        updated_at: now(),
+      });
+    return HttpResponse.json(run, { status: 202 });
+  }),
+  http.get(url('/runs/:runId'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    return run
+      ? HttpResponse.json(run)
+      : HttpResponse.json(
+          { detail: { code: 'run_not_found', message: 'run not found' } },
+          { status: 404 },
+        );
+  }),
+  http.get(url('/runs/:runId/stream'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    if (run) {
+      run.status = 'completed';
+      run.final_text = '正在处理制造任务。';
+    }
+    return sseResponse([
+      { id: '1', event: 'run.path_selected', data: { path: 'fast' } },
+      { id: '2', event: 'token.delta', data: { delta: '正在处理制造任务。' }, delay: 80 },
+      { id: '3', event: 'run.completed', data: { final_text: '正在处理制造任务。' }, delay: 80 },
+    ]);
+  }),
+  http.post(url('/runs/:runId/cancel'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    if (!run)
+      return HttpResponse.json(
+        { detail: { code: 'run_not_found', message: 'run not found' } },
+        { status: 404 },
+      );
+    run.status = 'cancelled';
+    return HttpResponse.json(run);
+  }),
+  http.post(url('/runs/:runId/approvals/:approvalId'), ({ params }) => {
+    const run = runs.get(String(params.runId));
+    if (!run)
+      return HttpResponse.json(
+        { detail: { code: 'run_not_found', message: 'run not found' } },
+        { status: 404 },
+      );
+    // 真实后端一决定就答复（202），被批准的写入在后台继续跑。
+    run.status = 'running_structured';
+    run.pending_approvals = [];
+    run.revision += 1;
+    return HttpResponse.json(run, { status: 202 });
+  }),
 ];

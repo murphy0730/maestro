@@ -100,6 +100,9 @@ class MCPTool:
     description: str
     input_schema: dict
     server_name: str
+    # Remote annotations are retained for diagnostics and as a safety floor.
+    # They never grant read-only trust; only MCPServerConfig can do that.
+    annotations: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -108,3 +111,7 @@ class MCPConnection:
     status: MCPConnectionStatus
     tools: tuple[MCPTool, ...] = ()
     error: str = ""
+    protocol_version: str = ""
+    server_info: dict[str, object] = field(default_factory=dict)
+    # Untrusted remote metadata.  Do not inject this as a privileged instruction.
+    instructions: str = ""

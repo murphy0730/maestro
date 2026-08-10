@@ -47,6 +47,7 @@ def _persist_terminal_reply(platform, run: RunRecord) -> None:
         content = "运行失败，未能生成最终回复。请查看运行详情后重试。"
     if content:
         platform.session_store.append_run_final(run.session_id, run.run_id, content)
+    platform.session_store.clear_active_run(run.session_id, run.run_id)
 
 
 @router.post("/runs", status_code=202)
@@ -168,6 +169,12 @@ async def stream_run(run_id: str, request: Request):
                     if event.event_id not in sent:
                         sent.add(event.event_id)
                         yield _sse(event)
+        async def durable() -> AsyncIterator[str]:
+            for raw in platform.runtime._events.history(run_id):
+                for event in _project(raw):
+                    if event.event_id not in sent:
+                        sent.add(event.event_id)
+                        yield _sse(event)
         try:
             for event in events:
                 yield _sse(event)
@@ -175,6 +182,8 @@ async def stream_run(run_id: str, request: Request):
             async for item in queued():
                 yield item
             if platform.run_store.load(run_id).status in terminal:
+                async for item in durable():
+                    yield item
                 return
             while True:
                 for event in _project(await queue.get()):
@@ -184,6 +193,8 @@ async def stream_run(run_id: str, request: Request):
                 async for item in queued():
                     yield item
                 if platform.run_store.load(run_id).status in terminal:
+                    async for item in durable():
+                        yield item
                     return
         finally:
             unsubscribe()
@@ -191,24 +202,42 @@ async def stream_run(run_id: str, request: Request):
     return StreamingResponse(body(), media_type="text/event-stream")
 
 
-@router.post("/runs/{run_id}/approvals/{approval_id}")
+@router.post("/runs/{run_id}/approvals/{approval_id}", status_code=202)
 async def resolve_approval(run_id: str, approval_id: str, payload: ApprovalRequest, request: Request):
+    """Answer as soon as the approval is decided; the approved write runs in the background.
+
+    Holding the request open for the whole resumed turn left the caller with no
+    way to tell "approved, now executing" from "still waiting on me", so the
+    decision is awaited (it is what 404/409 are about) and the rest is a task.
+    """
     platform = request.app.state.platform
     try:
-        run = await platform.runtime.approve(
+        run, continuation = await platform.runtime.approve_deferred(
             run_id, approval_id, payload.approved, payload.principal_id, payload.expected_revision
         )
     except FileNotFoundError:
         raise _error(404, "run_not_found", "run not found", run_id) from None
     except ValueError as error:
         raise _error(409, "stale_approval", str(error), run_id) from error
-    _persist_terminal_reply(platform, run)
+    if continuation is None:
+        _persist_terminal_reply(platform, run)
+        return _dump_run(run)
+
+    async def finish_and_persist_reply() -> None:
+        _persist_terminal_reply(platform, await continuation())
+
+    task = asyncio.create_task(finish_and_persist_reply())
+    request.app.state.run_tasks.add(task)
+    task.add_done_callback(request.app.state.run_tasks.discard)
     return _dump_run(run)
 
 
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(run_id: str, request: Request):
     try:
-        return _dump_run(await request.app.state.platform.runtime.cancel(run_id))
+        platform = request.app.state.platform
+        run = await platform.runtime.cancel(run_id)
+        _persist_terminal_reply(platform, run)
+        return _dump_run(run)
     except (FileNotFoundError, ValueError):
         raise _error(404, "run_not_found", "run not found", run_id) from None
