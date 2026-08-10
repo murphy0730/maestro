@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from maestro.config import Settings
 from maestro.mcp import MCPServerConfig
 from maestro.runtime.capabilities import CapabilityCall
 from maestro.runtime.model import ModelAction
+from maestro.skills.parser import validate_runtime_package
 
 
 SERVER = Path(__file__).parent / "servers" / "planning_server.py"
@@ -27,8 +29,45 @@ PLANNING_READ_ONLY_TOOLS = (
     "explain_order_delay",
     "get_order_planning",
     "get_operation_planning",
+    "describe_whatif_scenario",
+    "get_whatif_run",
+    "compare_whatif_runs",
+    "get_scheduling_status",
+    "list_planning_objectives",
+    "get_planning_task",
+    "get_insertion_schedule",
+    "get_online_dispatch_status",
 )
-PLANNING_TOOLS = (*PLANNING_READ_ONLY_TOOLS, "run_rule_planning")
+PLANNING_TOOLS = (
+    "list_planning_rules",
+    "run_rule_planning",
+    "get_planning_overview",
+    "compare_planning_solutions",
+    "search_planning_entities",
+    "diagnose_bottleneck",
+    "explain_order_delay",
+    "get_order_planning",
+    "get_operation_planning",
+    "create_whatif_scenario",
+    "apply_whatif_patch",
+    "describe_whatif_scenario",
+    "revert_whatif_patch",
+    "run_whatif_planning",
+    "get_whatif_run",
+    "compare_whatif_runs",
+    "apply_whatif_to_instance",
+    "get_scheduling_status",
+    "validate_planning_instance",
+    "list_planning_objectives",
+    "build_planning_context",
+    "start_planning_optimization",
+    "get_planning_task",
+    "start_exact_window_optimization",
+    "evaluate_order_insertion",
+    "get_insertion_schedule",
+    "get_online_dispatch_status",
+    "control_online_dispatch",
+)
 
 QUESTIONS = [
     ("有哪些内置排产规则？", "list_planning_rules", {}),
@@ -56,6 +95,64 @@ QUESTIONS = [
         {"order_id": "ORD-0004", "solution_id": "S-1"},
     ),
 ]
+
+
+def test_planning_fixture_exposes_v2_tool_names_and_annotations() -> None:
+    tools = runpy.run_path(str(SERVER))["TOOLS"]
+
+    assert tuple(tool["name"] for tool in tools) == PLANNING_TOOLS
+    assert len(tools) == 28
+    for tool in tools:
+        annotations = tool["annotations"]
+        assert annotations["readOnlyHint"] is (
+            tool["name"] in PLANNING_READ_ONLY_TOOLS
+        )
+        assert annotations["openWorldHint"] is False
+
+
+@pytest.mark.parametrize(
+    ("skill_name", "required_tools"),
+    [
+        (
+            "scheduling-query",
+            {
+                "get_scheduling_status",
+                "validate_planning_instance",
+                "build_planning_context",
+                "start_planning_optimization",
+                "start_exact_window_optimization",
+                "evaluate_order_insertion",
+                "control_online_dispatch",
+            },
+        ),
+        (
+            "whatif-planning",
+            {
+                "get_scheduling_status",
+                "describe_whatif_scenario",
+                "apply_whatif_to_instance",
+            },
+        ),
+    ],
+)
+def test_project_planning_skills_allow_registered_v2_tools(
+    skill_name: str, required_tools: set[str]
+) -> None:
+    skill = Path(__file__).parents[3] / "skills" / skill_name / "SKILL.md"
+    registered = {
+        *(f"mcp__planning__{name}" for name in PLANNING_TOOLS),
+        "read_artifact",
+    }
+
+    package, report = validate_runtime_package(
+        skill.read_bytes(), "SKILL.md", registered=registered
+    )
+
+    assert report.compatible is True
+    assert package is not None
+    assert {
+        f"mcp__planning__{name}" for name in required_tools
+    }.issubset(package.frontmatter.allowed_tools or [])
 
 
 class PlanningModel:

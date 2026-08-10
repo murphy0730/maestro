@@ -1,32 +1,46 @@
 ---
 name: whatif-planning
-description: 在不修改正式数据库的内存沙箱中做排产 What-if 假设推演。用户询问“如果……会怎样 / 能否赶上交期 / 影响多大 / 哪个方案或规则更好”时使用：新建、列出、复述、校验或撤销场景；模拟增减机器、调整班次、工序工时或可用机器、订单交期/优先级/数量、停机窗口、工装、人员/技能、机器类型关键性或计划基准时刻；用单条或多条派工规则试排，轮询长任务，对比改动与现状、跨场景/跨规则 KPI，并分析瓶颈及瓶颈转移。只覆盖内存沙箱推演，不用于普通现状查询、正式重排或将改动写入正式库。
-allowed-tools: [mcp__planning__get_planning_overview, mcp__planning__diagnose_bottleneck, mcp__planning__search_planning_entities, mcp__planning__list_planning_rules, mcp__planning__create_whatif_scenario, mcp__planning__apply_whatif_patch, mcp__planning__describe_whatif_scenario, mcp__planning__revert_whatif_patch, mcp__planning__run_whatif_planning, mcp__planning__get_whatif_run, mcp__planning__compare_whatif_runs, read_artifact]
+description: 在 llm4drd 内存沙箱中做排产 What-if 推演。用于“如果加机器/改班次/改工时/改交期会怎样”“能否赶上交期”“影响多大”“哪个场景或规则更好”等问题，以及用户明确要求把已确认场景写入正式实例时的受控落库。覆盖资源检索、场景 patch、校验回显、规则试排、轮询、跨场景 KPI 对比和瓶颈转移；普通正式排产、优化、急单或在线调度使用 scheduling-query。
+allowed-tools:
+  - mcp__planning__get_scheduling_status
+  - mcp__planning__get_planning_overview
+  - mcp__planning__diagnose_bottleneck
+  - mcp__planning__search_planning_entities
+  - mcp__planning__list_planning_rules
+  - mcp__planning__create_whatif_scenario
+  - mcp__planning__apply_whatif_patch
+  - mcp__planning__describe_whatif_scenario
+  - mcp__planning__revert_whatif_patch
+  - mcp__planning__run_whatif_planning
+  - mcp__planning__get_whatif_run
+  - mcp__planning__compare_whatif_runs
+  - mcp__planning__apply_whatif_to_instance
+  - read_artifact
 ---
 
 # 排产 What-if 场景推演
 
-在**不改数据库**的前提下，改一份内存里的车间数据副本，跑规则，比 KPI。
-改动只活在排产后端的进程内存里，服务重启即失；正式实例数据与四步流程结论都不受影响。
+默认只改内存里的车间数据副本，跑规则并比较 KPI。场景与推演结果随排产后端进程重启而消失。
+只有用户明确要求落库，并完成“回显完整改动 → 用户直接确认 → Policy Gate 审批”后，才允许调用
+`apply_whatif_to_instance` 修改正式实例。
 
-## 最短路径（先看这个，务必照做）
+创建场景、打/撤 patch 和启动推演也会改变服务内存状态。只为当前用户请求调用，并服从 Policy Gate；
+获准调用后仍须等待工具成功结果，不能把“已审批”说成“已完成”。
 
-**一次对话的工具调用次数是硬性受限的（约 5 次），超了整个推演会直接失败、一个字都答不出来。**
-所以每一次调用都必须算数。目标机器明确时，标准推演正好 4 步：
+## 推荐主流程
 
-1. **一次** `search_planning_entities`：`entity_type="machine"` + `query=<用户提到的工艺类型或机器名>`。
-   返回里已经同时包含 `type_id` 和可直接抄用的 `shift_pattern`——**不需要**再单独查一次
-   `machine_type`。只有用户完全没提是什么设备、必须先看有哪些类型时，才多花这一步。
-2. **一次** `create_whatif_scenario`：只建一个场景。
-3. **一次** `apply_whatif_patch`：把**所有**改动放进同一个 `patches` 数组一次提交。
-   分两次调用是浪费，会直接导致推演跑不完。
-4. **一次** `run_whatif_planning`：`rule_names` 里一次列全所有要跑的规则。
-   现状对照会自动一起跑，**不要**为基线单独建场景或单独跑一次。
+1. 调用一次 `get_scheduling_status`。数据步骤 `blocked` 时先报告并停止；不要在失效基线上建场景。
+2. 调用 `search_planning_entities` 获取真实资源 ID、类型和班次模板，不猜字段值。
+3. 调用一次 `create_whatif_scenario`，只创建当前假设所需的一个场景。
+4. 调用一次 `apply_whatif_patch`，把同一假设的所有改动合并到一个 `patches` 数组。
+5. 调用 `describe_whatif_scenario` 回显物化后的改动和校验结果；`validation.errors` 非空就停止。
+6. 调用一次 `run_whatif_planning`，把要比较的规则一次放进 `rule_names`，并保留
+   `include_baseline=true`。返回 `running` 时只用 `get_whatif_run` 轮询原 `run_id`。
+7. 结果通常已包含场景与现状 KPI，可直接回答。只有跨 run 比较或需要服务端 `better` 判定时，
+   才调用 `compare_whatif_runs`。
 
-第 4 步的返回里已经同时含改动后与现状两组 KPI，**通常可以直接据此作答，不必再调
-`compare_whatif_runs`**——只有需要精确的方向判定（`better` 字段）或跨多次推演比较时才调它。
-
-`describe_whatif_scenario` / `revert_whatif_patch` 只在出问题时用，正常流程里不要调。
+复用当前会话已经确认仍有效的状态、ID 和规则目录；不要为了“完整”重复调用。打错 patch 时再用
+`revert_whatif_patch`，不要新建第二个同义场景。
 
 用户说的是“关键设备”或“瓶颈设备”而不是明确机器名时，先区分概念：
 
@@ -38,8 +52,8 @@ allowed-tools: [mcp__planning__get_planning_overview, mcp__planning__diagnose_bo
 `get_planning_overview`，绝不猜 `sol_1`。根据用户要解决的问题选择目标：扩机器看
 `capacity_wait_hours`，加班次看 `off_shift_wait_hours`；`dispatch_bound` 高时应改派工而不是扩产。
 
-本 skill 刻意**不包含落库能力**。推演只做探索；要把改动写进正式数据是一次独立的管理动作，
-需要在本流程之外单独执行。用户要求落库时，如实说明这一点，不要假装做不到或声称已经做了。
+推演默认到比较结论为止。用户没有明确说“应用到正式实例 / 保存这些改动 / 确认落库”时，
+绝不调用 `apply_whatif_to_instance`。
 
 ## 标准流程
 
@@ -106,9 +120,10 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 
 打错了用 `mcp__planning__revert_whatif_patch` 撤销最近 N 条。
 
-### 4. 回显并等用户确认
+### 4. 回显并校验
 
-`mcp__planning__describe_whatif_scenario` 拿到改动清单、规模变化与校验结果，用人话复述：
+`mcp__planning__describe_whatif_scenario` 拿到改动清单、规模变化、校验结果和当前 `apply_token`，
+用人话复述：
 
 > "已在副本上加了 1 台车床 M20（沿用 M07 的两班制），机器数 19 → 20。校验无问题。
 > 要用哪几条规则跑？默认 ATC。"
@@ -117,8 +132,8 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 这种情况下仿真会输出一堆排不出的工序，KPI 毫无意义。`warnings` 提一句即可。
 
 多条 patch 叠加、使用 `where` 批量更新，或目标机器是否命中存在疑问时，不能只看 changes 回放：
-调用 `search_planning_entities` 并带上 `scenario_id`，查询场景物化后的最终资源状态。若这会耗尽
-本轮工具预算，就在核对后向用户报告并把“运行规则”留到下一轮，不要冒险发起第 6 次工具调用。
+调用 `search_planning_entities` 并带上 `scenario_id`，查询场景物化后的最终资源状态。若暂时无法
+可靠核对，就先向用户报告待确认项，不要冒险发起仿真。
 
 ### 5. 跑规则
 
@@ -149,11 +164,26 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 > 代价是平均利用率从 82% 降到 76%——多出来的产能没吃满。
 > 如果只是为了这批订单赶期，够用；长期扩产的话利用率偏低。"
 
+### 7. 仅在用户明确要求时落库
+
+把内存场景写入正式实例前，严格执行：
+
+1. 在最后一次 patch 之后重新调用 `describe_whatif_scenario`，展示**完整改动清单**、规模变化、
+   校验警告，以及“实例版本递增、校验/仿真/优化/评审快照失效并需重跑”的后果。
+2. 等待用户对这份具体改动做明确、直接的确认。模糊的“继续”“看着办”不算确认。
+3. 原样使用该次描述返回的 `apply_token` 作为 `confirm_token`，调用
+   `apply_whatif_to_instance`。任何 patch 变化都会使旧 token 失效，必须重新描述和确认。
+4. 等待 Policy Gate 的高风险审批和工具成功结果。审批通过不等于落库成功，不能提前宣称完成。
+5. 成功后报告新的 `instance_version` 与 `backup_path`，并说明正式排产工作流需要重新校验和运行。
+
+如果用户只要求推演或比较，停在第 6 步，不主动建议落库。
+
 ## 常见坑
 
 - **场景会过期**：推演期间若有人改了正式实例数据，工具返回 `WHATIF_BASE_STALE`。
   这时要重建场景并重新打 patch，不要试图绕过。
 - **场景最多留 8 个**，超出后最旧的被淘汰，`WHATIF_SCENARIO_NOT_FOUND` 多半是这个原因。
+- **确认令牌会失效**：场景内容或正式实例版本变化后，旧 `apply_token` 不可复用；重新描述并确认。
 - **删机器要小心**：某工序的 `eligible_machine_ids` 可能只有那一台。校验会拦住，但更好的做法
   是删之前先看看这台机器被哪些工序依赖。
 - **加机器不等于加产能**：工序若显式指定了 `eligible_machine_ids`，只加同类型机器它是选不到的，
@@ -169,3 +199,4 @@ patch 的 `shifts` 字段——后端会自动按天铺开，不需要你写满�
 3. **一次只回答一个假设**。用户同时问了「加机器」和「加班」两个方案，就建两个场景分别跑再一起
    对比——不要把两种改动混进一个场景，那样分不清是哪个改动起的作用。
 4. **如实报告推演结果**，包括「没有明显改善」这种结论。
+5. **没有具体改动回显和用户直接确认就不落库**，也不复用旧 token 绕过确认。
