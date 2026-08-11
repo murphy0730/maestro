@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { useRunStore } from '@/stores/runStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUiPreferencesStore } from '@/stores/uiPreferencesStore';
 
 const mocks = vi.hoisted(() => ({
   listSessions: vi.fn(),
@@ -133,7 +134,9 @@ vi.mock('@/features/orchestrator/Composer', () => ({
     </>
   ),
 }));
-vi.mock('@/features/runtime/RunTrace', () => ({ RunTrace: () => null }));
+vi.mock('@/features/runtime/RunTrace', () => ({
+  RunTrace: ({ view }: { view: string }) => <p>运行详情视图：{view}</p>,
+}));
 vi.mock('@/features/orchestrator/skills/SkillImportModal', () => ({
   SkillImportModal: () => null,
 }));
@@ -183,6 +186,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useRunStore.getState().reset();
   useSessionStore.getState().setActiveSessionId(null);
+  useUiPreferencesStore.setState({ traceDefault: 'docked' });
   mocks.listSessions.mockResolvedValue(sessions);
   mocks.createSession.mockResolvedValue({
     session_id: 's3',
@@ -316,6 +320,38 @@ describe('Workspace session orchestration', () => {
         ['whatif-planning'],
       ),
     );
+  });
+
+  it('reveals a hidden run trace when a new approval is waiting', async () => {
+    mocks.getSessionMessages.mockResolvedValue([]);
+    useUiPreferencesStore.setState({ traceDefault: 'hidden' });
+    render();
+    await screen.findByRole('button', { name: '会话一' });
+    expect(screen.getByText('运行详情视图：hidden')).toBeTruthy();
+
+    act(() => {
+      useRunStore.getState().setRun({
+        run_id: 'run-approval',
+        session_id: 's1',
+        objective: '修改班次',
+        path: 'structured',
+        status: 'waiting_approval',
+        steps: {},
+        revision: 4,
+        pending_approvals: [
+          {
+            approval_id: 'approval-1',
+            step_id: 'apply-patch',
+            impact_summary: '修改周日班次',
+            policy_reason: 'high-risk write requires confirmation',
+            run_revision: 4,
+            status: 'pending',
+          },
+        ],
+      });
+    });
+
+    expect(await screen.findByText('运行详情视图：docked')).toBeTruthy();
   });
 
   it('removes every message the server reports deleted and refreshes session metadata', async () => {

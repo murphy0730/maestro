@@ -229,6 +229,39 @@ describe('ConversationPanel', () => {
     expect(screen.getByRole('menuitem', { name: '删除消息' })).toBeTruthy();
   });
 
+  it('does not still say approval is waiting after the decision was submitted', () => {
+    const projection: RunProjection = {
+      tokens: '',
+      recovered: false,
+      diagnostics: [],
+      events: [],
+      resuming: { approvalId: 'approval-1', approved: true },
+      run: {
+        run_id: 'run-approval',
+        session_id: 'session-1',
+        objective: '修改班次',
+        path: 'structured',
+        status: 'waiting_approval',
+        steps: {},
+        pending_approvals: [],
+        revision: 4,
+      },
+    };
+
+    render(
+      <ConversationPanel
+        messages={[]}
+        projection={projection}
+        loading={false}
+        streaming={false}
+        onSuggestion={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('已确认 · 正在执行…')).toBeTruthy();
+    expect(screen.queryByText('运行已暂停，等待你的审批。')).toBeNull();
+  });
+
   it('lets the in-flight answer be copied but never deleted', () => {
     const projection: RunProjection = {
       tokens: '正在生成的回答',

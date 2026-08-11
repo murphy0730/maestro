@@ -44,6 +44,7 @@ export function Workspace() {
   const sessionLoadGeneration = useRef(0);
   const messageDeletionPending = useRef(false);
   const terminalRefreshRef = useRef<string>();
+  const revealedApprovalRef = useRef<string>();
 
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -77,6 +78,14 @@ export function Workspace() {
     recovered: state.recovered,
     resuming: state.resuming,
   }));
+  const pendingApprovalId =
+    projection.run?.status === 'waiting_approval'
+      ? projection.run.pending_approvals.find(
+          (approval) =>
+            approval.status === 'pending' &&
+            approval.approval_id !== projection.resuming?.approvalId,
+        )?.approval_id
+      : undefined;
   const resetRun = useRunStore((state) => state.reset);
   const {
     start,
@@ -87,6 +96,14 @@ export function Workspace() {
     transport,
     error: transportError,
   } = useRunStream(sessionId);
+
+  useEffect(() => {
+    if (!projection.run || !pendingApprovalId) return;
+    const approvalKey = `${projection.run.run_id}:${pendingApprovalId}`;
+    if (revealedApprovalRef.current === approvalKey) return;
+    revealedApprovalRef.current = approvalKey;
+    setTraceView((current) => (current === 'hidden' ? 'docked' : current));
+  }, [pendingApprovalId, projection.run]);
 
   useEffect(() => {
     if (!sessionId) return;

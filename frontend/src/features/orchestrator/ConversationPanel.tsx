@@ -347,7 +347,7 @@ function CurrentRun({
         {run.final_text && run.final_text !== projection.tokens && (
           <Markdown>{run.final_text}</Markdown>
         )}
-        {!projection.tokens && !run.final_text && (
+        {!projection.resuming && !projection.tokens && !run.final_text && (
           <p className="m-0 text-text-secondary">{statusText(run.status)}</p>
         )}
         {projection.recovered && (
