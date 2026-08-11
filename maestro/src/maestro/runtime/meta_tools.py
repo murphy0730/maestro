@@ -48,7 +48,12 @@ def register_runtime_meta_capabilities(registry: CapabilityRegistry) -> None:
         CapabilitySpec(
             name="get_current_plan",
             kind=CapabilityKind.TOOL,
-            description="Read the current persisted plan and task states.",
+            description=(
+                "Read the current persisted Maestro agent execution plan and task states. "
+                "This is internal Runtime orchestration state. Never use this tool for a "
+                "domain or business plan, schedule, or solution; use a listed skill or "
+                "tool_search instead."
+            ),
             input_schema={"type": "object", "properties": {}},
             risk=RiskLevel.LOW,
             writes=False,

@@ -155,6 +155,28 @@ def test_project_planning_skills_allow_registered_v2_tools(
     }.issubset(package.frontmatter.allowed_tools or [])
 
 
+def test_plain_scheduling_query_has_an_unambiguous_discovery_surface(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    platform = build_platform(Settings(summary_enabled=False))
+    platform.mcp_config.upsert(local_config())
+    monkeypatch.setattr(app_module, "build_platform", lambda: platform)
+
+    with TestClient(create_app()) as client:
+        session = client.post(
+            "/api/v2/sessions", json={"title": "排产方案自然语言查询"}
+        ).json()
+
+    assert '"skill_id":"scheduling-query"' in session["prefix_text"]
+    assert "当前系统中有什么方案" in session["prefix_text"]
+    assert "直接调用 planning MCP 的 get_planning_overview" in session["prefix_text"]
+    assert "不能使用 Runtime 的 get_current_plan" in session["prefix_text"]
+    current_plan = platform.runtime_v2._capabilities.require("get_current_plan")
+    assert "internal Runtime orchestration state" in current_plan.description
+    assert "Never use this tool for a domain or business plan" in current_plan.description
+
+
 class PlanningModel:
     def __init__(self, tool_name: str, arguments: dict[str, object]) -> None:
         self.tool_name = f"mcp__planning__{tool_name}"

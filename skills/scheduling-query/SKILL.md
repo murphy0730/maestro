@@ -1,6 +1,6 @@
 ---
 name: scheduling-query
-description: 编排并查询 llm4drd 排产工作流。用于检查五步就绪状态、校验实例、运行内置规则、多目标优化或近期窗口精确求解、比较方案 KPI、查询订单/工序、诊断瓶颈与延误、评估急单插入，以及查询或控制在线调度。普通“如果改机器/班次/交期会怎样”的假设推演改用 whatif-planning。
+description: 查询并编排 llm4drd 正式排产工作流。用户询问“当前系统中有什么方案”“有哪些排产方案”“方案 KPI、订单、工序、瓶颈或延误”等正式排产问题时使用；查询现有方案时直接调用 planning MCP 的 get_planning_overview，不能使用 Runtime 的 get_current_plan，也不先检查工作流状态。也用于检查五步就绪状态、校验实例、运行规则、多目标或近期窗口优化、急单插入和在线调度。普通“如果改机器/班次/交期会怎样”的假设推演改用 whatif-planning。
 allowed-tools:
   - mcp__planning__get_scheduling_status
   - mcp__planning__validate_planning_instance
@@ -23,7 +23,6 @@ allowed-tools:
   - mcp__planning__get_online_dispatch_status
   - mcp__planning__control_online_dispatch
   - read_artifact
-disable-model-invocation: true
 ---
 
 # 排产工作流、查询与在线调度
@@ -33,7 +32,10 @@ disable-model-invocation: true
 
 ## 先判断任务类型
 
-- 只查询已有方案、订单或工序时，直接调用最匹配的查询工具；结果缺失、过期或提示工作流未就绪时，
+- 用户只问“当前/已有/总共有哪些方案”时，第一步用 `tool_search` 查找并直接调用
+  `get_planning_overview`；不要先调用 `get_scheduling_status`，也不要调用 Runtime 的
+  `get_current_plan`。只有概览结果明确提示缺失、过期或工作流未就绪时，才查询工作流状态。
+- 只查询订单或工序时，直接调用最匹配的查询工具；结果缺失、过期或提示工作流未就绪时，
   再调用 `get_scheduling_status`。
 - 要校验、重建上下文、运行规则、启动优化、评估插单或改变在线调度状态时，先调用
   `get_scheduling_status`，按 `state=current` 继续，遇到 `state=blocked` 先处理其 `detail`。
