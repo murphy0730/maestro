@@ -453,7 +453,7 @@ class AgentRuntime:
             return self._fail(run, decision.reason)
         if spec.executor is None:
             return self._recoverable_failure(run, call, call_id, "missing_executor")
-        result = await self._execute(spec, call, None)
+        result = await self._execute(spec, call, None, principal_id=run.principal_id)
         return self._record_result(run, call, call_id, result, spec=spec)
 
     def _tool_search(self, run: AgentRun, call: CapabilityCall, call_id: str) -> AgentRun:
@@ -643,12 +643,18 @@ class AgentRuntime:
         return run, event, {"skill_id": name, "version": version}
 
     async def _execute(
-        self, spec: CapabilitySpec, call: CapabilityCall, idempotency_key: str | None
+        self,
+        spec: CapabilitySpec,
+        call: CapabilityCall,
+        idempotency_key: str | None,
+        *,
+        principal_id: str,
     ) -> CapabilityResult:
         try:
             if spec.executor is None:
                 return CapabilityResult(status="failed", error_message="missing_executor")
-            return await spec.executor(call, idempotency_key)
+            execution_call = call.model_copy(update={"principal_id": principal_id})
+            return await spec.executor(execution_call, idempotency_key)
         except UnknownWriteOutcome:
             return CapabilityResult(status="unknown")
         except Exception as error:  # execution errors are data for the next model turn
@@ -928,7 +934,12 @@ class AgentRuntime:
                     )
                 ],
             )
-            result = await self._execute(spec, call, approval.idempotency_key)
+            result = await self._execute(
+                spec,
+                call,
+                approval.idempotency_key,
+                principal_id=run.principal_id,
+            )
             run = self._record_result(
                 run,
                 call,

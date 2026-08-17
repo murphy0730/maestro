@@ -147,6 +147,42 @@ async def test_high_risk_write_waits_for_revision_bound_approval(tmp_path) -> No
 
 
 @pytest.mark.asyncio
+async def test_runtime_attaches_principal_only_at_capability_execution(tmp_path) -> None:
+    seen: list[str | None] = []
+
+    async def execute(call, _key) -> CapabilityResult:
+        seen.append(call.principal_id)
+        assert "principal_id" not in call.model_dump()
+        return CapabilityResult(status="succeeded", content={"ok": True})
+
+    model = FakeRuntimeModel()
+    runtime, _store = make_runtime(
+        tmp_path,
+        model,
+        CapabilitySpec(
+            name="principal_reader",
+            kind=CapabilityKind.TOOL,
+            description="read for one principal",
+            executor=execute,
+        ),
+    )
+    model.queue_call("tool_search", {"query": "principal reader"})
+    model.queue_call("principal_reader", {})
+    model.queue_final("done")
+    session = runtime.create_session()
+    run = await runtime.create_run(
+        session.session_id,
+        "read my data",
+        principal_id="agent-user-a",
+    )
+
+    completed = await runtime.execute(run.run_id)
+
+    assert completed.status is RunStatus.COMPLETED
+    assert seen == ["agent-user-a"]
+
+
+@pytest.mark.asyncio
 async def test_retrieval_keeps_provider_tool_protocol_and_records_evidence(tmp_path) -> None:
     model = FakeRuntimeModel()
     runtime, store = make_runtime(tmp_path, model)

@@ -29,6 +29,9 @@ class RiskLevel(StrEnum):
 class CapabilityCall(BaseModel):
     name: str
     arguments: dict[str, object] = Field(default_factory=dict)
+    # Host-owned execution context.  It is attached only after policy evaluation,
+    # never exposed in the model-callable schema or persisted with tool arguments.
+    principal_id: str | None = Field(default=None, exclude=True, repr=False)
 
 
 class CapabilityResult(BaseModel):

@@ -111,9 +111,15 @@ class MCPManager:
 
 
 def _executor_for(client: MCPClient):
-    async def execute(tool_name: str, arguments: dict) -> object:
+    async def execute(
+        tool_name: str, arguments: dict, principal_id: str | None
+    ) -> object:
         try:
-            return await client.call_tool(tool_name, dict(arguments))
+            return await client.call_tool(
+                tool_name,
+                dict(arguments),
+                principal_id=principal_id,
+            )
         except MCPToolError as error:
             return CapabilityResult(status="failed", error_message=str(error))
 

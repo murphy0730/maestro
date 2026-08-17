@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -264,6 +265,62 @@ async def test_mcp_is_error_raises_a_bounded_tool_error() -> None:
         await client.disconnect()
 
 
+async def test_browser_auth_opens_once_and_retries_with_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        def __init__(self) -> None:
+            self.requests: list[dict] = []
+
+        async def request(self, _request_id: int, message: dict, timeout: float = 0):
+            self.requests.append(message)
+            if len(self.requests) == 1:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": {
+                        "isError": True,
+                        "content": [{"type": "text", "text": "请登录排产系统"}],
+                        "structuredContent": {
+                            "ok": False,
+                            "error": {
+                                "code": "AUTH_REQUIRED",
+                                "message": "请登录排产系统",
+                                "challenge_id": "challenge-1",
+                                "login_url": "http://127.0.0.1:8888/?mcp_login=challenge-1",
+                                "expires_at": time.time() + 60,
+                                "retry_after_ms": 0,
+                            },
+                        },
+                    },
+                }
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {"isError": False, "structuredContent": {"ok": True}},
+            }
+
+    opened: list[str] = []
+    client = MCPClient(config())
+    fake = FakeTransport()
+    client._transport = fake
+    monkeypatch.setattr("maestro.mcp.client._MIN_AUTH_RETRY_SECONDS", 0.0)
+    monkeypatch.setattr(
+        "maestro.mcp.client.webbrowser.open",
+        lambda url, **_kwargs: opened.append(url) or True,
+    )
+
+    result = await client.call_tool("echo", {"text": "x"}, principal_id="planner-a")
+
+    assert result["structuredContent"]["ok"] is True
+    assert opened == ["http://127.0.0.1:8888/?mcp_login=challenge-1"]
+    assert len(fake.requests) == 2
+    assert all(
+        request["params"]["_meta"] == {"maestro/principalId": "planner-a"}
+        for request in fake.requests
+    )
+
+
 async def test_mcp_is_error_becomes_a_non_transient_failed_capability() -> None:
     registry = CapabilityRegistry()
     manager = MCPManager(MCPConnector(registry))
@@ -391,7 +448,9 @@ async def test_mcp_may_not_shadow_a_host_tool() -> None:
     registry.register(CapabilitySpec(name="mcp__echo__echo", kind=CapabilityKind.TOOL))
     connector = MCPConnector(registry)
 
-    async def executor(_name: str, _arguments: dict) -> object:
+    async def executor(
+        _name: str, _arguments: dict, _principal_id: str | None
+    ) -> object:
         return {}
 
     with pytest.raises(MCPCapabilityConflict):

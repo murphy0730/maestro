@@ -86,8 +86,13 @@ allowed-tools:
 
 1. 用 `get_planning_overview` 选择完整基准；`base_source="solution"` 时使用真实 `task_id` 和
    `solution_id`，绝不猜测。
-2. 一次性向 `evaluate_order_insertion` 提交完整 `orders` 与 `operations`。默认使用
-   `policy="frozen"`；只有用户允许移动原工序且仍要保护原订单交期时使用 `due_protected`。
+2. 一次性向 `evaluate_order_insertion` 提交完整 `rows` 宽表。每行字段依次为计划号、优先级、
+   零件名称、零件数量，以及 `RG, M, CNC-EROWA, WE, G, GP, GP_C, CNC-E800, CNC-高速, CNC-五轴,
+   CNC-Kern, EDM, EP, WEDM, L, LF, LC, GL3, GL5, JG, CG, AO, CO, H, LW, QX-OS, QC, MA, TO`；
+   零件名称作为任务令号，非空工序按列顺序执行。优先级数字越大越优先。CNC / WEDM 开头工序
+   按总工时自动拆为 1–3 台，工时等分、数量余数由服务端分配，不要在 Agent 侧自行生成工序 ID
+   或拆单。默认使用 `policy="frozen"`；只有
+   用户允许移动原工序且仍要保护原订单交期时使用 `due_protected`。
 3. 先根据返回的订单结论回答；只有需要甘特明细时才调用 `get_insertion_schedule`，优先带
    `order_id` 并限制 `limit`。
 

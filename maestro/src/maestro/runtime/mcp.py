@@ -17,7 +17,7 @@ from maestro.runtime.capabilities import (
 )
 from maestro.runtime.models import RuntimeErrorKind
 
-MCPExecutor = Callable[[str, dict[str, object]], Awaitable[object]]
+MCPExecutor = Callable[[str, dict[str, object], str | None], Awaitable[object]]
 _MAX_MCP_SUMMARY_CHARS = 2_000
 
 
@@ -49,7 +49,7 @@ class MCPConnector:
             # A transport or remote failure is this capability failing, not the
             # Runtime crashing: report it as data so the Run can react.
             try:
-                content = await executor(tool_name, call.arguments)
+                content = await executor(tool_name, call.arguments, call.principal_id)
             except Exception as error:  # noqa: BLE001 — boundary to an external process
                 return CapabilityResult(
                     status="failed",

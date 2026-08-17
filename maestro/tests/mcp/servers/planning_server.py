@@ -18,6 +18,12 @@ BUILTIN_RULES = (
     "BOTTLENECK",
     "COMPOSITE",
 )
+INSERTION_PROCESS_HEADERS = (
+    "RG", "M", "CNC-EROWA", "WE", "G", "GP", "GP_C", "CNC-E800", "CNC-高速",
+    "CNC-五轴", "CNC-Kern", "EDM", "EP", "WEDM", "L", "LF", "LC", "GL3", "GL5",
+    "JG", "CG", "AO", "CO", "H", "LW", "QX-OS", "QC", "MA", "TO",
+)
+
 
 def _tool(
     name: str,
@@ -249,17 +255,35 @@ TOOLS = [
     ),
     _tool(
         "evaluate_order_insertion",
-        "在完整基准排程上评估新订单插入。",
+        "按计划号、优先级、零件与顺序工时宽表，在完整基准排程上评估新订单插入。",
         properties={
             "base_source": {"type": "string"},
             "task_id": {"type": "string"},
             "solution_id": {"type": "string"},
             "strategy_id": {"type": "string"},
             "policy": {"type": "string"},
-            "orders": {"type": "array", "items": {"type": "object"}},
-            "operations": {"type": "array", "items": {"type": "object"}},
+            "rows": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 120,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "计划号": {"type": "string"},
+                        "优先级": {"type": "integer", "minimum": 1},
+                        "零件名称": {"type": "string"},
+                        "零件数量": {"type": "integer", "minimum": 1},
+                        **{
+                            name: {"type": ["number", "null"], "exclusiveMinimum": 0}
+                            for name in INSERTION_PROCESS_HEADERS
+                        },
+                    },
+                    "required": ["计划号", "优先级", "零件名称", "零件数量"],
+                    "additionalProperties": False,
+                },
+            },
         },
-        required=("orders", "operations"),
+        required=("rows",),
     ),
     _tool(
         "get_insertion_schedule",

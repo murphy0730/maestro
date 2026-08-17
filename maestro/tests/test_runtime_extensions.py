@@ -26,7 +26,9 @@ def test_default_platform_injects_maestro_identity_prompt(tmp_path) -> None:
 async def test_platform_accepts_mcp_registration_after_startup(tmp_path) -> None:
     platform = build_platform(Settings(skills_dir=tmp_path / "skills"))
 
-    async def transport(_tool: str, _args: dict[str, object]) -> object:
+    async def transport(
+        _tool: str, _args: dict[str, object], _principal_id: str | None
+    ) -> object:
         return {"ok": True}
 
     name = platform.mcp.register("demo", "lookup", executor=transport)

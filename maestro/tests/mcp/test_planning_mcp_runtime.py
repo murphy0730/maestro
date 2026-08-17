@@ -102,6 +102,18 @@ def test_planning_fixture_exposes_v2_tool_names_and_annotations() -> None:
 
     assert tuple(tool["name"] for tool in tools) == PLANNING_TOOLS
     assert len(tools) == 28
+    insertion_schema = next(
+        tool["inputSchema"]
+        for tool in tools
+        if tool["name"] == "evaluate_order_insertion"
+    )
+    assert insertion_schema["required"] == ["rows"]
+    assert insertion_schema["properties"]["rows"]["items"]["required"] == [
+        "计划号",
+        "优先级",
+        "零件名称",
+        "零件数量",
+    ]
     for tool in tools:
         annotations = tool["annotations"]
         assert annotations["readOnlyHint"] is (
