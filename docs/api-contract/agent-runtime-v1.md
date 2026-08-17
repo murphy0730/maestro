@@ -27,6 +27,8 @@
 `POST /runs/{run_id}/approvals/{approval_id}` 接受
 `{"approved":true,"expected_revision":3,"principal_id":"local-user"}`；revision 不匹配返回 409。
 
+审批决定本身是同步的（404 / 409 照常立即抛出），被它解开的写入与随后的模型回合则在后台继续，因此返回 **202** 与一份**非终态**快照：批准为 `running_structured`，重开一轮或进入下一次确认为 `waiting_approval` 且 `approval_id` 已变，拒绝为 `failed`。客户端拿到 202 后应重新订阅 `GET /runs/{run_id}/stream`（可带 `Last-Event-ID`），在那条流上实时收到 `approval.resolved`、`step.started` 与后续 `token.delta`。
+
 `POST /runs/{run_id}/cancel` 幂等地请求取消并返回 Run 快照。
 
 ## SSE
@@ -41,9 +43,15 @@ data: {"final_text":"..."}
 ```
 
 客户端以 `Last-Event-ID` 恢复，服务器先订阅实时事件、再稳定重放其后的 Journal 事件，因此不会有 replay/live 间隙或重复。公开事件包括：
-`run.created`、`run.path_selected`、`run.path_upgraded`、`run.waiting_approval`、`run.reconciling`、`run.completed`、`run.failed`、`run.cancelled`、`step.started`、`step.succeeded`、`step.failed`、`approval.requested`、`approval.expired`、`approval.resolved`、`artifact.created`、`token.delta`。
+`run.created`、`run.path_selected`、`run.path_upgraded`、`run.waiting_approval`、`run.reconciling`、`run.completed`、`run.failed`、`run.cancelled`、`step.started`、`step.succeeded`、`step.failed`、`approval.requested`、`approval.expired`、`approval.resolved`、`artifact.created`、`context.shed`、`token.delta`。
 
 `step.*` 的 `data` 结构：`step.started` 为 `{step_id, idempotency_key}`；`step.succeeded` 为 `{name, status}`；`step.failed` 为 `{name, status, error}`（写路径为 `{step_id, status}`）。`artifact.created` 为 `ArtifactRef`，即 `{artifact_id, sha256, media_type, bytes}`。只读能力只在完成时发事件，因此不会出现 `step.started`。
+
+`model.turn` 的 `data` 为 `{kind, estimated_prompt_tokens}`，供应商回报 usage 时并入 `prompt_tokens` / `completion_tokens` / `total_tokens`。估算值与实际值同时给出是刻意的：预算按估算值决策，两者的偏差必须可见而不是被假定为零。
+
+`context.shed` 为 `{limit, total_tokens, items}`，在统一 token 预算把过旧的工具结果降级为 artifact 引用时发出。上下文从不静默截断——只看总量会把被裁剪过的 prompt 误读成本来就小的 prompt。被降级的内容仍可用 `read_artifact` 读回。
+
+`run.failed` 的 `reason` 新增两个取值：`context_overflow`（组装出的 prompt 超出模型窗口）与 `model_unavailable`（模型调用失败）。这两种情况以前会被当作一次成功的回答返回「模型当前不可用。」并写进会话历史。
 
 ## Extensions
 
@@ -79,9 +87,9 @@ SSE 上一轮确认完成投影为 `approval.resolved`，紧随其后的 `approv
 
 ## MCP
 
-MCP 工具经 stdio 传输接入（协议版本 `2024-11-05`，实现 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`；未实现 resources、SSE 与 HTTP）。发现到的工具以 `mcp__{server}__{tool}` 注册为 `CapabilityKind.MCP`。
+MCP 工具经 stdio 传输接入（协议版本 `2024-11-05`，实现 `initialize` / `notifications/initialized` / `ping` / `tools/list` / `tools/call`；未实现 resources、SSE 与 HTTP）。发现到的工具以 `mcp__{server}__{tool}` 注册为 `CapabilityKind.MCP`。
 
-风险姿态在本地决定：Runtime 无法知道任意远端工具会触及什么，因此默认注册为 `writes=true, risk=high, idempotent=false`，每次调用都要人工审批。本地管理员可在服务器配置的 `read_only_tools` 中逐项授予只读信任；只有列出的工具注册为 `writes=false, risk=low, idempotent=true`。远端描述和 annotations 只提供参数 schema 与说明，不能降低这一判定，也不能顶替同名的 TOOL/SKILL 能力。新发现但未列入白名单的工具始终保持高风险。
+风险姿态在本地决定：Runtime 无法知道任意远端工具会触及什么，因此默认注册为 `writes=true, risk=high, idempotent=false`，每次调用都要人工审批。本地管理员可在服务器配置的 `read_only_tools` 中逐项授予只读信任；只有列出的工具注册为 `writes=false, risk=low, idempotent=true`。远端描述和 annotations 不能降低这一判定，也不能顶替同名的 TOOL/SKILL 能力；远端明确给出 `readOnlyHint=false` 或 `destructiveHint=true` 时，只能阻止误配的本地降级。新发现但未列入白名单的工具始终保持高风险。
 
 服务器配置存放在 `<数据根>/settings.json` 的 `mcp_servers` 键下，**不经环境变量**。`read_only_tools` 为可选工具名数组，缺失时按空数组兼容旧配置。子进程只继承 `PATH`/`LANG`/`LC_ALL`/`TZ`/`HOME`/`TMPDIR` 与该服务器配置中显式声明的 `env`，宿主的 `LLM_API_KEY` 不会泄漏给 MCP 服务器。
 
@@ -93,6 +101,22 @@ MCP 工具经 stdio 传输接入（协议版本 `2024-11-05`，实现 `initializ
 后三者与 Skill 包管理同属宿主管理接口，要求 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`，无效或缺失凭证返回 403。服务器响应包含 `read_only_tools`；每个已发现工具包含 `read_only`、`writes` 与 `risk`。响应中的 `env_keys` 只回显键名，不回显值。连接失败通过 `status: "error"` 与 `error` 字段上报，不会让启动或请求失败。
 
 `tools/call` 返回 `isError=true` 时，该调用记录为失败并把有界错误文本回填模型，不产生成功事件。存在 `structuredContent` 的成功结果归一化为 `{data, summary, mcp}`；没有时保留原始 MCP result。超过 Runtime artifact 阈值的结果只向模型传递 artifact 引用，完整内容由 `read_artifact` 按需读取。
+
+## 模型与引擎
+
+推理来源以「供应商列表 + 一个启用项」的形式配置，存放在 `<数据根>/settings.json` 的 `model_providers` 键下，与 `mcp_servers` 同为分节原子写。结构为 `{"llm": {"providers": [...], "active_id": ...}, "embedding": {...}}`，每个 provider 为 `{id, name, base_url, api_key, model}`。
+
+**优先级**：某 section 存在 `active_id` 指向的启用项时，它的连接信息覆盖扁平的 `llm_*` / `embed_*`（环境变量与 `.env`）；没有启用项时回退到扁平值。这样设置界面里的选择不会被一份过期的 `.env` 静默击败。`embedding` 段目前可以配置并持久化，但 Runtime 尚无嵌入消费方，配置暂不产生行为。
+
+- `GET /models`：只读，返回已持久化的配置；
+- `PUT /models`：保存整份配置并热更新运行中的客户端；
+- `POST /models/test`：用候选参数试连一次，不改动任何持久化状态。
+
+`api_key` 从不回传：`GET` 与 `PUT` 的响应里该字段恒为空串，另给派生的 `api_key_set` 表示磁盘上是否存有密钥。相应地，`PUT` 载荷中某个已存 `id` 的 `api_key` 为空时保留原值——否则前端「回读—保存」会把密钥清空；显式给出非空值才覆盖。`PUT` 的响应额外带 `available`，表示热更新后客户端是否真的可用。
+
+`POST /models/test` 接受 `{section, id?, base_url, model, api_key}`，走一次性客户端，不触碰正在服务的连接；`api_key` 为空且 `id` 命中已存条目时使用磁盘上的密钥。连接失败不是服务端错误，一律以 `{ok: false, error, latency_ms}` 返回 200。
+
+`PUT` 与 `POST /models/test` 与 MCP、Skill 包管理同属宿主管理接口，要求 `Authorization: Bearer <PRIVILEGED_API_TOKEN>`，无效或缺失凭证返回 403。热更新在原有客户端实例上原地发生，因此已持有该实例的协调器与摘要器立即用上新连接。
 
 ## Skills
 

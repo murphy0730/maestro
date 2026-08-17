@@ -23,6 +23,7 @@ class SessionMeta(BaseModel):
 
 
 class StoredMessage(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     role: str
     content: str
     ts: str
@@ -118,6 +119,14 @@ class SessionStore:
                 meta.active_run_id, meta.updated_at = run_id, self._now()
                 self._save_index()
 
+    def clear_active_run(self, session_id: str, run_id: str) -> None:
+        """Clear a terminal Run without retiring a newer Run for the same session."""
+        with self._lock:
+            meta = self._sessions.get(session_id)
+            if meta is not None and meta.active_run_id == run_id:
+                meta.active_run_id, meta.updated_at = None, self._now()
+                self._save_index()
+
     def delete(self, session_id: str) -> bool:
         with self._lock:
             if self._sessions.pop(session_id, None) is None:
@@ -159,9 +168,61 @@ class SessionStore:
             meta.message_count, meta.updated_at = len(messages), self._now()
             self._save_index()
 
+    @staticmethod
+    def _ensure_ids(messages: list[dict]) -> bool:
+        """Give pre-id messages a stable identifier; report whether anything changed."""
+        assigned = False
+        for message in messages:
+            if not message.get("id"):
+                message["id"] = uuid.uuid4().hex
+                assigned = True
+        return assigned
+
     def get_messages(self, session_id: str) -> list[dict]:
         path = self._message_file(session_id)
-        return json.loads(path.read_text("utf-8")) if path.exists() else []
+        messages = json.loads(path.read_text("utf-8")) if path.exists() else []
+        # Sessions written before messages carried ids are migrated on first read, so
+        # the ids the frontend deletes by stay stable. Reads stay lock-free afterwards.
+        if not self._ensure_ids(messages):
+            return messages
+        # Migrating means writing back, and the snapshot read above is already stale:
+        # an append landing in between would be erased wholesale. Re-read under the
+        # lock so what gets written is always the current file.
+        with self._lock:
+            messages = json.loads(path.read_text("utf-8")) if path.exists() else []
+            if self._ensure_ids(messages):
+                path.write_text(json.dumps(messages, ensure_ascii=False), "utf-8")
+            return messages
+
+    def delete_message(self, session_id: str, message_id: str, *, cascade: bool = False) -> list[str] | None:
+        """Delete one message — plus its turn's replies when cascading — and drop the summary.
+
+        Returns the ids actually removed, or None when the session or message is unknown.
+        """
+        with self._lock:
+            meta = self._sessions.get(session_id)
+            if meta is None:
+                return None
+            path = self._message_file(session_id)
+            messages = json.loads(path.read_text("utf-8")) if path.exists() else []
+            self._ensure_ids(messages)
+            index = next((position for position, message in enumerate(messages) if message["id"] == message_id), None)
+            if index is None:
+                return None
+            end = index + 1
+            if cascade and messages[index].get("role") == "user":
+                # Only assistant replies belong to the turn; a system message ends it.
+                while end < len(messages) and messages[end].get("role") == "assistant":
+                    end += 1
+            removed = [message["id"] for message in messages[index:end]]
+            del messages[index:end]
+            path.write_text(json.dumps(messages, ensure_ascii=False), "utf-8")
+            meta.message_count, meta.updated_at = len(messages), self._now()
+            summary = self._summary_file(session_id)
+            summary.unlink(missing_ok=True)
+            summary.with_name(f"{summary.name}.tmp").unlink(missing_ok=True)
+            self._save_index()
+            return removed
 
     def get_summary(self, session_id: str) -> tuple[str, int]:
         """Return the stored rolling summary and how many stale turns it already covers."""

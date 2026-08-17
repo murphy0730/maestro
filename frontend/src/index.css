@@ -313,6 +313,8 @@
 
 @keyframes scan { to { transform: translateY(calc(100vh + 240px)); } }
 @keyframes pulse { 50% { opacity: 0.35; } }
+/* 右键菜单入场：从指针原点轻微放大浮现，origin 由菜单内联样式按贴边方向翻转。 */
+@keyframes menu-in { from { opacity: 0; transform: scale(0.96) translateY(2px); } }
 
 /*
  * 窄窗：详情栏改为覆盖整个工作区的浮层，而不是压住 Composer 的右半边。

@@ -1,24 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteSkill, listSkills, revokeSkillTrust, trustSkill } from './skills';
-import {
-  deleteMcpServer,
-  listMcpServers,
-  reconnectMcpServer,
-  upsertMcpServer,
-} from './mcp';
+import { deleteMcpServer, listMcpServers, reconnectMcpServer, upsertMcpServer } from './mcp';
+import { getModels, saveModels, testModelProvider } from './models';
 
 export const SKILLS_KEY = ['skills'] as const;
 export const MCP_SERVERS_KEY = ['mcp-servers'] as const;
+export const MODELS_KEY = ['models'] as const;
+
+export const useModels = () => useQuery({ queryKey: MODELS_KEY, queryFn: getModels });
 
 export const useSkills = () => useQuery({ queryKey: SKILLS_KEY, queryFn: listSkills });
 
-export const useMcpServers = () =>
-  useQuery({ queryKey: MCP_SERVERS_KEY, queryFn: listMcpServers });
+export const useMcpServers = () => useQuery({ queryKey: MCP_SERVERS_KEY, queryFn: listMcpServers });
 
 /** Every mutation republishes capabilities, so the list is always refetched. */
-function useInvalidatingMutation<TArgs>(
+function useInvalidatingMutation<TArgs, TResult>(
   key: readonly unknown[],
-  fn: (args: TArgs) => Promise<unknown>,
+  fn: (args: TArgs) => Promise<TResult>,
 ) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -26,6 +24,11 @@ function useInvalidatingMutation<TArgs>(
     onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
   });
 }
+
+export const useSaveModels = () => useInvalidatingMutation(MODELS_KEY, saveModels);
+
+/** Probing a connection changes nothing, so it deliberately invalidates nothing. */
+export const useTestModelProvider = () => useMutation({ mutationFn: testModelProvider });
 
 export const useUpsertMcpServer = () => useInvalidatingMutation(MCP_SERVERS_KEY, upsertMcpServer);
 export const useDeleteMcpServer = () => useInvalidatingMutation(MCP_SERVERS_KEY, deleteMcpServer);

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from maestro.config import Settings
 from maestro.mcp import MCPServerConfig
 from maestro.runtime.capabilities import CapabilityCall
 from maestro.runtime.model import ModelAction
+from maestro.skills.parser import validate_runtime_package
 
 
 SERVER = Path(__file__).parent / "servers" / "planning_server.py"
@@ -23,10 +25,49 @@ PLANNING_READ_ONLY_TOOLS = (
     "get_planning_overview",
     "compare_planning_solutions",
     "search_planning_entities",
+    "diagnose_bottleneck",
+    "explain_order_delay",
     "get_order_planning",
     "get_operation_planning",
+    "describe_whatif_scenario",
+    "get_whatif_run",
+    "compare_whatif_runs",
+    "get_scheduling_status",
+    "list_planning_objectives",
+    "get_planning_task",
+    "get_insertion_schedule",
+    "get_online_dispatch_status",
 )
-PLANNING_TOOLS = (*PLANNING_READ_ONLY_TOOLS, "run_rule_planning")
+PLANNING_TOOLS = (
+    "list_planning_rules",
+    "run_rule_planning",
+    "get_planning_overview",
+    "compare_planning_solutions",
+    "search_planning_entities",
+    "diagnose_bottleneck",
+    "explain_order_delay",
+    "get_order_planning",
+    "get_operation_planning",
+    "create_whatif_scenario",
+    "apply_whatif_patch",
+    "describe_whatif_scenario",
+    "revert_whatif_patch",
+    "run_whatif_planning",
+    "get_whatif_run",
+    "compare_whatif_runs",
+    "apply_whatif_to_instance",
+    "get_scheduling_status",
+    "validate_planning_instance",
+    "list_planning_objectives",
+    "build_planning_context",
+    "start_planning_optimization",
+    "get_planning_task",
+    "start_exact_window_optimization",
+    "evaluate_order_insertion",
+    "get_insertion_schedule",
+    "get_online_dispatch_status",
+    "control_online_dispatch",
+)
 
 QUESTIONS = [
     ("有哪些内置排产规则？", "list_planning_rules", {}),
@@ -43,7 +84,109 @@ QUESTIONS = [
         "search_planning_entities",
         {"entity_type": "operation", "query": "Turning"},
     ),
+    (
+        "方案一真正卡住延误订单的瓶颈设备是什么？",
+        "diagnose_bottleneck",
+        {"solution_id": "S-1"},
+    ),
+    (
+        "方案一中 ORD-0004 为什么延误？",
+        "explain_order_delay",
+        {"order_id": "ORD-0004", "solution_id": "S-1"},
+    ),
 ]
+
+
+def test_planning_fixture_exposes_v2_tool_names_and_annotations() -> None:
+    tools = runpy.run_path(str(SERVER))["TOOLS"]
+
+    assert tuple(tool["name"] for tool in tools) == PLANNING_TOOLS
+    assert len(tools) == 28
+    insertion_schema = next(
+        tool["inputSchema"]
+        for tool in tools
+        if tool["name"] == "evaluate_order_insertion"
+    )
+    assert insertion_schema["required"] == ["rows"]
+    assert insertion_schema["properties"]["rows"]["items"]["required"] == [
+        "计划号",
+        "优先级",
+        "零件名称",
+        "零件数量",
+    ]
+    for tool in tools:
+        annotations = tool["annotations"]
+        assert annotations["readOnlyHint"] is (
+            tool["name"] in PLANNING_READ_ONLY_TOOLS
+        )
+        assert annotations["openWorldHint"] is False
+
+
+@pytest.mark.parametrize(
+    ("skill_name", "required_tools"),
+    [
+        (
+            "scheduling-query",
+            {
+                "get_scheduling_status",
+                "validate_planning_instance",
+                "build_planning_context",
+                "start_planning_optimization",
+                "start_exact_window_optimization",
+                "evaluate_order_insertion",
+                "control_online_dispatch",
+            },
+        ),
+        (
+            "whatif-planning",
+            {
+                "get_scheduling_status",
+                "describe_whatif_scenario",
+                "apply_whatif_to_instance",
+            },
+        ),
+    ],
+)
+def test_project_planning_skills_allow_registered_v2_tools(
+    skill_name: str, required_tools: set[str]
+) -> None:
+    skill = Path(__file__).parents[3] / "skills" / skill_name / "SKILL.md"
+    registered = {
+        *(f"mcp__planning__{name}" for name in PLANNING_TOOLS),
+        "read_artifact",
+    }
+
+    package, report = validate_runtime_package(
+        skill.read_bytes(), "SKILL.md", registered=registered
+    )
+
+    assert report.compatible is True
+    assert package is not None
+    assert {
+        f"mcp__planning__{name}" for name in required_tools
+    }.issubset(package.frontmatter.allowed_tools or [])
+
+
+def test_plain_scheduling_query_has_an_unambiguous_discovery_surface(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    platform = build_platform(Settings(summary_enabled=False))
+    platform.mcp_config.upsert(local_config())
+    monkeypatch.setattr(app_module, "build_platform", lambda: platform)
+
+    with TestClient(create_app()) as client:
+        session = client.post(
+            "/api/v2/sessions", json={"title": "排产方案自然语言查询"}
+        ).json()
+
+    assert '"skill_id":"scheduling-query"' in session["prefix_text"]
+    assert "当前系统中有什么方案" in session["prefix_text"]
+    assert "直接调用 planning MCP 的 get_planning_overview" in session["prefix_text"]
+    assert "不能使用 Runtime 的 get_current_plan" in session["prefix_text"]
+    current_plan = platform.runtime_v2._capabilities.require("get_current_plan")
+    assert "internal Runtime orchestration state" in current_plan.description
+    assert "Never use this tool for a domain or business plan" in current_plan.description
 
 
 class PlanningModel:
@@ -100,12 +243,50 @@ def run_via_api(
         completed = client.get(f"/runs/{run_id}").json()
         if approve:
             approval = completed["pending_approvals"][0]
-            completed = client.post(
+            client.post(
                 f"/runs/{run_id}/approvals/{approval['approval_id']}",
                 json={"approved": True, "expected_revision": completed["revision"]},
-            ).json()
+            )
+            # 审批端点一决定就返回，剩下的在后台跑完；这条流结束时它才结束。
             stream = client.get(f"/runs/{run_id}/stream")
+            completed = client.get(f"/runs/{run_id}").json()
     return completed, stream.text, model
+
+
+def test_pending_mcp_approval_survives_an_app_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP-dependent Skills must be restored before a persisted approval is checked."""
+    monkeypatch.setenv("MAESTRO_DATA_DIR", str(tmp_path))
+    config = local_config()
+
+    first = build_platform(Settings(summary_enabled=False))
+    first.mcp_config.upsert(config)
+    first.runtime._model = PlanningModel("run_rule_planning", {"rule_name": "ATC"})
+    monkeypatch.setattr(app_module, "build_platform", lambda: first)
+    with TestClient(create_app()) as client:
+        created = client.post("/runs", json={"message": "使用 ATC 跑一遍排产"}).json()
+        client.get(f"/runs/{created['run_id']}/stream")
+        waiting = client.get(f"/runs/{created['run_id']}").json()
+
+    assert waiting["status"] == "waiting_approval"
+    assert "scheduling-query" in waiting["capability_versions"]
+
+    second = build_platform(Settings(summary_enabled=False))
+    second.runtime._model = PlanningModel("run_rule_planning", {"rule_name": "ATC"})
+    monkeypatch.setattr(app_module, "build_platform", lambda: second)
+    approval = waiting["pending_approvals"][0]
+    with TestClient(create_app()) as client:
+        approved = client.post(
+            f"/runs/{waiting['run_id']}/approvals/{approval['approval_id']}",
+            json={"approved": True, "expected_revision": waiting["revision"]},
+        )
+        client.get(f"/runs/{waiting['run_id']}/stream")
+        completed = client.get(f"/runs/{waiting['run_id']}").json()
+
+    assert approved.status_code == 202
+    assert completed["status"] == "completed"
+    assert completed["pending_approvals"] == []
 
 
 @pytest.mark.parametrize(("question", "tool_name", "arguments"), QUESTIONS)

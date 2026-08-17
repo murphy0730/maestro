@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace as dataclass_replace
 from enum import StrEnum
 from hashlib import sha256
 import json
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -28,6 +29,9 @@ class RiskLevel(StrEnum):
 class CapabilityCall(BaseModel):
     name: str
     arguments: dict[str, object] = Field(default_factory=dict)
+    # Host-owned execution context.  It is attached only after policy evaluation,
+    # never exposed in the model-callable schema or persisted with tool arguments.
+    principal_id: str | None = Field(default=None, exclude=True, repr=False)
 
 
 class CapabilityResult(BaseModel):
@@ -36,6 +40,18 @@ class CapabilityResult(BaseModel):
     artifact_ref: str | None = None
     error_kind: RuntimeErrorKind | None = None
     error_message: str | None = None
+    evidence: list["CapabilityEvidence"] = Field(default_factory=list)
+
+
+class CapabilityEvidence(BaseModel):
+    """Domain-neutral provenance returned by any read capability."""
+
+    source_type: str
+    source_ref: str
+    content_digest: str
+    validity: Literal["stable", "volatile"] = "stable"
+    observed_at: datetime | None = None
+    expires_at: datetime | None = None
 
 
 CapabilityExecutor = Callable[[CapabilityCall, str | None], Awaitable[CapabilityResult]]

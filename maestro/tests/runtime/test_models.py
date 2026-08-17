@@ -1,10 +1,11 @@
 import pytest
+from pydantic import ValidationError
 
-from maestro.foundation.llm import LLMError
+from maestro.foundation.llm import LLMContextOverflow, LLMError
 import maestro.runtime as runtime
 import maestro.runtime.models as runtime_models
 from maestro.runtime.context import ContextBundle
-from maestro.runtime.model import LLMRuntimeModel, RuntimeModel
+from maestro.runtime.model import LLMRuntimeModel, ModelAction, RuntimeModel
 from maestro.runtime.models import ApprovalRecord, RunIntent, RunPath, RunRecord, StepRecord
 
 
@@ -53,7 +54,9 @@ def test_identifier_fields_are_frozen() -> None:
 
 
 @pytest.mark.asyncio
-async def test_llm_runtime_model_logs_the_failure_before_degrading(caplog) -> None:
+async def test_llm_failure_reports_an_error_rather_than_answering_for_the_model(caplog) -> None:
+    """A dead model must fail the Run, not complete it with a fabricated reply."""
+
     class FailingLLM:
         async def chat_turn(self, *_args, **_kwargs):
             raise LLMError("invalid_request_error")
@@ -62,5 +65,28 @@ async def test_llm_runtime_model_logs_the_failure_before_degrading(caplog) -> No
 
     action = await model.next_turn(ContextBundle(system_context="system"), [])
 
-    assert action.text == "模型当前不可用。"
+    assert action.kind == "error"
+    assert action.reason == "model_unavailable"
+    assert action.text == ""
     assert "invalid_request_error" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_context_overflow_is_reported_separately_from_an_unavailable_model() -> None:
+    """The prompt was too big — a budgeting fault, not a provider outage."""
+
+    class OverflowingLLM:
+        async def chat_turn(self, *_args, **_kwargs):
+            raise LLMContextOverflow("maximum context length is 65536 tokens")
+
+    model = LLMRuntimeModel(OverflowingLLM())  # type: ignore[arg-type]
+
+    action = await model.next_turn(ContextBundle(system_context="system"), [])
+
+    assert action.kind == "error"
+    assert action.reason == "context_overflow"
+
+
+def test_error_action_requires_a_reason() -> None:
+    with pytest.raises(ValidationError):
+        ModelAction(kind="error")

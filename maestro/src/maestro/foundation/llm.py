@@ -42,15 +42,48 @@ class AgentTurn:
 
     `assistant_message` 是 OpenAI 格式的 assistant 消息 (含 tool_calls)，
     调用方需把它原样追加进对话，再为每个 tool_call 追加 role=tool 的结果。
+
+    `usage` 是供应商回报的真实 token 计数 (不返回时为 None)。它是校验本地
+    估算器的唯一事实来源，调用方据此把估算偏差记入可观测数据。
     """
 
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     assistant_message: dict = field(default_factory=dict)
+    usage: dict | None = None
 
 
 class LLMError(Exception):
     """LLM 不可用 / 调用失败 / 结构化输出解析失败。"""
+
+
+class LLMContextOverflow(LLMError):
+    """提示词超出模型上下文窗口。
+
+    与一般的 LLM 故障区分开: 这不是"模型不可用"，而是调用方组装的上下文过大。
+    调用方据此把 Run 判为失败并给出可定位的原因，绝不能当成一次正常回答。
+    """
+
+
+_CONTEXT_OVERFLOW_MARKERS = (
+    "context_length_exceeded",
+    "maximum context length",
+    "context length",
+    "too many tokens",
+    "reduce the length",
+)
+
+
+def _is_context_overflow(error: Exception) -> bool:
+    """识别供应商回报的上下文超长。
+
+    OpenAI 兼容实现之间既不共用错误码也不共用文案，因此同时看 `code` 与消息文本。
+    """
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and code == "context_length_exceeded":
+        return True
+    text = str(error).lower()
+    return any(marker in text for marker in _CONTEXT_OVERFLOW_MARKERS)
 
 
 class LLMClient:
@@ -161,6 +194,8 @@ class LLMClient:
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except Exception as e:  # noqa: BLE001 — 网络/服务异常统一转 LLMError
+                if _is_context_overflow(e):
+                    raise LLMContextOverflow(f"上下文超出模型窗口: {e}") from e
                 raise LLMError(f"LLM 调用失败: {e}") from e
             msg = resp.choices[0].message
             if msg.tool_calls and tool_executor:
@@ -209,6 +244,8 @@ class LLMClient:
         try:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001 — 网络/服务异常统一转 LLMError
+            if _is_context_overflow(e):
+                raise LLMContextOverflow(f"上下文超出模型窗口: {e}") from e
             raise LLMError(f"LLM 调用失败: {e}") from e
         choice = resp.choices[0]
         msg = choice.message
@@ -240,7 +277,10 @@ class LLMClient:
         if raw_calls:
             assistant_message["tool_calls"] = [tc.model_dump() for tc in raw_calls]
         return AgentTurn(
-            text=msg.content or "", tool_calls=calls, assistant_message=assistant_message
+            text=msg.content or "",
+            tool_calls=calls,
+            assistant_message=assistant_message,
+            usage=_usage_dict(resp),
         )
 
     # ── 结构化分类 ───────────────────────────────────────────
@@ -294,6 +334,19 @@ class LLMClient:
             except Exception as e2:  # noqa: BLE001
                 raise LLMError(f"LLM 调用失败: {e2}") from e2
         return resp.choices[0].message.content or ""
+
+
+def _usage_dict(resp: Any) -> dict | None:
+    """供应商回报的 token 计数；字段缺失或不是数字时返回 None，绝不编造。"""
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return None
+    counts = {
+        key: getattr(usage, key, None)
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+    }
+    reported = {key: value for key, value in counts.items() if isinstance(value, int)}
+    return reported or None
 
 
 def _extract_json(text: str) -> dict:

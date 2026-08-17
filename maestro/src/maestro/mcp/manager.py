@@ -1,14 +1,14 @@
 """Connecting configured MCP servers and publishing their tools as capabilities.
 
-The risk posture of a remote tool is decided here, locally, from its declared
-name and schema — never from anything the server asserts about itself.  Because
-the Runtime cannot know what an arbitrary remote tool touches, every MCP tool is
-registered as a write at HIGH risk unless the operator has marked it read-only,
-which the Policy Gate turns into a human approval before each call.
+Only local configuration can grant a remote tool read-only trust.  Remote
+annotations may veto that downgrade when they explicitly describe a write or
+destructive action, but can never lower risk.  Everything else is registered as
+a HIGH-risk write, which the Policy Gate turns into human approval before calls.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 
 from maestro.mcp.client import MCPClient, MCPToolError
@@ -54,7 +54,18 @@ class MCPManager:
         registered: set[str] = set()
         rejected: list[str] = []
         for tool in connection.tools:
-            is_read_only = tool.name in config.read_only_tools
+            configured_read_only = tool.name in config.read_only_tools
+            remote_requires_governance = (
+                tool.annotations.get("readOnlyHint") is False
+                or tool.annotations.get("destructiveHint") is True
+            )
+            is_read_only = configured_read_only and not remote_requires_governance
+            if configured_read_only and remote_requires_governance:
+                logger.warning(
+                    "[mcp] %s/%s 被本地配置为只读，但远端明确标注为写/破坏性操作；保留高风险治理",
+                    config.name,
+                    tool.name,
+                )
             try:
                 self._connector.register(
                     config.name,
@@ -73,9 +84,8 @@ class MCPManager:
         self._registered[config.name] = registered
         if rejected:
             logger.warning("[mcp] %s 的部分工具未注册: %s", config.name, "; ".join(rejected))
-            connection = MCPConnection(
-                name=connection.name,
-                status=connection.status,
+            connection = replace(
+                connection,
                 tools=tuple(item for item in connection.tools if item.name in registered),
                 error=f"部分工具名与既有能力冲突，未注册: {'; '.join(rejected)}",
             )
@@ -101,9 +111,15 @@ class MCPManager:
 
 
 def _executor_for(client: MCPClient):
-    async def execute(tool_name: str, arguments: dict) -> object:
+    async def execute(
+        tool_name: str, arguments: dict, principal_id: str | None
+    ) -> object:
         try:
-            return await client.call_tool(tool_name, dict(arguments))
+            return await client.call_tool(
+                tool_name,
+                dict(arguments),
+                principal_id=principal_id,
+            )
         except MCPToolError as error:
             return CapabilityResult(status="failed", error_message=str(error))
 

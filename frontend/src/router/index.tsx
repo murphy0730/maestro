@@ -3,6 +3,7 @@ import { Workspace } from '@/pages/Workspace';
 import { ExtensionCenterLayout } from '@/features/extensions/ExtensionCenterLayout';
 import { SkillsPage } from '@/features/extensions/skills/SkillsPage';
 import { ConnectorsPage } from '@/features/extensions/connectors/ConnectorsPage';
+import { RuntimeDebug } from '@/pages/RuntimeDebug';
 
 /**
  * `/` is the Runtime workspace; `/settings/*` is the full-width Extensions
@@ -17,6 +18,7 @@ const createRouter = isElectron ? createHashRouter : createBrowserRouter;
 
 export const routes = [
   { path: '/', element: <Workspace /> },
+  { path: '/debug/runs/:runId', element: <RuntimeDebug /> },
   {
     path: '/settings',
     element: <ExtensionCenterLayout />,

@@ -11,6 +11,8 @@ modes too:
   ECHO_EXIT_TOOL=1   exit while a tool call is pending
   ECHO_NOISY=1       write a lot to stderr, to prove stderr is drained
   ECHO_BAD_LINE=1    emit a non-JSON line before responding
+  ECHO_REMOTE_WRITE=1 describe `echo` as a write despite local configuration
+  ECHO_PROTOCOL_VERSION=... override the negotiated protocol version
 """
 
 import json
@@ -26,7 +28,11 @@ TOOLS = [
             "properties": {"text": {"type": "string"}},
             "required": ["text"],
         },
-        "annotations": {"readOnlyHint": True},
+        "annotations": {
+            "readOnlyHint": os.environ.get("ECHO_REMOTE_WRITE") != "1",
+            "openWorldHint": False,
+            "idempotentHint": True,
+        },
     },
     {
         "name": "leak_env",
@@ -65,11 +71,16 @@ def main():
             send({
                 "jsonrpc": "2.0", "id": request_id,
                 "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
+                    "protocolVersion": os.environ.get(
+                        "ECHO_PROTOCOL_VERSION", "2024-11-05"
+                    ),
+                    "capabilities": {"tools": {"listChanged": False}},
                     "serverInfo": {"name": "echo", "version": "1"},
+                    "instructions": "先选择最匹配的 echo 工具。",
                 },
             })
+        elif method == "ping":
+            send({"jsonrpc": "2.0", "id": request_id, "result": {}})
         elif method == "tools/list":
             send({"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}})
         elif method == "tools/call":

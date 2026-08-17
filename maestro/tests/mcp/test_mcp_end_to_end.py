@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -70,8 +71,34 @@ async def test_handshake_discovers_tools() -> None:
         assert {tool.name for tool in connection.tools} == {"echo", "leak_env"}
         echo = next(tool for tool in connection.tools if tool.name == "echo")
         assert echo.input_schema["required"] == ["text"]
+        assert echo.annotations == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "idempotentHint": True,
+        }
+        assert connection.protocol_version == "2024-11-05"
+        assert connection.server_info == {"name": "echo", "version": "1"}
+        assert connection.instructions == "先选择最匹配的 echo 工具。"
     finally:
         await client.disconnect()
+
+
+async def test_ping_round_trips() -> None:
+    client = MCPClient(config())
+    await client.connect()
+    try:
+        await client.ping()
+    finally:
+        await client.disconnect()
+
+
+async def test_connect_rejects_an_unsupported_negotiated_protocol() -> None:
+    client = MCPClient(config(ECHO_PROTOCOL_VERSION="2099-01-01"))
+
+    connection = await client.connect()
+
+    assert connection.status is MCPConnectionStatus.ERROR
+    assert "2099-01-01" in connection.error
 
 
 async def test_tool_call_round_trips() -> None:
@@ -118,6 +145,31 @@ async def test_remote_read_only_annotation_cannot_lower_local_risk() -> None:
         assert spec.writes is True
         assert spec.risk is RiskLevel.HIGH
         assert spec.idempotent is False
+    finally:
+        await manager.shutdown()
+
+
+async def test_remote_write_annotation_prevents_a_local_risk_downgrade() -> None:
+    registry = CapabilityRegistry()
+    manager = MCPManager(MCPConnector(registry))
+    trusted = MCPServerConfig(
+        name="echo",
+        command=sys.executable,
+        args=(str(SERVER),),
+        env={"ECHO_REMOTE_WRITE": "1"},
+        read_only_tools=("echo",),
+    )
+    try:
+        connection = await manager.connect(trusted)
+        echo_tool = next(tool for tool in connection.tools if tool.name == "echo")
+        spec = registry.require("mcp__echo__echo")
+
+        assert echo_tool.annotations["readOnlyHint"] is False
+        assert (spec.writes, spec.risk, spec.idempotent) == (
+            True,
+            RiskLevel.HIGH,
+            False,
+        )
     finally:
         await manager.shutdown()
 
@@ -211,6 +263,62 @@ async def test_mcp_is_error_raises_a_bounded_tool_error() -> None:
         assert str(raised.value) == "x" * 2_000
     finally:
         await client.disconnect()
+
+
+async def test_browser_auth_opens_once_and_retries_with_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        def __init__(self) -> None:
+            self.requests: list[dict] = []
+
+        async def request(self, _request_id: int, message: dict, timeout: float = 0):
+            self.requests.append(message)
+            if len(self.requests) == 1:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": {
+                        "isError": True,
+                        "content": [{"type": "text", "text": "请登录排产系统"}],
+                        "structuredContent": {
+                            "ok": False,
+                            "error": {
+                                "code": "AUTH_REQUIRED",
+                                "message": "请登录排产系统",
+                                "challenge_id": "challenge-1",
+                                "login_url": "http://127.0.0.1:8888/?mcp_login=challenge-1",
+                                "expires_at": time.time() + 60,
+                                "retry_after_ms": 0,
+                            },
+                        },
+                    },
+                }
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {"isError": False, "structuredContent": {"ok": True}},
+            }
+
+    opened: list[str] = []
+    client = MCPClient(config())
+    fake = FakeTransport()
+    client._transport = fake
+    monkeypatch.setattr("maestro.mcp.client._MIN_AUTH_RETRY_SECONDS", 0.0)
+    monkeypatch.setattr(
+        "maestro.mcp.client.webbrowser.open",
+        lambda url, **_kwargs: opened.append(url) or True,
+    )
+
+    result = await client.call_tool("echo", {"text": "x"}, principal_id="planner-a")
+
+    assert result["structuredContent"]["ok"] is True
+    assert opened == ["http://127.0.0.1:8888/?mcp_login=challenge-1"]
+    assert len(fake.requests) == 2
+    assert all(
+        request["params"]["_meta"] == {"maestro/principalId": "planner-a"}
+        for request in fake.requests
+    )
 
 
 async def test_mcp_is_error_becomes_a_non_transient_failed_capability() -> None:
@@ -340,7 +448,9 @@ async def test_mcp_may_not_shadow_a_host_tool() -> None:
     registry.register(CapabilitySpec(name="mcp__echo__echo", kind=CapabilityKind.TOOL))
     connector = MCPConnector(registry)
 
-    async def executor(_name: str, _arguments: dict) -> object:
+    async def executor(
+        _name: str, _arguments: dict, _principal_id: str | None
+    ) -> object:
         return {}
 
     with pytest.raises(MCPCapabilityConflict):

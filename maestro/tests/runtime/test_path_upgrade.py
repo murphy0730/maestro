@@ -6,7 +6,7 @@ import pytest
 
 from maestro.runtime.capabilities import CapabilityKind, CapabilityRegistry, CapabilitySpec, RiskLevel
 from maestro.runtime.context import ContextItem, ContextProvider
-from maestro.runtime.coordinator import RunCoordinator
+from maestro.runtime.coordinator import BUDGET_EXHAUSTED_NOTICE, RunCoordinator
 from maestro.runtime.events import EventPublisher
 from maestro.runtime.intent import IntentClassifier
 from maestro.runtime.journal import JsonlJournal
@@ -338,9 +338,36 @@ async def test_controlled_skills_consume_the_strict_step_budget(tmp_path: Path) 
     )
 
     run = await coordinator.start(
-        "加载三个技能", requested_skills=["first", "second", "third"], max_steps=4
+        "加载三个技能", requested_skills=["first", "second", "third"], max_steps=2
     )
 
     assert run.status is RunStatus.FAILED
     assert run.consumed_steps == 2
     assert publisher.history(run.run_id)[-1].data["reason"] == "controlled_budget_exhausted"
+
+
+async def test_controlled_run_still_answers_after_budget_exhausted(
+    runtime_harness: RuntimeHarness,
+) -> None:
+    """An exhausted budget must not discard work the Run already completed."""
+    read = CountingExecutor({"work_order": "WO-1"})
+    runtime_harness.add(CapabilitySpec(name="read", kind=CapabilityKind.TOOL, executor=read))
+    runtime_harness.model.queue_call("read", {"id": "WO-1"})
+    runtime_harness.model.queue_call("read", {"id": "WO-2"})
+    runtime_harness.model.queue_final("两次读取已完成。")
+
+    run = await runtime_harness.coordinator.start(
+        "读取 ERP 后更新 MES", tool_names=["read"], max_steps=2
+    )
+
+    assert run.path is RunPath.STRUCTURED
+    assert run.status is RunStatus.COMPLETED
+    assert run.final_text == "两次读取已完成。"
+    assert run.consumed_steps == 2
+    # The closing turn carries no capabilities, and says so in the conversation —
+    # withholding the tools alone lets a model emit the next call as plain text.
+    assert runtime_harness.model.capability_names[-1] == []
+    assert runtime_harness.model.messages[-1][-1] == {
+        "role": "user",
+        "content": BUDGET_EXHAUSTED_NOTICE,
+    }

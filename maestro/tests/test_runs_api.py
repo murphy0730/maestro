@@ -17,6 +17,7 @@ from maestro.runtime.capabilities import (
 )
 from maestro.runtime.events import RunEvent
 from maestro.runtime.model import ModelAction
+from maestro.runtime.models import RunRecord, RunStatus
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -243,19 +244,21 @@ def test_skill_mutation_endpoints_require_administrator(tmp_path, monkeypatch) -
         assert client.delete("/skills/guarded").status_code == 403
 
 
-def test_stream_replays_after_last_event_id(tmp_path, monkeypatch) -> None:
+def test_stream_replays_terminal_failure_after_last_event_id(tmp_path, monkeypatch) -> None:
     with _client(tmp_path, monkeypatch) as client:
         created = client.post("/runs", json={"session_id": "s1", "message": "hello"})
         assert created.status_code == 202
         run_id = created.json()["run_id"]
         response = client.get(f"/runs/{run_id}/stream")
     assert response.status_code == 200
-    assert "event: run.completed" in response.text
+    # The default test client has no live provider. Model unavailability is a
+    # durable failure, never a fabricated successful answer.
+    assert "event: run.failed" in response.text
     event_ids = [line.removeprefix("id: ") for line in response.text.splitlines() if line.startswith("id: ")]
     with _client(tmp_path, monkeypatch) as client:
         resumed = client.get(f"/runs/{run_id}/stream", headers={"Last-Event-ID": event_ids[0]})
     assert event_ids[0] not in resumed.text
-    assert "event: run.completed" in resumed.text
+    assert "event: run.failed" in resumed.text
 
 
 def test_terminal_run_persists_assistant_reply_in_its_session(tmp_path, monkeypatch) -> None:
@@ -268,6 +271,36 @@ def test_terminal_run_persists_assistant_reply_in_its_session(tmp_path, monkeypa
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[1]["run_id"] == created.json()["run_id"]
     assert messages[1]["content"]
+
+
+def test_deleting_a_user_message_can_take_its_reply_with_it(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        created = client.post("/runs", json={"session_id": "deletions", "message": "hello"})
+        client.get(f"/runs/{created.json()['run_id']}/stream")
+        messages = client.get("/sessions/deletions/messages").json()
+
+        deleted = client.delete(f"/sessions/deletions/messages/{messages[0]['id']}?cascade=true")
+        missing = client.delete(f"/sessions/deletions/messages/{messages[0]['id']}")
+        session = next(item for item in client.get("/sessions").json() if item["session_id"] == "deletions")
+
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_ids"] == [messages[0]["id"], messages[1]["id"]]
+    assert missing.status_code == 404
+    assert session["message_count"] == 0
+
+
+def test_deleting_an_assistant_message_leaves_the_question(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        created = client.post("/runs", json={"session_id": "single", "message": "hello"})
+        client.get(f"/runs/{created.json()['run_id']}/stream")
+        messages = client.get("/sessions/single/messages").json()
+
+        deleted = client.delete(f"/sessions/single/messages/{messages[1]['id']}")
+        remaining = client.get("/sessions/single/messages").json()
+
+    assert deleted.status_code == 200
+    assert [message["role"] for message in remaining] == ["user"]
 
 
 def test_approved_run_persists_assistant_reply_in_its_session(tmp_path, monkeypatch) -> None:
@@ -301,17 +334,68 @@ def test_approved_run_persists_assistant_reply_in_its_session(tmp_path, monkeypa
         client.get(f"/runs/{created['run_id']}/stream")
         waiting = client.get(f"/runs/{created['run_id']}").json()
         approval = waiting["pending_approvals"][0]
-        completed = client.post(
+        approved = client.post(
             f"/runs/{created['run_id']}/approvals/{approval['approval_id']}",
             json={"approved": True, "expected_revision": waiting["revision"]},
         )
+        # The endpoint answers once the Run is provably running again; the resumed
+        # turn finishes in the background, and this stream ends when it does.
+        client.get(f"/runs/{created['run_id']}/stream")
+        completed = client.get(f"/runs/{created['run_id']}").json()
         messages = client.get("/sessions/approved-history/messages").json()
 
-    assert completed.status_code == 200
-    assert completed.json()["status"] == "completed"
+    assert approved.status_code == 202
+    assert approved.json()["status"] == "running_structured"
+    assert approved.json()["pending_approvals"] == []
+    assert completed["status"] == "completed"
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[1]["run_id"] == created["run_id"]
     assert messages[1]["content"] == "审批后的任务已完成。"
+
+
+def test_approval_returns_before_the_approved_write_finishes(tmp_path, monkeypatch) -> None:
+    """The human is waiting on the decision, not on the write it unblocks."""
+    released = asyncio.Event()
+
+    class WriteThenAnswer:
+        async def next_turn(self, _context, _capabilities, messages=None):
+            if any(message.get("role") == "tool" for message in messages or []):
+                return ModelAction(kind="final", text="审批后的任务已完成。")
+            return ModelAction(kind="call", call=CapabilityCall(name="test_write", arguments={}))
+
+    async def execute(_call, _idempotency_key):
+        await released.wait()
+        return CapabilityResult(status="succeeded", content={"ok": True})
+
+    with _client(tmp_path, monkeypatch) as client:
+        platform = client.app.state.platform
+        platform.capabilities.register(
+            CapabilitySpec(
+                name="test_write",
+                kind=CapabilityKind.TOOL,
+                risk=RiskLevel.HIGH,
+                writes=True,
+                executor=execute,
+            )
+        )
+        platform.runtime._model = WriteThenAnswer()
+        created = client.post("/runs", json={"session_id": "async-approval", "message": "执行写操作"}).json()
+        client.get(f"/runs/{created['run_id']}/stream")
+        waiting = client.get(f"/runs/{created['run_id']}").json()
+        approval = waiting["pending_approvals"][0]
+
+        approved = client.post(
+            f"/runs/{created['run_id']}/approvals/{approval['approval_id']}",
+            json={"approved": True, "expected_revision": waiting["revision"]},
+        )
+        # The write is still blocked, so a synchronous endpoint could not have answered.
+        assert approved.status_code == 202
+        assert approved.json()["status"] == "running_structured"
+        assert client.get(f"/runs/{created['run_id']}").json()["status"] == "running_structured"
+
+        client.portal.call(released.set)
+        client.get(f"/runs/{created['run_id']}/stream")
+        assert client.get(f"/runs/{created['run_id']}").json()["status"] == "completed"
 
 
 def test_failed_run_persists_visible_assistant_message(tmp_path, monkeypatch) -> None:
@@ -333,6 +417,69 @@ def test_failed_run_persists_visible_assistant_message(tmp_path, monkeypatch) ->
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[1]["run_id"] == created["run_id"]
     assert "运行失败" in messages[1]["content"]
+
+
+def test_terminal_run_clears_the_session_active_marker(tmp_path, monkeypatch) -> None:
+    class InstantAnswer:
+        async def next_turn(self, *_args, **_kwargs):
+            return ModelAction(kind="final", text="已完成")
+
+    with _client(tmp_path, monkeypatch) as client:
+        client.app.state.platform.runtime._model = InstantAnswer()
+        created = client.post(
+            "/runs", json={"session_id": "terminal-session", "message": "执行"}
+        ).json()
+        client.get(f"/runs/{created['run_id']}/stream")
+        session = next(
+            item for item in client.get("/sessions").json()
+            if item["session_id"] == "terminal-session"
+        )
+
+    assert session["active_run_id"] is None
+
+
+def test_listing_sessions_repairs_a_stale_terminal_run_marker(tmp_path, monkeypatch) -> None:
+    with _client(tmp_path, monkeypatch) as client:
+        platform = client.app.state.platform
+        session = platform.session_store.ensure("stale-terminal-session")
+        run = RunRecord(
+            run_id="already-finished",
+            session_id=session.session_id,
+            objective="done",
+            status=RunStatus.COMPLETED,
+            final_text="已完成",
+        )
+        platform.run_store.save(run)
+        platform.session_store.set_active_run(session.session_id, run.run_id)
+
+        listed = next(
+            item for item in client.get("/sessions").json()
+            if item["session_id"] == session.session_id
+        )
+
+    assert listed["active_run_id"] is None
+
+
+def test_cancelled_run_clears_the_session_active_marker(tmp_path, monkeypatch) -> None:
+    class NeverFinishes:
+        async def next_turn(self, *_args, **_kwargs):
+            await asyncio.Event().wait()
+
+    with _client(tmp_path, monkeypatch) as client:
+        client.app.state.platform.runtime._model = NeverFinishes()
+        created = client.post(
+            "/runs", json={"session_id": "cancelled-session", "message": "执行"}
+        ).json()
+
+        cancelled = client.post(f"/runs/{created['run_id']}/cancel")
+        session = next(
+            item for item in client.get("/sessions").json()
+            if item["session_id"] == "cancelled-session"
+        )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert session["active_run_id"] is None
 
 
 def test_stream_projects_runtime_events_to_v1_names(tmp_path, monkeypatch) -> None:

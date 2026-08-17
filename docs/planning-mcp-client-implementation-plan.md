@@ -14,7 +14,7 @@ Manufacturing Agent 已具备通用 stdio MCP Client、Capability Registry、Pol
 本期目标：
 
 1. 连接同机部署的 `llm4drd` stdio MCP Server。
-2. 自动发现并注册排产查询工具。
+2. 自动发现并注册 Server v2 发布的 28 个排产工具，不在 Client 硬编码工具目录。
 3. 由本地管理员把指定工具声明为可信只读，查询时不触发写操作审批。
 4. 未受信任或未来新增的 MCP 工具继续按高风险写操作处理。
 5. 正确传播 MCP `isError` 和结构化结果。
@@ -25,7 +25,7 @@ Manufacturing Agent 已具备通用 stdio MCP Client、Capability Registry、Pol
 - 在 Runtime 中加入任何排产领域代码。
 - 支持远程 HTTP、SSE 或 Streamable HTTP MCP 传输。
 - 允许模型修改 MCP Server 配置或信任策略。
-- 通过 MCP 发起排产写操作。
+- 绕过 Policy Gate 执行排产写操作，或根据远端 annotation 自动授予低风险权限。
 
 ## 2. 现有能力与缺口
 
@@ -109,8 +109,18 @@ class MCPServerConfig:
         "get_planning_overview",
         "compare_planning_solutions",
         "search_planning_entities",
+        "diagnose_bottleneck",
+        "explain_order_delay",
         "get_order_planning",
-        "get_operation_planning"
+        "get_operation_planning",
+        "describe_whatif_scenario",
+        "get_whatif_run",
+        "compare_whatif_runs",
+        "get_scheduling_status",
+        "list_planning_objectives",
+        "get_planning_task",
+        "get_insertion_schedule",
+        "get_online_dispatch_status"
       ]
     }
   }
@@ -132,7 +142,11 @@ maestro/src/maestro/mcp/manager.py
 每次发现工具后，仅根据本地 `read_only_tools` 决定 Capability 元数据：
 
 ```python
-is_read_only = tool.name in config.read_only_tools
+remote_requires_governance = (
+    tool.annotations.get("readOnlyHint") is False
+    or tool.annotations.get("destructiveHint") is True
+)
+is_read_only = tool.name in config.read_only_tools and not remote_requires_governance
 
 self._connector.register(
     config.name,
@@ -148,7 +162,8 @@ self._connector.register(
 
 ### 5.2 安全约束
 
-- 远端工具描述和 annotation 不能降低风险。
+- 远端工具描述和 annotation 不能降低风险；明确的 `readOnlyHint=false` 或
+  `destructiveHint=true` 只能阻止误配的本地降级。
 - 未在本地白名单中的工具继续使用 `writes=true, risk=high, idempotent=false`。
 - MCP Server 新增工具后不会自动获得只读信任。
 - 修改 `read_only_tools` 属于宿主管理操作，必须通过 privileged token。
@@ -310,7 +325,7 @@ risk: 'low' | 'medium' | 'high';
 
 ## 10. 工具描述与模型选择
 
-排产 MCP Server 发布以下工具后，Agent 注册名称为：
+排产 MCP Server 发布的 28 个工具都按同一规则动态注册，例如：
 
 ```text
 mcp__planning__list_planning_rules
@@ -320,6 +335,9 @@ mcp__planning__compare_planning_solutions
 mcp__planning__search_planning_entities
 mcp__planning__get_order_planning
 mcp__planning__get_operation_planning
+mcp__planning__get_scheduling_status
+mcp__planning__start_planning_optimization
+mcp__planning__control_online_dispatch
 ```
 
 工具描述应包含中文触发示例和指标口径。例如：
@@ -341,7 +359,7 @@ Runtime 不需要根据关键词硬编码工具路由，继续由模型使用标
 2. 启动 Manufacturing Agent。
 3. Agent lifespan 读取 `settings.json`。
 4. `MCPManager` 启动 `planning` 子进程。
-5. 完成 initialize、initialized notification 和 tools/list。
+5. 完成 initialize、initialized notification、ping 和 tools/list。
 6. 把工具注册到 Capability Registry。
 
 ### 11.2 故障行为
@@ -429,7 +447,7 @@ POST /runs
 
 ## 14. 验收标准
 
-- `/mcp/servers` 显示 `planning` 已连接及七个工具。
+- `/mcp/servers` 显示 `planning` 已连接及当前 Server v2 的 28 个工具。
 - 排产查询工具以 `mcp__planning__*` 注册。
 - 白名单中的查询工具不触发审批。
 - `run_rule_planning` 保持高风险写操作，审批后才执行并将结果回填模型。

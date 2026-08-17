@@ -76,7 +76,9 @@ def _tool_view(config: MCPServerConfig, tool, platform) -> dict:
         "name": tool.name,
         "capability": capability,
         "description": tool.description,
-        "read_only": tool.name in config.read_only_tools,
+        # Show effective policy, which may stay strict when the remote explicitly
+        # marks a locally allowlisted tool as a write or destructive action.
+        "read_only": not spec.writes,
         "writes": spec.writes,
         "risk": spec.risk.value,
     }

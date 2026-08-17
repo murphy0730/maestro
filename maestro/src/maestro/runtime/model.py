@@ -5,7 +5,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
-from maestro.foundation.llm import LLMClient, LLMError
+from maestro.foundation.llm import LLMClient, LLMContextOverflow, LLMError
 from maestro.runtime.capabilities import CapabilityCall, CapabilitySpec
 from maestro.runtime.context import ContextBundle
 
@@ -23,20 +23,26 @@ class ModelAction(BaseModel):
     never executed with the empty arguments that stand in for them.
     """
 
-    kind: Literal["final", "call"]
+    kind: Literal["final", "call", "error"]
     text: str = ""
+    # Why the turn could not be taken; set only when kind == "error".
+    reason: str = ""
     call: CapabilityCall | None = None
     assistant_message: dict = Field(default_factory=dict)
     tool_call_id: str = ""
     parse_error: str = ""
     dropped_calls: tuple[str, ...] = ()
+    # Provider-reported token counts for this turn; None when unreported.
+    usage: dict | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "ModelAction":
         if self.kind == "call" and self.call is None:
             raise ValueError("call action requires capability call")
-        if self.kind == "final" and self.call is not None:
-            raise ValueError("final action cannot contain capability call")
+        if self.kind != "call" and self.call is not None:
+            raise ValueError(f"{self.kind} action cannot contain capability call")
+        if self.kind == "error" and not self.reason:
+            raise ValueError("error action requires a reason")
         return self
 
 
@@ -47,6 +53,25 @@ class RuntimeModel(Protocol):
         capabilities: list[CapabilitySpec],
         messages: list[dict] | None = None,
     ) -> ModelAction: ...
+
+
+def build_tool_schemas(capabilities: list[CapabilitySpec]) -> list[dict]:
+    """The OpenAI tool array for these capabilities.
+
+    Module-level so the coordinator can size the tool schemas it is billed for
+    without keeping a second copy of their shape in sync.
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": capability.name,
+                "description": capability.description,
+                "parameters": capability.input_schema or {"type": "object"},
+            },
+        }
+        for capability in capabilities
+    ]
 
 
 class LLMRuntimeModel:
@@ -61,22 +86,21 @@ class LLMRuntimeModel:
         capabilities: list[CapabilitySpec],
         messages: list[dict] | None = None,
     ) -> ModelAction:
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": capability.name,
-                    "description": capability.description,
-                    "parameters": capability.input_schema or {"type": "object"},
-                },
-            }
-            for capability in capabilities
-        ]
+        tools = build_tool_schemas(capabilities)
         try:
             turn = await self._llm.chat_turn(context.system_context, list(messages or []), tools=tools)
+        except LLMContextOverflow as error:
+            # Distinct from an unavailable model: the Run assembled a prompt too
+            # large for the window, and the budget that should have prevented it
+            # is the thing to look at.
+            logger.warning("上下文超出模型窗口: %s", error)
+            return ModelAction(kind="error", reason="context_overflow")
         except LLMError as error:
-            logger.warning("LLM Runtime 调用失败，已降级: %s", error)
-            return ModelAction(kind="final", text="模型当前不可用。")
+            # Never answer on the model's behalf. Reporting a fabricated final
+            # here used to complete the Run successfully, writing "模型当前不可用。"
+            # into the session history as if it were a real reply.
+            logger.warning("LLM Runtime 调用失败: %s", error)
+            return ModelAction(kind="error", reason="model_unavailable")
         if turn.tool_calls:
             call = turn.tool_calls[0]
             return ModelAction(
@@ -88,5 +112,6 @@ class LLMRuntimeModel:
                 # The runtime executes one capability per turn; report what was
                 # discarded instead of dropping it silently.
                 dropped_calls=tuple(item.name for item in turn.tool_calls[1:]),
+                usage=turn.usage,
             )
-        return ModelAction(kind="final", text=turn.text)
+        return ModelAction(kind="final", text=turn.text, usage=turn.usage)

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from './SettingsModal';
 import { usePersonalizationStore } from '@/stores/personalizationStore';
@@ -34,5 +35,18 @@ describe('SettingsModal', () => {
     expect((screen.getByRole('button', { name: /授权与审批/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+  });
+
+  it('opens the model panel, which owns its own server state', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsModal open onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    const entry = screen.getByRole('button', { name: '模型与引擎' }) as HTMLButtonElement;
+    expect(entry.disabled).toBe(false);
+    fireEvent.click(entry);
+    expect(await screen.findByRole('heading', { name: '推理模型' })).toBeTruthy();
   });
 });

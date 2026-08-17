@@ -128,15 +128,21 @@ class SkillCatalog:
         metadata = self._active.get(name) or self._find_by_directory_name(name)
         if metadata is None:
             raise KeyError(name)
-        text = metadata.path.read_text("utf-8")
-        self.io_log.append(f"{metadata.path.parent.name}/SKILL.md:full")
-        # Metadata was already parsed and validated during discovery; re-parsing
-        # here only duplicated the work.
-        _raw, prompt = split_frontmatter(text)
+        prompt = self.load_body(name)
         prompt = prompt.replace("$ARGUMENTS", arguments)
         prompt = prompt.replace("${CLAUDE_SKILL_DIR}", str(metadata.path.parent))
         prompt = prompt.replace("${CLAUDE_SESSION_ID}", session_id)
         return LoadedSkill(metadata=metadata, prompt=prompt, mode=metadata.context)
+
+    def load_body(self, name: str) -> str:
+        """Read the immutable Skill body; callers apply session arguments later."""
+        metadata = self._active.get(name) or self._find_by_directory_name(name)
+        if metadata is None:
+            raise KeyError(name)
+        text = metadata.path.read_text("utf-8")
+        self.io_log.append(f"{metadata.path.parent.name}/SKILL.md:full")
+        _raw, prompt = split_frontmatter(text)
+        return prompt
 
     def model_invocable(self, name: str) -> bool:
         """Whether a discovered Skill may be offered to model tool selection."""
